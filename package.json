@@ -1,0 +1,30 @@
+{
+  "name": "app-bcdb",
+  "version": "1.0.0",
+  "description": "Aplicación Oficial de la Banda CEDES Don Bosco",
+  "main": "index.js",
+  "scripts": {
+    "start": "node .",
+    "dev": "nodemon ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JosueChinchillaS/APP-BCDB.git"
+  },
+  "author": "Jossué Chinchilla Salazar",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/JosueChinchillaS/APP-BCDB/issues"
+  },
+  "homepage": "https://github.com/JosueChinchillaS/APP-BCDB#readme",
+  "dependencies": {
+    "apollo-server": "^3.12.0",
+    "bcrypt": "^5.1.0",
+    "dotenv": "^16.0.3",
+    "jsonwebtoken": "^9.0.0",
+    "mongoose": "^7.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  }
+}
