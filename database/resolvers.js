@@ -353,6 +353,7 @@ const resolvers = {
       try {
         const newMedicalRecord = new MedicalRecord(input);
         const medicalRecord = await newMedicalRecord.save();
+        console.log(medicalRecord);
         return medicalRecord;
       } catch (error) {
         console.log(error);

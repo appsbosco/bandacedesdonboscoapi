@@ -33,6 +33,12 @@ const MedicalRecordSchema = mongoose.Schema({
     unique: false,
     trim: true,
   },
+  familyMemberOccupation: {
+    type: String,
+    required: false,
+    unique: false,
+    trim: true,
+  },
   illness: { type: String, required: false, unique: false, trim: true },
   medicine: { type: String, required: false, unique: false, trim: true },
   medicineOnTour: {

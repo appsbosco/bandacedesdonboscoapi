@@ -68,6 +68,7 @@ const typeDefs = gql`
     familyMemberNumber: String
     familyMemberNumberId: String
     familyMemberRelationship: String
+    familyMemberOccupation: String
     illness: String
     medicine: String
     medicineOnTour: String
@@ -83,6 +84,7 @@ const typeDefs = gql`
     familyMemberNumber: String
     familyMemberNumberId: String
     familyMemberRelationship: String
+    familyMemberOccupation: String
     illness: String
     medicine: String
     medicineOnTour: String
