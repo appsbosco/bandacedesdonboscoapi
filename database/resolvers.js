@@ -8,8 +8,7 @@ const Attendance = require("../models/Attendance");
 // Hashing
 const bcrypt = require("bcrypt");
 
-//Import Environment Variables
-
+// Import Environment Variables
 require("dotenv").config({ path: ".env" });
 
 // Token
@@ -97,10 +96,7 @@ const resolvers = {
     getAllAttendance: async () => {
       try {
         const attendanceRecords = await Attendance.find({}).populate("user");
-        return attendanceRecords.map((record) => ({
-          ...record._doc,
-          user: record.user,
-        }));
+        return attendanceRecords;
       } catch (error) {
         console.log(error);
       }
@@ -108,7 +104,7 @@ const resolvers = {
 
     // Medical Record
     getMedicalRecord: async (_, { id }) => {
-      //Check if the medical record exists
+      // Check if the medical record exists
       const medicalRecord = await MedicalRecord.findById(id);
       if (!medicalRecord) {
         throw new Error("Ficha médica no existe");
@@ -294,21 +290,22 @@ const resolvers = {
 
     // Attendance
 
-    // Attendance
     newAttendance: async (_, { input }, ctx) => {
       try {
-        const user = await User.findById(input.user); // Find the user by ID
+        const user = await User.findById(input.user);
         if (!user) {
           throw new Error("User not found");
         }
 
         const newAttendance = new Attendance({
-          user: user._id,
+          user: user._id.toString(),
           date: input.date,
           attended: input.attended,
         });
 
         const attendance = await newAttendance.save();
+        attendance.user = user; // update the user field with the user object
+        attendance.id = attendance._id.toString(); // ensure id is returned as a string
         return attendance;
       } catch (error) {
         console.error(error);
@@ -370,8 +367,8 @@ const resolvers = {
           throw new Error("Ficha médica no existe");
         }
 
-        const updatedMedicalRecord = await MedicalRecord.findOneAndUpdate(
-          { _id: id },
+        const updatedMedicalRecord = await MedicalRecord.findByIdAndUpdate(
+          id,
           input,
           {
             new: true,
@@ -392,7 +389,7 @@ const resolvers = {
       }
       // Save in the database
       try {
-        const updatedEvent = await Event.findOneAndUpdate({ _id: id }, input, {
+        const updatedEvent = await Event.findByIdAndUpdate(id, input, {
           new: true,
         });
         return updatedEvent;
@@ -445,13 +442,9 @@ const resolvers = {
       }
       // Save in the database
       try {
-        const updatedInventory = await Inventory.findOneAndUpdate(
-          { _id: id },
-          input,
-          {
-            new: true,
-          }
-        );
+        const updatedInventory = await Inventory.findByIdAndUpdate(id, input, {
+          new: true,
+        });
         return updatedInventory;
       } catch (error) {
         console.log(error);
@@ -499,7 +492,7 @@ const resolvers = {
       }
       // Save in the database
       try {
-        const updatedEvent = await Event.findOneAndUpdate({ _id: id }, input, {
+        const updatedEvent = await Event.findByIdAndUpdate(id, input, {
           new: true,
         });
         return updatedEvent;
