@@ -1,6 +1,6 @@
 const { gql } = require("apollo-server");
 
-// Schema
+//Schema
 const typeDefs = gql`
   #################################################
   # Types and inputs
@@ -44,16 +44,18 @@ const typeDefs = gql`
     password: String!
   }
 
+  # Attendance
   type Attendance {
     id: ID
     user: User
     date: String
-    attended: String
+    attended: String!
   }
 
   input AttendanceInput {
-    date: String
-    attended: String
+    user: ID!
+    date: String!
+    attended: String!
   }
 
   # Medical Record
