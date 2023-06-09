@@ -184,6 +184,8 @@ const typeDefs = gql`
     updateUser(id: ID!, input: UserInput): User
     deleteUser(id: ID!): String
 
+    uploadProfilePic(id: ID!, avatar: String!): User!
+
     # Attendance
     newAttendance(input: AttendanceInput): Attendance
     updateAttendance(id: ID!, input: AttendanceInput): Attendance

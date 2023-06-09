@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const UserSchema = mongoose.Schema({
   name: { type: String, required: true, trim: true, unique: false },
@@ -13,11 +13,13 @@ const UserSchema = mongoose.Schema({
   grade: { type: String, required: false, trim: true, unique: false },
   phone: { type: String, required: true, trim: true, unique: false },
   instrument: { type: String, required: false, trim: true, unique: false },
-  avatar: { type: String },
+  avatar: {
+    type: String,
+  },
   date: {
     type: Date,
     default: Date.now,
   },
 });
 
-module.exports = mongoose.model('User', UserSchema);
+module.exports = mongoose.model("User", UserSchema);

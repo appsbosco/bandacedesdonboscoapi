@@ -58,10 +58,14 @@ const resolvers = {
   // Queries
 
   Query: {
-    // Users
     getUser: async (_, {}, ctx) => {
-      console.log(ctx.user);
-      return ctx.user;
+      // Retrieve the user from the database
+      try {
+        const user = await User.findById(ctx.user.id);
+        return user;
+      } catch (error) {
+        console.log(error);
+      }
     },
 
     getUsers: async () => {
@@ -217,6 +221,16 @@ const resolvers = {
       } catch (error) {
         console.log(error);
       }
+    },
+
+    uploadProfilePic: async (_, { id, avatar }) => {
+      const updatedUser = await User.findByIdAndUpdate(
+        id,
+        { avatar },
+        { new: true }
+      );
+      console.log(updatedUser);
+      return updatedUser;
     },
 
     // Auth user
