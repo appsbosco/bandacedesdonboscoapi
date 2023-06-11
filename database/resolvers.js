@@ -4,6 +4,7 @@ const Event = require("../models/Events");
 const Inventory = require("../models/Inventory");
 const MedicalRecord = require("../models/MedicalRecord");
 const Attendance = require("../models/Attendance");
+const nodemailer = require("nodemailer");
 
 // Hashing
 const bcrypt = require("bcrypt");
@@ -537,6 +538,38 @@ const resolvers = {
         return "Evento eliminado correctamente";
       } catch (error) {
         console.log(error);
+      }
+    },
+
+    // #################################################
+    // Email
+    sendEmail: async (_, { input }) => {
+      try {
+        // Create a Nodemailer transporter with your Gmail credentials
+        const transporter = nodemailer.createTransport({
+          service: "Gmail",
+          auth: {
+            user: "banda@cedesdonbosco.ed.cr",
+            pass: process.env.APP_PASSWORD,
+          },
+        });
+
+        // Configure the email message
+        const mailOptions = {
+          from: "banda@cedesdonbosco.ed.cr",
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+        };
+
+        // Send the email
+        await transporter.sendMail(mailOptions);
+
+        return true; // Email sent successfully
+      } catch (error) {
+        console.error("Error sending email:", error);
+        return false; // Failed to send email
       }
     },
   },

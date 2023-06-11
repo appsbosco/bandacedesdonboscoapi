@@ -144,6 +144,13 @@ const typeDefs = gql`
     description: String
   }
 
+  input EmailInput {
+    to: String!
+    subject: String!
+    text: String
+    html: String!
+  }
+
   #################################################
 
   # Queries
@@ -205,6 +212,9 @@ const typeDefs = gql`
     newEvent(input: EventInput): Event
     updateEvent(id: ID!, input: EventInput): Event
     deleteEvent(id: ID!): String
+
+    # Email
+    sendEmail(input: EmailInput!): Boolean
   }
 `;
 

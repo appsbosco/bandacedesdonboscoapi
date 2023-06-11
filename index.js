@@ -2,6 +2,7 @@
 const { ApolloServer } = require("apollo-server");
 const typeDefs = require("./database/schema");
 const resolvers = require("./database/resolvers");
+const nodemailer = require("nodemailer");
 
 //Import JWT
 const jwt = require("jsonwebtoken");
@@ -39,6 +40,6 @@ const server = new ApolloServer({
 });
 
 //Run Server
-server.listen({ port: process.env.PORT || 4000 }).then(({ url }) => {
+server.listen({ port: 4000 }).then(({ url }) => {
   console.log(`Server runnnig on ${url} `);
 });
