@@ -24,17 +24,17 @@ const typeDefs = gql`
   }
 
   input UserInput {
-    name: String!
-    firstSurName: String!
-    secondSurName: String!
-    email: String!
-    password: String!
-    birthday: String!
+    name: String
+    firstSurName: String
+    secondSurName: String
+    email: String
+    password: String
+    birthday: String
     carnet: String
     state: String
     grade: String
-    phone: String!
-    role: String!
+    phone: String
+    role: String
     instrument: String
     avatar: String
   }

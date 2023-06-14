@@ -209,7 +209,7 @@ const resolvers = {
         const payments = await Payment.find({ paymentEvent })
           .populate({
             path: "user",
-            select: "name firstSurName secondSurName",
+            select: "name firstSurName secondSurName instrument role",
           })
           .populate({
             path: "paymentEvent",
