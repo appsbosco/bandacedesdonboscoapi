@@ -15,6 +15,8 @@ require("dotenv").config({ path: ".env" });
 
 // Token
 const jwt = require("jsonwebtoken");
+const PaymentEvent = require("../models/PaymentEvent");
+const Payment = require("../models/Payment");
 
 const createToken = (user, secret, expiresIn) => {
   const {
@@ -190,6 +192,35 @@ const resolvers = {
         console.log(error);
       }
     },
+
+    // #################################################
+    // Payment Register
+    getPaymentEvents: async () => {
+      try {
+        const events = await PaymentEvent.find({});
+        return events;
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    getPaymentsByEvent: async (_, { paymentEvent }) => {
+      try {
+        const payments = await Payment.find({ paymentEvent })
+          .populate({
+            path: "user",
+            select: "name firstSurName secondSurName",
+          })
+          .populate({
+            path: "paymentEvent",
+            select: "name description date",
+          });
+        return payments;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Failed to fetch payments");
+      }
+    },
   },
 
   // #################################################
@@ -230,7 +261,7 @@ const resolvers = {
         { avatar },
         { new: true }
       );
-      console.log(updatedUser);
+
       return updatedUser;
     },
 
@@ -371,7 +402,7 @@ const resolvers = {
       try {
         const newMedicalRecord = new MedicalRecord(input);
         const medicalRecord = await newMedicalRecord.save();
-        console.log(medicalRecord);
+
         return medicalRecord;
       } catch (error) {
         console.log(error);
@@ -554,6 +585,20 @@ const resolvers = {
           },
         });
 
+        //   host: "smtp.gmail.com",
+        //   port: 465,
+        //   secure: true,
+        //   auth: {
+        //     type: "OAuth2",
+        //     user: "banda@cedesdonbosco.ed.cr",
+        //     clientId: "000000000000-xxx0.apps.googleusercontent.com",
+        //     clientSecret: "XxxxxXXxX0xxxxxxxx0XXxX0",
+        //     refreshToken: "1/XXxXxsss-xxxXXXXXxXxx0XXXxxXXx0x00xxx",
+        //     accessToken: "ya29.Xx_XX0xxxxx-xX0X0XxXXxXxXXXxX0x",
+        //     expires: 1484314697598,
+        //   },
+        // });
+
         // Configure the email message
         const mailOptions = {
           from: "banda@cedesdonbosco.ed.cr",
@@ -568,8 +613,87 @@ const resolvers = {
 
         return true; // Email sent successfully
       } catch (error) {
-        console.error("Error sending email:", error);
+        console.error("Error al enviar el correo:", error);
         return false; // Failed to send email
+      }
+    },
+
+    // #################################################
+    // Payment Register
+
+    createPaymentEvent: async (_, { input }) => {
+      try {
+        const event = new PaymentEvent({
+          name: input.name,
+          date: input.date,
+          description: input.description,
+        });
+        await event.save();
+        return event;
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    createPayment: async (_, { input }) => {
+      try {
+        const user = await User.findById(input.user);
+        if (!user) {
+          throw new Error("User not found");
+        }
+
+        const paymentEvent = await PaymentEvent.findById(input.paymentEvent);
+        if (!paymentEvent) {
+          throw new Error("Payment event not found");
+        }
+
+        const newPayment = new Payment({
+          user: user._id,
+          paymentEvent: paymentEvent._id,
+          amount: input.amount,
+          date: new Date(input.date),
+        });
+
+        const payment = await newPayment.save();
+
+        return payment;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Failed to create payment");
+      }
+    },
+    updatePayment: async (_, { paymentId, input }) => {
+      try {
+        const { amount } = input;
+
+        const payment = await Payment.findByIdAndUpdate(
+          paymentId,
+          { $set: { amount } },
+          { new: true }
+        );
+
+        if (!payment) {
+          throw new Error("Payment not found");
+        }
+
+        return payment;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Failed to update payment");
+      }
+    },
+
+    deletePayment: async (_, { paymentId }) => {
+      try {
+        const deletedPayment = await Payment.findByIdAndDelete(paymentId);
+        if (!deletedPayment) {
+          throw new Error("Payment not found");
+        }
+
+        return deletedPayment;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Failed to delete payment");
       }
     },
   },

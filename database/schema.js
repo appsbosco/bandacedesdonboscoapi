@@ -151,6 +151,33 @@ const typeDefs = gql`
     html: String!
   }
 
+  type PaymentEvent {
+    _id: ID!
+    name: String
+    date: String
+    description: String
+  }
+
+  input PaymentEventInput {
+    name: String
+    date: String
+    description: String
+  }
+
+  type Payment {
+    _id: ID!
+    user: User
+    paymentEvent: PaymentEvent
+    amount: Float
+    date: String
+  }
+
+  input PaymentInput {
+    user: ID
+    paymentEvent: ID
+    amount: Float
+    date: String
+  }
   #################################################
 
   # Queries
@@ -178,6 +205,10 @@ const typeDefs = gql`
     # Events
     getEvent(id: ID!): Event
     getEvents: [Event]
+
+    # Payments
+    getPaymentEvents: [PaymentEvent!]!
+    getPaymentsByEvent(paymentEvent: ID!): [Payment!]!
   }
 
   #################################################
@@ -215,6 +246,12 @@ const typeDefs = gql`
 
     # Email
     sendEmail(input: EmailInput!): Boolean
+
+    # Payments
+    createPaymentEvent(input: PaymentEventInput!): PaymentEvent!
+    createPayment(input: PaymentInput!): Payment!
+    updatePayment(paymentId: ID!, input: PaymentInput!): Payment!
+    deletePayment(paymentId: ID!): Payment!
   }
 `;
 
