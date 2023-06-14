@@ -580,28 +580,14 @@ const resolvers = {
         const transporter = nodemailer.createTransport({
           service: "Gmail",
           auth: {
-            user: "banda@cedesdonbosco.ed.cr",
+            user: "chinchillajosue50@gmail.com",
             pass: process.env.APP_PASSWORD,
           },
         });
 
-        //   host: "smtp.gmail.com",
-        //   port: 465,
-        //   secure: true,
-        //   auth: {
-        //     type: "OAuth2",
-        //     user: "banda@cedesdonbosco.ed.cr",
-        //     clientId: "000000000000-xxx0.apps.googleusercontent.com",
-        //     clientSecret: "XxxxxXXxX0xxxxxxxx0XXxX0",
-        //     refreshToken: "1/XXxXxsss-xxxXXXXXxXxx0XXXxxXXx0x00xxx",
-        //     accessToken: "ya29.Xx_XX0xxxxx-xX0X0XxXXxXxXXXxX0x",
-        //     expires: 1484314697598,
-        //   },
-        // });
-
         // Configure the email message
         const mailOptions = {
-          from: "banda@cedesdonbosco.ed.cr",
+          from: "chinchillajosue50@gmail.com",
           to: input.to,
           subject: input.subject,
           text: input.text,
