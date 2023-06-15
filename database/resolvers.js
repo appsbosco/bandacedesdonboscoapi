@@ -580,14 +580,14 @@ const resolvers = {
         const transporter = nodemailer.createTransport({
           service: "Gmail",
           auth: {
-            user: "chinchillajosue50@gmail.com",
+            user: "banda@cedesdonbosco.ed.cr",
             pass: process.env.APP_PASSWORD,
           },
         });
 
         // Configure the email message
         const mailOptions = {
-          from: "chinchillajosue50@gmail.com",
+          from: "banda@cedesdonbosco.ed.cr",
           to: input.to,
           subject: input.subject,
           text: input.text,

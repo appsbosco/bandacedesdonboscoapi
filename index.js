@@ -1,45 +1,59 @@
-//Import Apollo Server
-const { ApolloServer } = require("apollo-server");
+const express = require("express");
+const { ApolloServer } = require("apollo-server-express");
 const typeDefs = require("./database/schema");
 const resolvers = require("./database/resolvers");
 const nodemailer = require("nodemailer");
 
-//Import JWT
+// Import JWT
 const jwt = require("jsonwebtoken");
 
-//Import Environment Variables
-require("dotenv").config({ path: ".env" });
+// Import Environment Variables
+require("dotenv").config();
 
-//Import DB Connection
+// Import DB Connection
 const dbConnection = require("./config/database");
 
-//Connect to DB
+// Connect to DB
 dbConnection();
 
-//Create Server Variale
-const server = new ApolloServer({
-  typeDefs,
-  resolvers,
-  context: ({ req }) => {
-    console.log(req.headers["authorization"]);
-    const token = req.headers["authorization"] || "";
-    if (token) {
-      try {
-        const user = jwt.verify(
-          token.replace("Bearer ", ""),
-          process.env.JWT_SECRET
-        );
-        return {
-          user,
-        };
-      } catch (error) {
-        console.log(error);
-      }
-    }
-  },
-});
+// Create an async function to start the server
+const startServer = async () => {
+  const app = express();
 
-//Run Server
-server.listen({ port: process.env.PORT || 4000 }).then(({ url }) => {
-  console.log(`Server runnnig on ${url} `);
-});
+  // Create an ApolloServer instance
+  const server = new ApolloServer({
+    typeDefs,
+    resolvers,
+    context: ({ req }) => {
+      const token = req.headers["authorization"] || "";
+      if (token) {
+        try {
+          const user = jwt.verify(
+            token.replace("Bearer ", ""),
+            process.env.JWT_SECRET
+          );
+          return {
+            user,
+          };
+        } catch (error) {
+          console.log(error);
+        }
+      }
+    },
+  });
+
+  try {
+    await server.start();
+    server.applyMiddleware({ app, path: "/api/graphql" });
+
+    const port = process.env.PORT || 4000;
+    app.listen(port, () => {
+      console.log(`Server running on http://localhost:${port}/`);
+    });
+  } catch (error) {
+    console.error("Error starting the server:");
+    console.error(error);
+  }
+};
+
+startServer();
