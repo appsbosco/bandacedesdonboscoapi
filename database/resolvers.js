@@ -580,6 +580,7 @@ const resolvers = {
         const transporter = nodemailer.createTransport({
           service: "Gmail",
           auth: {
+            type: "PLAIN",
             user: "banda@cedesdonbosco.ed.cr",
             pass: process.env.APP_PASSWORD,
           },
