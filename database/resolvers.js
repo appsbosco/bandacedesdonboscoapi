@@ -638,6 +638,7 @@ const resolvers = {
           user: user._id,
           paymentEvent: paymentEvent._id,
           amount: input.amount,
+          description: input.description,
           date: new Date(input.date),
         });
 

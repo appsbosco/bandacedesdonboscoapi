@@ -169,12 +169,14 @@ const typeDefs = gql`
     user: User
     paymentEvent: PaymentEvent
     amount: Float
+    description: String
     date: String
   }
 
   input PaymentInput {
     user: ID
     paymentEvent: ID
+    description: String
     amount: Float
     date: String
   }

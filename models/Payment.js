@@ -7,6 +7,7 @@ const PaymentSchema = new mongoose.Schema({
   },
   paymentEvent: { type: mongoose.Schema.Types.ObjectId, ref: "PaymentEvent" },
   amount: Number,
+  description: { type: String, required: false, unique: false },
   date: { type: String, required: false, unique: false },
 });
 
