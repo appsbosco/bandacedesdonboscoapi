@@ -21,6 +21,7 @@ const typeDefs = gql`
     role: String
     instrument: String
     avatar: String
+    bands: [String]
   }
 
   input UserInput {
@@ -37,6 +38,7 @@ const typeDefs = gql`
     role: String
     instrument: String
     avatar: String
+    bands: [String]
   }
 
   input AuthInput {

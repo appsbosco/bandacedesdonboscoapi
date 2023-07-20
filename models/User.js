@@ -16,6 +16,7 @@ const UserSchema = mongoose.Schema({
   avatar: {
     type: String,
   },
+  bands: [{ type: String, required: false, trim: true, unique: false }],
   date: {
     type: Date,
     default: Date.now,
