@@ -47,6 +47,12 @@ const MedicalRecordSchema = mongoose.Schema({
     unique: false,
     trim: true,
   },
+  allergies: {
+    type: String,
+    required: false,
+    unique: false,
+    trim: true,
+  },
 });
 
 module.exports = mongoose.model("MedicalRecord", MedicalRecordSchema);

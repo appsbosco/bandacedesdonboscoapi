@@ -76,6 +76,7 @@ const typeDefs = gql`
     illness: String
     medicine: String
     medicineOnTour: String
+    allergies: String
     user: ID
   }
 
@@ -92,6 +93,7 @@ const typeDefs = gql`
     illness: String
     medicine: String
     medicineOnTour: String
+    allergies: String
   }
 
   # Inventory
