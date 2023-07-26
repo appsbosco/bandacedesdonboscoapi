@@ -161,6 +161,7 @@ const typeDefs = gql`
     arrival: String
     departure: String
     description: String
+    type: String
   }
 
   input EventInput {
@@ -171,6 +172,7 @@ const typeDefs = gql`
     arrival: String
     departure: String
     description: String
+    type: String
   }
 
   input EmailInput {
