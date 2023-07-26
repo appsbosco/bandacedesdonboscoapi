@@ -17,6 +17,7 @@ require("dotenv").config({ path: ".env" });
 const jwt = require("jsonwebtoken");
 const PaymentEvent = require("../models/PaymentEvent");
 const Payment = require("../models/Payment");
+const Parent = require("../models/Parents");
 
 const createToken = (user, secret, expiresIn) => {
   const {
@@ -57,8 +58,9 @@ const createToken = (user, secret, expiresIn) => {
 
 const resolvers = {
   // #################################################
-
-  // Queries
+  User: {
+    id: (parent) => parent._id.toString(), // Convert the MongoDB ObjectId to a string
+  },
 
   Query: {
     getUser: async (_, {}, ctx) => {
@@ -75,6 +77,31 @@ const resolvers = {
       try {
         const users = await User.find({});
         return users;
+      } catch (error) {
+        console.log(error);
+      }
+    },
+
+    getParent: async (_, {}, ctx) => {
+      try {
+        // Retrieve the parent from the database and populate the 'children' field
+        const parent = await Parent.findById(ctx.user.id).populate("children");
+
+        if (!parent) {
+          throw new Error("Parent not found");
+        }
+
+        return parent;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Error fetching parent and children information");
+      }
+    },
+
+    getParents: async () => {
+      try {
+        const parents = await Parent.find({});
+        return parents;
       } catch (error) {
         console.log(error);
       }
@@ -255,6 +282,30 @@ const resolvers = {
       }
     },
 
+    newParent: async (_, { input }) => {
+      const { email, password } = input;
+
+      // Check if the user is already registered
+      const userExist = await Parent.findOne({ email });
+      if (userExist) {
+        throw new Error("This user is already registered");
+      }
+
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
+      // Save in the database
+      try {
+        const parent = new Parent({ ...input, password: hashedPassword });
+        await parent.save();
+        return parent;
+      } catch (error) {
+        console.log(error);
+        throw new Error("An error occurred while creating the parent");
+      }
+    },
+
     uploadProfilePic: async (_, { id, avatar }) => {
       const updatedUser = await User.findByIdAndUpdate(
         id,
@@ -266,27 +317,42 @@ const resolvers = {
     },
 
     // Auth user
+    // Auth user
     authUser: async (_, { input }, ctx) => {
       const { email, password } = input;
 
-      // Check if the user is already registered
-      const userExist = await User.findOne({ email });
-      if (!userExist) {
+      // Check if the email exists in the User collection
+      const user = await User.findOne({ email });
+
+      // Check if the email exists in the Parent collection if not found in the User collection
+      const parent = await Parent.findOne({ email });
+
+      if (!user && !parent) {
         throw new Error("El usuario no existe");
       }
 
-      // Check if the password is correct
-      const isPasswordCorrect = await bcrypt.compare(
-        password,
-        userExist.password
-      );
-      if (!isPasswordCorrect) {
+      let isValidPassword = false;
+      let authenticatedUser;
+
+      // If the email was found in the User collection, verify the password
+      if (user) {
+        isValidPassword = await bcrypt.compare(password, user.password);
+        authenticatedUser = user;
+      }
+
+      // If the email was found in the Parent collection, verify the password
+      if (parent) {
+        isValidPassword = await bcrypt.compare(password, parent.password);
+        authenticatedUser = parent;
+      }
+
+      if (!isValidPassword) {
         throw new Error("La contraseña es incorrecta");
       }
 
       // Return a token or session to authenticate the user
       return {
-        token: createToken(userExist, process.env.JWT_SECRET, "24h"),
+        token: createToken(authenticatedUser, process.env.JWT_SECRET, "24h"),
       };
     },
 

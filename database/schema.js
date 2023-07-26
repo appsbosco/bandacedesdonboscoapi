@@ -41,6 +41,31 @@ const typeDefs = gql`
     bands: [String]
   }
 
+  type Parent {
+    id: ID
+    name: String
+    firstSurName: String
+    secondSurName: String
+    email: String
+    password: String
+    phone: String
+    role: String
+    avatar: String
+    children: [User]
+  }
+
+  input ParentInput {
+    name: String
+    firstSurName: String
+    secondSurName: String
+    email: String
+    password: String
+    phone: String
+    role: String
+    avatar: String
+    children: [ID]
+  }
+
   input AuthInput {
     email: String!
     password: String!
@@ -193,6 +218,9 @@ const typeDefs = gql`
     getUser: User
     getUsers: [User]
 
+    getParent: Parent
+    getParents: [Parent]
+
     # Attendance
     getAttendance(id: ID!): Attendance
     getAttendanceByUser: [Attendance]
@@ -224,6 +252,8 @@ const typeDefs = gql`
   type Mutation {
     # Users
     newUser(input: UserInput): User
+    newParent(input: ParentInput): Parent
+
     authUser(input: AuthInput): Token
     updateUser(id: ID!, input: UserInput): User
     deleteUser(id: ID!): String
