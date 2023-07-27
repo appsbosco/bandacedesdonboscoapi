@@ -22,6 +22,9 @@ const typeDefs = gql`
     instrument: String
     avatar: String
     bands: [String]
+    attendance: [Attendance]
+    medicalRecord: [MedicalRecord]
+    inventory: [Inventory]
   }
 
   input UserInput {

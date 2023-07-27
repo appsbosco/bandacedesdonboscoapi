@@ -1,9 +1,9 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const AttendanceSchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.ObjectId,
-    ref: 'User',
+    ref: "User",
     required: true,
   },
   date: {
@@ -16,4 +16,4 @@ const AttendanceSchema = new mongoose.Schema({
   },
 });
 
-module.exports = mongoose.model('Attendance', AttendanceSchema);
+module.exports = mongoose.model("Attendance", AttendanceSchema);

@@ -91,6 +91,13 @@ const resolvers = {
           throw new Error("Parent not found");
         }
 
+        // Fetch all related data for each child
+        for (let child of parent.children) {
+          child.attendance = await Attendance.find({ user: child._id });
+          child.medicalRecord = await MedicalRecord.find({ user: child._id });
+          child.inventory = await Inventory.find({ user: child._id });
+        }
+
         return parent;
       } catch (error) {
         console.log(error);
