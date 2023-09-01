@@ -262,6 +262,11 @@ const typeDefs = gql`
     authUser(input: AuthInput): Token
     updateUser(id: ID!, input: UserInput): User
     deleteUser(id: ID!): String
+    # Request a password reset.
+    requestReset(email: String!): Boolean!
+
+    # Reset the password using a token.
+    resetPassword(token: String!, newPassword: String!): Boolean!
 
     uploadProfilePic(id: ID!, avatar: String!): User!
 

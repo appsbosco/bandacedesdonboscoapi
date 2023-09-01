@@ -5,6 +5,7 @@ const Inventory = require("../models/Inventory");
 const MedicalRecord = require("../models/MedicalRecord");
 const Attendance = require("../models/Attendance");
 const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 // Hashing
 const bcrypt = require("bcrypt");
@@ -263,7 +264,37 @@ const resolvers = {
 
   Mutation: {
     // #################################################
+    // Email
+    sendEmail: async (_, { input }) => {
+      try {
+        // Create a Nodemailer transporter with your Gmail credentials
+        const transporter = nodemailer.createTransport({
+          service: "Gmail",
+          auth: {
+            type: "PLAIN",
+            user: "banda@cedesdonbosco.ed.cr",
+            pass: process.env.APP_PASSWORD,
+          },
+        });
 
+        // Configure the email message
+        const mailOptions = {
+          from: "banda@cedesdonbosco.ed.cr",
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          html: input.html,
+        };
+
+        // Send the email
+        await transporter.sendMail(mailOptions);
+
+        return true; // Email sent successfully
+      } catch (error) {
+        console.error("Error al enviar el correo:", error);
+        return false; // Failed to send email
+      }
+    },
     // Users
 
     // Create a new user
@@ -408,6 +439,74 @@ const resolvers = {
       } catch (error) {
         console.log(error);
       }
+    },
+
+    // Mutation for requesting a password reset
+    requestReset: async (_, { email }, ctx) => {
+      const user = await User.findOne({ email });
+      if (!user) {
+        throw new Error("No user found with that email");
+      }
+
+      // Generate a token with some library (e.g., crypto)
+      const token = crypto.randomBytes(20).toString("hex");
+      const now = new Date();
+      const tokenExpiry = new Date(now.getTime() + 20 * 60 * 1000); // Token valid for 20 minutes
+
+      user.resetPasswordToken = token;
+      user.resetPasswordExpires = tokenExpiry;
+      await user.save();
+
+      // Send email with the token
+      // (Using your existing `sendEmail` mutation)
+      const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar/${token}`;
+
+      const transporter = nodemailer.createTransport({
+        service: "Gmail",
+        auth: {
+          type: "PLAIN",
+          user: "banda@cedesdonbosco.ed.cr",
+          pass: process.env.APP_PASSWORD,
+        },
+      });
+
+      // Here, you'll send an email with the link to the reset page
+      // You can adjust the mailOptions accordingly
+      const mailOptions = {
+        from: "banda@cedesdonbosco.ed.cr",
+        to: email,
+        subject: "Recuperar contraseña",
+        text: `Dale click al siguiente lik para recuperar tu contraseña: ${resetURL}`,
+      };
+
+      // You can use your existing email sending function
+      await transporter.sendMail(mailOptions);
+
+      return { requestReset: true };
+    },
+
+    // Mutation for resetting the password
+    resetPassword: async (_, { token, newPassword }, ctx) => {
+      if (!token || !newPassword) {
+        throw new Error("Token and new password are required.");
+      }
+
+      const user = await User.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpires: { $gt: Date.now() },
+      });
+
+      if (!user) {
+        throw new Error("Token is invalid or has expired.");
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+
+      return true;
     },
     // #################################################
 
@@ -646,37 +745,6 @@ const resolvers = {
     },
 
     // #################################################
-    // Email
-    sendEmail: async (_, { input }) => {
-      try {
-        // Create a Nodemailer transporter with your Gmail credentials
-        const transporter = nodemailer.createTransport({
-          service: "Gmail",
-          auth: {
-            type: "PLAIN",
-            user: "banda@cedesdonbosco.ed.cr",
-            pass: process.env.APP_PASSWORD,
-          },
-        });
-
-        // Configure the email message
-        const mailOptions = {
-          from: "banda@cedesdonbosco.ed.cr",
-          to: input.to,
-          subject: input.subject,
-          text: input.text,
-          html: input.html,
-        };
-
-        // Send the email
-        await transporter.sendMail(mailOptions);
-
-        return true; // Email sent successfully
-      } catch (error) {
-        console.error("Error al enviar el correo:", error);
-        return false; // Failed to send email
-      }
-    },
 
     // #################################################
     // Payment Register
