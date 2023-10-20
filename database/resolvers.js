@@ -4,6 +4,7 @@ const Event = require("../models/Events");
 const Inventory = require("../models/Inventory");
 const MedicalRecord = require("../models/MedicalRecord");
 const Attendance = require("../models/Attendance");
+const Exalumno = require("../models/Exalumnos");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
@@ -160,7 +161,7 @@ const resolvers = {
 
     getMedicalRecords: async () => {
       try {
-        const medicalRecords = await MedicalRecord.find({});
+        const medicalRecords = await MedicalRecord.find({}).populate("user");
         return medicalRecords;
       } catch (error) {
         console.log(error);
@@ -255,6 +256,12 @@ const resolvers = {
         console.log(error);
         throw new Error("Failed to fetch payments");
       }
+    },
+
+    // #################################################
+    // Exalumnos
+    getExAlumnos: async () => {
+      return await Exalumno.find();
     },
   },
 
@@ -459,7 +466,7 @@ const resolvers = {
 
       // Send email with the token
       // (Using your existing `sendEmail` mutation)
-      const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar/${token}`;
+      const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar?token=${token}`;
 
       const transporter = nodemailer.createTransport({
         service: "Gmail",
@@ -476,13 +483,13 @@ const resolvers = {
         from: "banda@cedesdonbosco.ed.cr",
         to: email,
         subject: "Recuperar contraseña",
-        text: `Dale click al siguiente lik para recuperar tu contraseña: ${resetURL}`,
+        text: `Dale click al siguienete lik para recuperar tu contraseña: ${resetURL}`,
       };
 
       // You can use your existing email sending function
       await transporter.sendMail(mailOptions);
 
-      return { requestReset: true };
+      return true;
     },
 
     // Mutation for resetting the password
@@ -823,6 +830,19 @@ const resolvers = {
       } catch (error) {
         console.log(error);
         throw new Error("Failed to delete payment");
+      }
+    },
+
+    // #################################################
+    // Exalumnos
+
+    addExAlumno: async (_, { input }) => {
+      try {
+        const newExAlumno = new Exalumno(input);
+        return await newExAlumno.save();
+      } catch (error) {
+        console.error(error);
+        throw new Error("Failed to add ex-alumno.");
       }
     },
   },

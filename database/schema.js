@@ -105,7 +105,7 @@ const typeDefs = gql`
     medicine: String
     medicineOnTour: String
     allergies: String
-    user: ID
+    user: User
   }
 
   input MedicalRecordInput {
@@ -216,6 +216,29 @@ const typeDefs = gql`
   }
   #################################################
 
+  type Exalumno {
+    id: ID!
+    fullName: String!
+    phoneNumber: String!
+    identification: String!
+    instrument: String!
+    yearGraduated: Int!
+    email: String!
+    address: String!
+  }
+
+  input ExalumnoInput {
+    fullName: String!
+    phoneNumber: String!
+    identification: String!
+    instrument: String!
+    yearGraduated: Int!
+    email: String!
+    address: String!
+  }
+
+  #################################################
+
   # Queries
 
   type Query {
@@ -248,6 +271,8 @@ const typeDefs = gql`
     # Payments
     getPaymentEvents: [PaymentEvent!]!
     getPaymentsByEvent(paymentEvent: ID!): [Payment!]!
+
+    getExAlumnos: [Exalumno!]!
   }
 
   #################################################
@@ -298,6 +323,8 @@ const typeDefs = gql`
     createPayment(input: PaymentInput!): Payment!
     updatePayment(paymentId: ID!, input: PaymentInput!): Payment!
     deletePayment(paymentId: ID!): Payment!
+
+    addExAlumno(input: ExalumnoInput!): Exalumno!
   }
 `;
 
