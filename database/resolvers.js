@@ -5,6 +5,7 @@ const Inventory = require("../models/Inventory");
 const MedicalRecord = require("../models/MedicalRecord");
 const Attendance = require("../models/Attendance");
 const Exalumno = require("../models/Exalumnos");
+const ColorGuardCampRegistration = require("../models/ColorGuardCamp");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
 
@@ -262,6 +263,12 @@ const resolvers = {
     // Exalumnos
     getExAlumnos: async () => {
       return await Exalumno.find();
+    },
+
+    // #################################################
+    // Color Guard Camp
+    getColorGuardCampRegistrations: async () => {
+      return await ColorGuardCampRegistration.find();
     },
   },
 
@@ -843,6 +850,19 @@ const resolvers = {
       } catch (error) {
         console.error(error);
         throw new Error("Failed to add ex-alumno.");
+      }
+    },
+
+    // #################################################
+    // Color Guard Camp
+
+    createColorGuardCampRegistration: async (_, { input }) => {
+      try {
+        const newRegistration = new ColorGuardCampRegistration(input);
+        return await newRegistration.save();
+      } catch (error) {
+        console.error(error);
+        throw new Error("Failed to add registration.");
       }
     },
   },

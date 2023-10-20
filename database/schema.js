@@ -239,6 +239,23 @@ const typeDefs = gql`
     instrumentCondition: String!
   }
 
+  type ColorGuardCampRegistration {
+    id: ID!
+    teamName: String!
+    instructorName: String!
+    phoneNumber: String!
+    email: String!
+    participantQuantity: Int!
+  }
+
+  input ColorGuardCampRegistrationInput {
+    teamName: String!
+    instructorName: String!
+    phoneNumber: String!
+    email: String!
+    participantQuantity: Int!
+  }
+
   #################################################
 
   # Queries
@@ -275,6 +292,8 @@ const typeDefs = gql`
     getPaymentsByEvent(paymentEvent: ID!): [Payment!]!
 
     getExAlumnos: [Exalumno!]!
+
+    getColorGuardCampRegistrations: [ColorGuardCampRegistration!]!
   }
 
   #################################################
@@ -327,6 +346,10 @@ const typeDefs = gql`
     deletePayment(paymentId: ID!): Payment!
 
     addExAlumno(input: ExalumnoInput!): Exalumno!
+
+    createColorGuardCampRegistration(
+      input: ColorGuardCampRegistrationInput!
+    ): ColorGuardCampRegistration!
   }
 `;
 
