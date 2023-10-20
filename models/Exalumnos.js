@@ -31,6 +31,10 @@ const exAlumnoSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  instrumentCondition: {
+    type: String,
+    required: true,
+  },
 });
 
 module.exports = mongoose.model("Exalumno", exAlumnoSchema);

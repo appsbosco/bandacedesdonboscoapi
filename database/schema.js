@@ -225,6 +225,7 @@ const typeDefs = gql`
     yearGraduated: Int!
     email: String!
     address: String!
+    instrumentCondition: String!
   }
 
   input ExalumnoInput {
@@ -235,6 +236,7 @@ const typeDefs = gql`
     yearGraduated: Int!
     email: String!
     address: String!
+    instrumentCondition: String!
   }
 
   #################################################
