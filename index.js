@@ -2,7 +2,7 @@ const express = require("express");
 const { ApolloServer } = require("apollo-server-express");
 const typeDefs = require("./database/schema");
 const resolvers = require("./database/resolvers");
-const nodemailer = require("nodemailer");
+const cors = require("cors");
 
 // Import JWT
 const jwt = require("jsonwebtoken");
@@ -41,6 +41,8 @@ const startServer = async () => {
       }
     },
   });
+
+  app.use(cors());
 
   try {
     await server.start();

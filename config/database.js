@@ -1,7 +1,7 @@
 // Database configuration
 
-const mongoose = require('mongoose');
-require('dotenv').config({ path: './config/.env' });
+const mongoose = require("mongoose");
+require("dotenv").config({ path: "./config/.env" });
 
 const dbConnection = async () => {
   try {
@@ -9,9 +9,9 @@ const dbConnection = async () => {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log('DB connected');
+    console.log("DB connected");
   } catch (error) {
-    console.log('An error ocurred');
+    console.log("An error ocurred");
     console.log(error);
     process.exit(1);
   }
