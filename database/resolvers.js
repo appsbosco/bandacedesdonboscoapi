@@ -5,6 +5,9 @@ const Inventory = require("../models/Inventory");
 const MedicalRecord = require("../models/MedicalRecord");
 const Attendance = require("../models/Attendance");
 const Exalumno = require("../models/Exalumnos");
+const Hotel = require("../models/Hotel");
+const PerformanceAttendance = require("../models/PerformanceAttendance");
+
 const ColorGuardCampRegistration = require("../models/ColorGuardCamp");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
@@ -257,6 +260,21 @@ const resolvers = {
         console.log(error);
         throw new Error("Failed to fetch payments");
       }
+    },
+
+    // #################################################
+    // Presentations
+    getPerformanceAttendanceByEvent: async (_, { event }) => {
+      return await PerformanceAttendance.find({ event })
+        .populate("user")
+        .populate("hotel")
+        .populate("event");
+    },
+    getHotel: async (_, { id }) => {
+      return await Hotel.findById(id);
+    },
+    getHotels: async () => {
+      return await Hotel.find();
     },
 
     // #################################################
@@ -838,6 +856,33 @@ const resolvers = {
         console.log(error);
         throw new Error("Failed to delete payment");
       }
+    },
+
+    // #################################################
+    // Presentations
+    newPerformanceAttendance: async (_, { input }) => {
+      const attendance = new PerformanceAttendance(input);
+      return await attendance.save();
+    },
+    updatePerformanceAttendance: async (_, { id, input }) => {
+      return await PerformanceAttendance.findByIdAndUpdate(id, input, {
+        new: true,
+      });
+    },
+    deletePerformanceAttendance: async (_, { id }) => {
+      await PerformanceAttendance.findByIdAndDelete(id);
+      return "Performance Attendance deleted successfully!";
+    },
+    newHotel: async (_, { input }) => {
+      const hotel = new Hotel(input);
+      return await hotel.save();
+    },
+    updateHotel: async (_, { id, input }) => {
+      return await Hotel.findByIdAndUpdate(id, input, { new: true });
+    },
+    deleteHotel: async (_, { id }) => {
+      await Hotel.findByIdAndDelete(id);
+      return "Hotel deleted successfully!";
     },
 
     // #################################################

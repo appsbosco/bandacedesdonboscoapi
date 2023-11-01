@@ -214,8 +214,38 @@ const typeDefs = gql`
     amount: Float
     date: String
   }
-  #################################################
 
+  #################################################
+  #Asistencia a presentaciones
+
+  type PerformanceAttendance {
+    id: ID
+    user: User
+    event: Event
+    attended: String
+    busNumber: Int
+    hotel: Hotel
+  }
+
+  input PerformanceAttendanceInput {
+    user: ID
+    event: ID
+    attended: String
+    busNumber: Int
+    hotel: ID
+  }
+
+  type Hotel {
+    id: ID
+    name: String
+  }
+
+  input HotelInput {
+    name: String
+  }
+
+  #################################################
+  #Exalumnos
   type Exalumno {
     id: ID!
     fullName: String!
@@ -291,8 +321,15 @@ const typeDefs = gql`
     getPaymentEvents: [PaymentEvent!]!
     getPaymentsByEvent(paymentEvent: ID!): [Payment!]!
 
+    # Presentations
+    getPerformanceAttendanceByEvent(event: ID!): [PerformanceAttendance]
+    getHotel(id: ID!): Hotel
+    getHotels: [Hotel]
+
+    # Exalumnos
     getExAlumnos: [Exalumno!]!
 
+    # Color Guard
     getColorGuardCampRegistrations: [ColorGuardCampRegistration!]!
   }
 
@@ -350,6 +387,20 @@ const typeDefs = gql`
     createColorGuardCampRegistration(
       input: ColorGuardCampRegistrationInput!
     ): ColorGuardCampRegistration!
+
+    # Presentations
+    newPerformanceAttendance(
+      input: PerformanceAttendanceInput
+    ): PerformanceAttendance
+    updatePerformanceAttendance(
+      id: ID!
+      input: PerformanceAttendanceInput
+    ): PerformanceAttendance
+    deletePerformanceAttendance(id: ID!): String
+
+    newHotel(input: HotelInput): Hotel
+    updateHotel(id: ID!, input: HotelInput): Hotel
+    deleteHotel(id: ID!): String
   }
 `;
 
