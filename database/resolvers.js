@@ -491,7 +491,7 @@ const resolvers = {
 
       // Send email with the token
       // (Using your existing `sendEmail` mutation)
-      const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar?token=${token}`;
+      const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar/${token}`;
 
       const transporter = nodemailer.createTransport({
         service: "Gmail",
@@ -508,7 +508,7 @@ const resolvers = {
         from: "banda@cedesdonbosco.ed.cr",
         to: email,
         subject: "Recuperar contraseña",
-        text: `Dale click al siguienete lik para recuperar tu contraseña: ${resetURL}`,
+        text: `Dale click al siguiente lik para recuperar tu contraseña: ${resetURL}`,
       };
 
       // You can use your existing email sending function
