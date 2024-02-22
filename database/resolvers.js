@@ -7,6 +7,8 @@ const Attendance = require("../models/Attendance");
 const Exalumno = require("../models/Exalumnos");
 const Hotel = require("../models/Hotel");
 const PerformanceAttendance = require("../models/PerformanceAttendance");
+const Product = require("../models/Product");
+const Order = require("../models/Order");
 
 const ColorGuardCampRegistration = require("../models/ColorGuardCamp");
 const nodemailer = require("nodemailer");
@@ -287,6 +289,20 @@ const resolvers = {
     // Color Guard Camp
     getColorGuardCampRegistrations: async () => {
       return await ColorGuardCampRegistration.find();
+    },
+
+    products: async () => {
+      return await Product.find({});
+    },
+    orders: async () => {
+      return await Order.find({})
+        .populate("userId")
+        .populate("products.productId");
+    },
+    orderById: async (_, { id }) => {
+      return await Order.findById(id)
+        .populate("userId")
+        .populate("products.productId");
     },
   },
 
@@ -909,6 +925,54 @@ const resolvers = {
         console.error(error);
         throw new Error("Failed to add registration.");
       }
+    },
+
+    // #################################################
+    // Almuerzos
+    createProduct: async (
+      _,
+      { name, description, category, price, availableForDays, closingDate }
+    ) => {
+      const newProduct = new Product({
+        name,
+        description,
+        category,
+        price,
+        availableForDays,
+        closingDate: new Date(closingDate),
+      });
+      return await newProduct.save();
+    },
+    updateProduct: async (
+      _,
+      { id, name, description, category, price, availableForDays, closingDate }
+    ) => {
+      return await Product.findByIdAndUpdate(
+        id,
+        {
+          $set: {
+            name,
+            description,
+            category,
+            price,
+            availableForDays,
+            closingDate: new Date(closingDate),
+          },
+        },
+        { new: true }
+      );
+    },
+    deleteProduct: async (_, { id }) => {
+      return await Product.findByIdAndRemove(id);
+    },
+    createOrder: async (_, { userId, products }) => {
+      const newOrder = new Order({
+        userId,
+        products,
+        orderDate: new Date(),
+        status: "Pending",
+      });
+      return await newOrder.save();
     },
   },
 };

@@ -287,6 +287,36 @@ const typeDefs = gql`
   }
 
   #################################################
+  ## Almuerzos
+  type Product {
+    id: ID!
+    name: String!
+    description: String
+    category: String
+    price: Float!
+    availableForDays: [String!]!
+    closingDate: String
+    createdAt: String
+  }
+
+  type Order {
+    id: ID!
+    userId: ID!
+    products: [OrderProduct!]!
+    orderDate: String
+    status: String
+  }
+
+  type OrderProduct {
+    productId: ID!
+    quantity: Int!
+  }
+
+  input InputOrderProduct {
+    productId: ID!
+    quantity: Int!
+  }
+  #################################################
 
   # Queries
 
@@ -331,6 +361,11 @@ const typeDefs = gql`
 
     # Color Guard
     getColorGuardCampRegistrations: [ColorGuardCampRegistration!]!
+
+    # Almuerzos
+    products: [Product!]!
+    orders: [Order!]!
+    orderById(id: ID!): Order
   }
 
   #################################################
@@ -401,6 +436,28 @@ const typeDefs = gql`
     newHotel(input: HotelInput): Hotel
     updateHotel(id: ID!, input: HotelInput): Hotel
     deleteHotel(id: ID!): String
+
+    ##Almuerzos
+
+    createProduct(
+      name: String!
+      description: String
+      category: String
+      price: Float!
+      availableForDays: [String!]!
+      closingDate: String!
+    ): Product
+    updateProduct(
+      id: ID!
+      name: String
+      description: String
+      category: String
+      price: Float
+      availableForDays: [String]
+      closingDate: String
+    ): Product
+    deleteProduct(id: ID!): Product
+    createOrder(userId: ID!, products: [InputOrderProduct!]!): Order
   }
 `;
 
