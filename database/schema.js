@@ -301,14 +301,13 @@ const typeDefs = gql`
 
   type Order {
     id: ID!
-    userId: ID!
+    userId: User!
     products: [OrderProduct!]!
     orderDate: String
-    status: String
   }
 
   type OrderProduct {
-    productId: ID!
+    productId: Product!
     quantity: Int!
   }
 

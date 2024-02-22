@@ -296,13 +296,17 @@ const resolvers = {
     },
     orders: async () => {
       return await Order.find({})
-        .populate("userId")
-        .populate("products.productId");
+        .populate({
+          path: "userId",
+          model: "User",
+        })
+        .populate({
+          path: "products.productId",
+          model: "Product",
+        });
     },
     orderById: async (_, { id }) => {
-      return await Order.findById(id)
-        .populate("userId")
-        .populate("products.productId");
+      return await Order.findById(id).populate("userId").populate("products");
     },
   },
 
@@ -970,7 +974,6 @@ const resolvers = {
         userId,
         products,
         orderDate: new Date(),
-        status: "Pending",
       });
       return await newOrder.save();
     },
