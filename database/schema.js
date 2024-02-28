@@ -304,6 +304,7 @@ const typeDefs = gql`
     userId: User!
     products: [OrderProduct!]!
     orderDate: String
+    isCompleted: Boolean
   }
 
   type OrderProduct {
@@ -364,6 +365,7 @@ const typeDefs = gql`
     # Almuerzos
     products: [Product!]!
     orders: [Order!]!
+    orderByUserId(userId: ID): [Order!]!
     orderById(id: ID!): Order
   }
 
@@ -457,6 +459,7 @@ const typeDefs = gql`
     ): Product
     deleteProduct(id: ID!): Product
     createOrder(userId: ID!, products: [InputOrderProduct!]!): Order
+    completeOrder(orderId: ID!): Order
   }
 `;
 

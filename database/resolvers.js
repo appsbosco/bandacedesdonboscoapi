@@ -305,6 +305,26 @@ const resolvers = {
           model: "Product",
         });
     },
+
+    orderByUserId: async (_, { userId }) => {
+      let query = {};
+
+      // Si se proporciona un userId, filtrar por ese userId
+      if (userId) {
+        query.userId = userId;
+      }
+
+      return await Order.find(query)
+        .populate({
+          path: "userId",
+          model: "User",
+        })
+        .populate({
+          path: "products.productId",
+          model: "Product",
+        });
+    },
+
     orderById: async (_, { id }) => {
       return await Order.findById(id).populate("userId").populate("products");
     },
@@ -976,6 +996,14 @@ const resolvers = {
         orderDate: new Date(),
       });
       return await newOrder.save();
+    },
+
+    completeOrder: async (_, { orderId }) => {
+      return await Order.findByIdAndUpdate(
+        orderId,
+        { isCompleted: true },
+        { new: true }
+      );
     },
   },
 };
