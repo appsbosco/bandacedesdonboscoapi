@@ -18,20 +18,10 @@ const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const admin = require("firebase-admin");
 
+const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-d6e7d65d9d.json");
+
 admin.initializeApp({
-  credential: admin.credential.cert({
-    type: process.env.TYPE,
-    project_id: process.env.PROJECT_ID,
-    private_key_id: process.env.PRIVATE_KEY_ID,
-    private_key: process.env.PRIVATE_KEY.replace(/\\n/g, "\n"),
-    client_email: process.env.CLIENT_EMAIL,
-    client_id: process.env.CLIENT_ID,
-    auth_uri: process.env.AUTH_URI,
-    token_uri: process.env.TOKEN_URI,
-    auth_provider_x509_cert_url: process.env.AUTH_PROVIDER_X509_CERT_URL,
-    client_x509_cert_url: process.env.CLIENT_X509_CERT_URL,
-    universe_domain: process.env.UNIVERSE_DOMAIN,
-  }),
+  credential: admin.credential.cert(serviceAccount),
 });
 
 //Import Environment Variables
@@ -988,13 +978,10 @@ const resolvers = {
 
       // 2. Obtener todos los tokens de notificaciones de los usuarios que deseen recibir notificaciones
       const users = await User.find({
-        notificationTokens: { $exists: true, $ne: [] },
+        notificationTokens: { $exists: true, $ne: [] }, // Asegúrate de que existen tokens y el arreglo no está vacío
       });
 
       // Utiliza flatMap para aplanar todos los tokens en un solo arreglo
-
-      // Asumiendo que `notificationToken` es un arreglo de tokens,
-      // puedes usar flatMap para obtener todos los tokens en un solo arreglo
       const tokens = users.flatMap((user) => user.notificationTokens);
 
       console.log(tokens);
