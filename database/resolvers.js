@@ -978,9 +978,16 @@ const resolvers = {
 
       // 2. Obtener todos los tokens de notificaciones de los usuarios que deseen recibir notificaciones
       const users = await User.find({
-        notificationToken: { $exists: true, $ne: null },
+        notificationTokens: { $exists: true, $ne: [] },
       });
-      const tokens = users.map((user) => user.notificationToken);
+
+      // Utiliza flatMap para aplanar todos los tokens en un solo arreglo
+
+      // Asumiendo que `notificationToken` es un arreglo de tokens,
+      // puedes usar flatMap para obtener todos los tokens en un solo arreglo
+      const tokens = users.flatMap((user) => user.notificationTokens);
+
+      console.log(tokens);
 
       // 3. Enviar la notificación a todos los tokens, si es que existen
       if (tokens.length > 0) {
