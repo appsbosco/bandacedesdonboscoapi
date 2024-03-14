@@ -21,6 +21,7 @@ const UserSchema = mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  notificationTokens: [{ type: String, required: false }],
   resetPasswordToken: String,
   resetPasswordExpires: Date,
 });

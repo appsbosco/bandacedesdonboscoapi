@@ -25,6 +25,7 @@ const typeDefs = gql`
     attendance: [Attendance]
     medicalRecord: [MedicalRecord]
     inventory: [Inventory]
+    notificationToken: [String]
   }
 
   input UserInput {
@@ -460,6 +461,10 @@ const typeDefs = gql`
     deleteProduct(id: ID!): Product
     createOrder(userId: ID!, products: [InputOrderProduct!]!): Order
     completeOrder(orderId: ID!): Order
+
+    upgradeUserGrades: Boolean!
+
+    updateNotificationToken(userId: ID!, token: String!): User
   }
 `;
 

@@ -16,6 +16,13 @@ const crypto = require("crypto");
 
 // Hashing
 const bcrypt = require("bcrypt");
+const admin = require("firebase-admin");
+
+const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-3d28f9dbe5.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 //Import Environment Variables
 
@@ -965,8 +972,51 @@ const resolvers = {
         availableForDays,
         closingDate: new Date(closingDate),
       });
-      return await newProduct.save();
+
+      // 1. Guardar el nuevo producto en la base de datos
+      await newProduct.save();
+
+      // 2. Obtener todos los tokens de notificaciones de los usuarios que deseen recibir notificaciones
+      const users = await User.find({
+        notificationToken: { $exists: true, $ne: null },
+      });
+      const tokens = users.map((user) => user.notificationToken);
+
+      // 3. Enviar la notificación a todos los tokens, si es que existen
+      if (tokens.length > 0) {
+        const message = {
+          notification: {
+            title: "Banda CEDES Don Bosco - Nuevo Producto Disponible",
+            body: "Un nuevo producto ha sido añadido y ya puedes hacer la solicitud de tus almuerzos.",
+          },
+          webpush: {
+            headers: {
+              Urgency: "high",
+            },
+            notification: {
+              icon: "../config/Icons-01.png",
+              badge: "../config/Icons-01.png",
+            },
+          },
+          tokens: tokens,
+        };
+
+        admin
+          .messaging()
+          .sendMulticast(message)
+          .then((response) => {
+            console.log(
+              `${response.successCount} mensajes fueron enviados exitosamente.`
+            );
+          })
+          .catch((error) => {
+            console.log("Error al enviar la notificación:", error);
+          });
+      }
+
+      return newProduct;
     },
+
     updateProduct: async (
       _,
       { id, name, description, category, price, availableForDays, closingDate }
@@ -1004,6 +1054,54 @@ const resolvers = {
         { isCompleted: true },
         { new: true }
       );
+    },
+
+    upgradeUserGrades: async () => {
+      const gradesMapping = {
+        "Tercero Primaria": "Cuarto Primaria",
+        "Cuarto Primaria": "Quinto Primaria",
+        "Quinto Primaria": "Sexto Primaria",
+        "Sexto Primaria": "Septimo",
+        Septimo: "Octavo",
+        Octavo: "Noveno",
+        Noveno: "Décimo",
+        Décimo: "Undécimo",
+        Undécimo: "Duodécimo",
+        Duodécimo: "",
+      };
+
+      try {
+        const users = await User.find({}); // Encuentra todos los usuarios
+
+        for (const user of users) {
+          const nextGrade = gradesMapping[user.grade]; // Determina el siguiente grado
+
+          if (nextGrade !== undefined) {
+            // Verifica si el grado actual está en el mapeo
+            user.grade = nextGrade; // Actualiza al siguiente grado
+            await user.save(); // Guarda los cambios en la base de datos
+          }
+        }
+
+        return true; // Retorna true
+      } catch (error) {
+        console.error("Error upgrading user grades:", error);
+        return false; // Retorna false en caso de error
+      }
+    },
+
+    //Notifcation tokens
+    updateNotificationToken: async (_, { userId, token }) => {
+      try {
+        const user = await User.findById(userId);
+        if (!user.notificationTokens.includes(token)) {
+          user.notificationTokens.push(token);
+          await user.save();
+        }
+        return user;
+      } catch (error) {
+        throw new Error("Error updating notification token");
+      }
     },
   },
 };
