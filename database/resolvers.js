@@ -984,7 +984,7 @@ const resolvers = {
       // Utiliza flatMap para aplanar todos los tokens en un solo arreglo
       const tokens = users.flatMap((user) => user.notificationTokens);
 
-      console.log(tokens);
+      // console.log(tokens);
 
       // 3. Enviar la notificación a todos los tokens, si es que existen
       if (tokens.length > 0) {
@@ -992,14 +992,15 @@ const resolvers = {
           notification: {
             title: "Banda CEDES Don Bosco - Nuevo Producto Disponible",
             body: "Un nuevo producto ha sido añadido y ya puedes hacer la solicitud de tus almuerzos.",
+            // sound: "default",
           },
           webpush: {
             headers: {
               Urgency: "high",
             },
             notification: {
-              icon: "../config/Icons-01.png",
-              badge: "../config/Icons-01.png",
+              icon: "../config/Icons-01.jpg",
+              badge: "../config/Icons-01.jpg",
             },
           },
           tokens: tokens,
@@ -1098,10 +1099,28 @@ const resolvers = {
     updateNotificationToken: async (_, { userId, token }) => {
       try {
         const user = await User.findById(userId);
-        if (!user.notificationTokens.includes(token)) {
-          user.notificationTokens.push(token);
-          await user.save();
+        try {
+          if (!user.notificationTokens.includes(token)) {
+            user.notificationTokens.push(token);
+            await user.save();
+            console.log(
+              "Token de notificación guardado correctamente para el usuario:",
+              userId
+            );
+          } else {
+            console.log(
+              "El token ya existe para este usuario, no se necesita actualizar:",
+              userId
+            );
+          }
+        } catch (error) {
+          console.error(
+            "Error al guardar el token de notificación para el usuario:",
+            userId,
+            error
+          );
         }
+
         return user;
       } catch (error) {
         throw new Error("Error updating notification token");

@@ -25,7 +25,7 @@ const typeDefs = gql`
     attendance: [Attendance]
     medicalRecord: [MedicalRecord]
     inventory: [Inventory]
-    notificationToken: [String]
+    notificationTokens: [String]
   }
 
   input UserInput {
