@@ -962,7 +962,15 @@ const resolvers = {
     // Almuerzos
     createProduct: async (
       _,
-      { name, description, category, price, availableForDays, closingDate }
+      {
+        name,
+        description,
+        category,
+        price,
+        availableForDays,
+        photo,
+        closingDate,
+      }
     ) => {
       const newProduct = new Product({
         name,
@@ -970,6 +978,7 @@ const resolvers = {
         category,
         price,
         availableForDays,
+        photo,
         closingDate: new Date(closingDate),
       });
 

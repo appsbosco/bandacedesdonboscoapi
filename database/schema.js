@@ -295,7 +295,8 @@ const typeDefs = gql`
     description: String
     category: String
     price: Float!
-    availableForDays: [String!]!
+    availableForDays: String!
+    photo: String
     closingDate: String
     createdAt: String
   }
@@ -446,7 +447,8 @@ const typeDefs = gql`
       description: String
       category: String
       price: Float!
-      availableForDays: [String!]!
+      availableForDays: String!
+      photo: String
       closingDate: String!
     ): Product
     updateProduct(
@@ -455,7 +457,8 @@ const typeDefs = gql`
       description: String
       category: String
       price: Float
-      availableForDays: [String]
+      availableForDays: String
+      photo: String
       closingDate: String
     ): Product
     deleteProduct(id: ID!): Product
