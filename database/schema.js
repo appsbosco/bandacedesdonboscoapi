@@ -270,6 +270,55 @@ const typeDefs = gql`
     instrumentCondition: String!
   }
 
+  #################################################
+  #Guatemala
+  type Guatemala {
+    id: ID
+    fullName: String
+    phoneNumber: String
+    identification: String
+    instrument: String
+    email: String
+    comments: String
+    children: [User]
+    authorized: Boolean!
+  }
+
+  input GuatemalaInput {
+    fullName: String
+    phoneNumber: String
+    identification: String
+    instrument: String
+    email: String
+    comments: String
+    children: [ID]
+    authorized: Boolean
+  }
+
+  #Apoyo
+  type Apoyo {
+    id: ID
+    fullName: String
+    phoneNumber: String
+    identification: String
+    instrument: String
+    email: String
+    comments: String
+    children: [User]
+    availability: String
+  }
+
+  input ApoyoInput {
+    fullName: String
+    phoneNumber: String
+    identification: String
+    instrument: String
+    email: String
+    comments: String
+    children: [ID]
+    availability: String
+  }
+
   type ColorGuardCampRegistration {
     id: ID!
     teamName: String!
@@ -360,6 +409,7 @@ const typeDefs = gql`
 
     # Exalumnos
     getExAlumnos: [Exalumno!]!
+    getGuatemala: [Guatemala!]!
 
     # Color Guard
     getColorGuardCampRegistrations: [ColorGuardCampRegistration!]!
@@ -421,6 +471,9 @@ const typeDefs = gql`
     deletePayment(paymentId: ID!): Payment!
 
     addExAlumno(input: ExalumnoInput!): Exalumno!
+
+    addGuatemala(input: GuatemalaInput!): Guatemala!
+    addApoyo(input: ApoyoInput!): Apoyo!
 
     createColorGuardCampRegistration(
       input: ColorGuardCampRegistrationInput!

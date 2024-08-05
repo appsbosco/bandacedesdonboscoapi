@@ -9,7 +9,6 @@ const Hotel = require("../models/Hotel");
 const PerformanceAttendance = require("../models/PerformanceAttendance");
 const Product = require("../models/Product");
 const Order = require("../models/Order");
-
 const ColorGuardCampRegistration = require("../models/ColorGuardCamp");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
@@ -33,6 +32,8 @@ const jwt = require("jsonwebtoken");
 const PaymentEvent = require("../models/PaymentEvent");
 const Payment = require("../models/Payment");
 const Parent = require("../models/Parents");
+const Guatemala = require("../models/Guatemala");
+const Apoyo = require("../models/Apoyo");
 
 const createToken = (user, secret, expiresIn) => {
   const {
@@ -296,6 +297,10 @@ const resolvers = {
     // Color Guard Camp
     getColorGuardCampRegistrations: async () => {
       return await ColorGuardCampRegistration.find();
+    },
+
+    getGuatemala: async () => {
+      return await Guatemala.find().populate("children");
     },
 
     products: async () => {
@@ -942,6 +947,29 @@ const resolvers = {
       } catch (error) {
         console.error(error);
         throw new Error("Failed to add ex-alumno.");
+      }
+    },
+
+    // #################################################
+    // Exalumnos
+
+    addGuatemala: async (_, { input }) => {
+      try {
+        const newGuatemala = new Guatemala(input);
+        return await newGuatemala.save();
+      } catch (error) {
+        console.error(error);
+        throw new Error("Failed to add guatemala.");
+      }
+    },
+
+    addApoyo: async (_, { input }) => {
+      try {
+        const newApoyo = new Apoyo(input);
+        return await newApoyo.save();
+      } catch (error) {
+        console.error(error);
+        throw new Error("Failed to add apoyo.");
       }
     },
 
