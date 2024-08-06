@@ -11,7 +11,7 @@ const guatemalaSchema = new mongoose.Schema({
   },
   identification: {
     type: String,
-    unique: true,
+    default: null,
   },
   instrument: {
     type: String,
@@ -33,5 +33,17 @@ const guatemalaSchema = new mongoose.Schema({
     required: true,
   },
 });
+
+guatemalaSchema.index(
+  { identification: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { identification: { $type: "string", $ne: "" } },
+  }
+);
+
+const Guatemala = mongoose.model("Guatemala", guatemalaSchema);
+
+module.exports = Guatemala;
 
 module.exports = mongoose.model("Guatemala", guatemalaSchema);
