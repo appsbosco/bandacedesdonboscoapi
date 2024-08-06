@@ -302,6 +302,9 @@ const resolvers = {
     getGuatemala: async () => {
       return await Guatemala.find().populate("children");
     },
+    getApoyo: async () => {
+      return await Apoyo.find().populate("children");
+    },
 
     products: async () => {
       return await Product.find({});

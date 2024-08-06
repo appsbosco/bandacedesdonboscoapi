@@ -411,6 +411,7 @@ const typeDefs = gql`
     # Exalumnos
     getExAlumnos: [Exalumno!]!
     getGuatemala: [Guatemala!]!
+    getApoyo: [Apoyo!]!
 
     # Color Guard
     getColorGuardCampRegistrations: [ColorGuardCampRegistration!]!
