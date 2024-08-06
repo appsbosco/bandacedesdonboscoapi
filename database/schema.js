@@ -368,6 +368,33 @@ const typeDefs = gql`
     productId: ID!
     quantity: Int!
   }
+
+  #################################################
+  ############# TICKET #################
+
+  #################################################
+
+  type Ticket {
+    id: ID!
+    userId: ID
+    eventId: ID!
+    type: String!
+    paid: Boolean!
+    amountPaid: Float!
+    totalAmount: Float!
+    qrCode: String!
+    scanned: Boolean!
+    buyerName: String
+    buyerEmail: String
+  }
+
+  type EventTicket {
+    id: ID!
+    name: String!
+    date: String!
+    description: String!
+  }
+
   #################################################
 
   # Queries
@@ -421,6 +448,10 @@ const typeDefs = gql`
     orders: [Order!]!
     orderByUserId(userId: ID): [Order!]!
     orderById(id: ID!): Order
+
+    # Tickets
+    getTickets(eventId: ID!): [Ticket]
+    getEventsT: [Event]
   }
 
   #################################################
@@ -523,6 +554,24 @@ const typeDefs = gql`
     upgradeUserGrades: Boolean!
 
     updateNotificationToken(userId: ID!, token: String!): User
+
+    # Tickets
+    createEvent(name: String!, date: String!, description: String!): EventTicket
+    assignTickets(
+      userId: ID!
+      eventId: ID!
+      type: String!
+      totalAmount: Float!
+    ): Ticket
+
+    purchaseTicket(
+      eventId: ID!
+      buyerName: String!
+      buyerEmail: String!
+      totalAmount: Float!
+    ): Ticket
+    updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket
+    validateTicket(qrCode: String!): Ticket
   }
 `;
 

@@ -12,6 +12,7 @@ const Order = require("../models/Order");
 const ColorGuardCampRegistration = require("../models/ColorGuardCamp");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const QRCode = require("qrcode");
 
 // Hashing
 const bcrypt = require("bcrypt");
@@ -34,6 +35,8 @@ const Payment = require("../models/Payment");
 const Parent = require("../models/Parents");
 const Guatemala = require("../models/Guatemala");
 const Apoyo = require("../models/Apoyo");
+const { Ticket } = require("../models/Tickets");
+const { EventTicket } = require("../models/EventTicket");
 
 const createToken = (user, secret, expiresIn) => {
   const {
@@ -343,6 +346,11 @@ const resolvers = {
     orderById: async (_, { id }) => {
       return await Order.findById(id).populate("userId").populate("products");
     },
+
+    // #################################################
+    //TICKETS
+    getTickets: async (_, { eventId }) => await Ticket.find({ eventId }),
+    getEventsT: async () => await Event.find(),
   },
 
   // #################################################
@@ -371,6 +379,7 @@ const resolvers = {
           subject: input.subject,
           text: input.text,
           html: input.html,
+          attachments: input.attachments,
         };
 
         // Send the email
@@ -1205,6 +1214,144 @@ const resolvers = {
         return user;
       } catch (error) {
         throw new Error("Error updating notification token");
+      }
+    },
+
+    //Tickets
+
+    createEvent: async (_, { name, date, description }) => {
+      const event = new EventTicket({ name, date, description });
+      await event.save();
+      return event;
+    },
+
+    assignTickets: async (_, { userId, eventId, type, totalAmount }) => {
+      try {
+        const qrCodeData = {
+          userId: userId ? userId.toString() : null,
+          eventId: eventId.toString(),
+          type,
+        };
+        const qrCode = await QRCode.toDataURL(JSON.stringify(qrCodeData));
+
+        const ticket = new Ticket({
+          userId,
+          eventId,
+          type,
+          totalAmount,
+          qrCode,
+        });
+        await ticket.save();
+
+        const user = await User.findById(userId);
+
+        // Call sendEmail mutation
+        await resolvers.Mutation.sendEmail(null, {
+          input: {
+            to: user.email,
+            subject: "Your Ticket",
+            text: "Here is your ticket.",
+            html: "<p>Here is your ticket.</p>",
+            attachments: [
+              {
+                filename: "ticket.png",
+                content: qrCode.split(",")[1],
+                encoding: "base64",
+              },
+            ],
+          },
+        });
+
+        return ticket;
+      } catch (error) {
+        console.error("Error assigning tickets:", error);
+        throw new Error("Error assigning tickets");
+      }
+    },
+
+    purchaseTicket: async (
+      _,
+      { eventId, buyerName, buyerEmail, totalAmount }
+    ) => {
+      const qrCodeData = {
+        eventId: eventId.toString(),
+        type: "purchased",
+      };
+      const qrCode = await QRCode.toDataURL(JSON.stringify(qrCodeData));
+      const ticket = new Ticket({
+        eventId,
+        type: "purchased",
+        totalAmount,
+        qrCode,
+        buyerName,
+        buyerEmail,
+      });
+      await ticket.save();
+
+      await resolvers.Mutation.sendEmail(null, {
+        input: {
+          to: buyerEmail,
+          subject: "Your Ticket",
+          text: "Here is your ticket.",
+          html: "<p>Here is your ticket.</p>",
+          attachments: [
+            {
+              filename: "ticket.png",
+              content: qrCode.split(",")[1],
+              encoding: "base64",
+            },
+          ],
+        },
+      });
+
+      return ticket;
+    },
+    updatePaymentStatus: async (_, { ticketId, amountPaid }) => {
+      const ticket = await Ticket.findById(ticketId);
+      ticket.amountPaid += amountPaid;
+      ticket.paid = ticket.amountPaid >= ticket.totalAmount;
+      await ticket.save();
+      return ticket;
+    },
+    // validateTicket: async (_, { qrCode }) => {
+    //   try {
+    //     const decodedData = JSON.parse(
+    //       Buffer.from(qrCode.split(",")[1], "base64").toString()
+    //     );
+    //     const { userId, eventId, type } = decodedData;
+
+    //     const ticket = await Ticket.findOne({ userId, eventId, type, qrCode });
+    //     if (!ticket) throw new Error("Invalid ticket");
+    //     if (!ticket.paid) throw new Error("Ticket not paid");
+    //     ticket.scanned = true;
+    //     await ticket.save();
+    //     return ticket;
+    //   } catch (error) {
+    //     console.error("Error validating ticket:", error);
+    //     throw new Error("Invalid QR data");
+    //   }
+    // },
+    validateTicket: async (_, { qrCode }) => {
+      try {
+        const decodedData = JSON.parse(
+          Buffer.from(qrCode.split(",")[1], "base64").toString()
+        );
+        const { userId, eventId, type } = decodedData;
+
+        const ticket = await Ticket.findOne({ userId, eventId, type, qrCode });
+        if (!ticket) throw new Error("Invalid ticket");
+
+        // Revisa si el ticket está pagado
+        if (!ticket.paid) {
+          throw new Error("Ticket not paid");
+        }
+
+        ticket.scanned = true;
+        await ticket.save();
+        return ticket;
+      } catch (error) {
+        console.error("Error validating ticket:", error);
+        throw new Error("Invalid QR data");
       }
     },
   },
