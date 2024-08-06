@@ -1227,40 +1227,44 @@ const resolvers = {
 
     assignTickets: async (_, { userId, eventId, type, totalAmount }) => {
       try {
-        const qrCodeData = {
+        const qrCodeData = JSON.stringify({
           userId: userId ? userId.toString() : null,
           eventId: eventId.toString(),
           type,
-        };
-        const qrCode = await QRCode.toDataURL(JSON.stringify(qrCodeData));
+        });
+        console.log("Generated QR code data:", qrCodeData); // Log the QR code data
+        const qrCode = await QRCode.toDataURL(qrCodeData);
+        console.log("Generated QR code:", qrCode); // Log the generated QR code
 
         const ticket = new Ticket({
           userId,
           eventId,
           type,
           totalAmount,
-          qrCode,
+          qrCode: qrCodeData, // Store the original JSON string
         });
         await ticket.save();
+        console.log("Saved ticket:", ticket); // Log the saved ticket
 
         const user = await User.findById(userId);
-
-        // Call sendEmail mutation
-        await resolvers.Mutation.sendEmail(null, {
-          input: {
-            to: user.email,
-            subject: "Your Ticket",
-            text: "Here is your ticket.",
-            html: "<p>Here is your ticket.</p>",
-            attachments: [
-              {
-                filename: "ticket.png",
-                content: qrCode.split(",")[1],
-                encoding: "base64",
-              },
-            ],
-          },
-        });
+        if (user) {
+          // Call sendEmail mutation
+          await resolvers.Mutation.sendEmail(null, {
+            input: {
+              to: user.email,
+              subject: "Your Ticket",
+              text: "Here is your ticket.",
+              html: "<p>Here is your ticket.</p>",
+              attachments: [
+                {
+                  filename: "ticket.png",
+                  content: qrCode.split(",")[1],
+                  encoding: "base64",
+                },
+              ],
+            },
+          });
+        }
 
         return ticket;
       } catch (error) {
@@ -1316,11 +1320,16 @@ const resolvers = {
 
     validateTicket: async (_, { qrCode }) => {
       try {
-        // Aquí asumimos que qrCode es directamente un string JSON
+        console.log("Received QR code for validation:", qrCode); // Log the received QR code
         const decodedData = JSON.parse(qrCode);
+        console.log("Decoded data:", decodedData); // Log the decoded data
         const { userId, eventId, type } = decodedData;
+        console.log("User ID:", userId, "Event ID:", eventId, "Type:", type); // Log individual decoded fields
 
-        const ticket = await Ticket.findOne({ userId, eventId, type, qrCode });
+        // Search for the ticket using the decoded data
+        const ticket = await Ticket.findOne({ userId, eventId, type });
+        console.log("Found ticket:", ticket); // Log the found ticket
+
         if (!ticket) throw new Error("Invalid ticket");
 
         // Revisa si el ticket está pagado
@@ -1333,7 +1342,7 @@ const resolvers = {
         return ticket;
       } catch (error) {
         console.error("Error validating ticket:", error);
-        throw new Error("Invalid QR data");
+        throw new Error(error.message); // Propagate the specific error message
       }
     },
   },
