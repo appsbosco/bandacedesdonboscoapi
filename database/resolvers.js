@@ -1313,29 +1313,11 @@ const resolvers = {
       await ticket.save();
       return ticket;
     },
-    // validateTicket: async (_, { qrCode }) => {
-    //   try {
-    //     const decodedData = JSON.parse(
-    //       Buffer.from(qrCode.split(",")[1], "base64").toString()
-    //     );
-    //     const { userId, eventId, type } = decodedData;
 
-    //     const ticket = await Ticket.findOne({ userId, eventId, type, qrCode });
-    //     if (!ticket) throw new Error("Invalid ticket");
-    //     if (!ticket.paid) throw new Error("Ticket not paid");
-    //     ticket.scanned = true;
-    //     await ticket.save();
-    //     return ticket;
-    //   } catch (error) {
-    //     console.error("Error validating ticket:", error);
-    //     throw new Error("Invalid QR data");
-    //   }
-    // },
     validateTicket: async (_, { qrCode }) => {
       try {
-        const decodedData = JSON.parse(
-          Buffer.from(qrCode.split(",")[1], "base64").toString()
-        );
+        // Aquí asumimos que qrCode es directamente un string JSON
+        const decodedData = JSON.parse(qrCode);
         const { userId, eventId, type } = decodedData;
 
         const ticket = await Ticket.findOne({ userId, eventId, type, qrCode });
