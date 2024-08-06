@@ -572,7 +572,7 @@ const resolvers = {
         from: "banda@cedesdonbosco.ed.cr",
         to: email,
         subject: "Recuperar contraseña",
-        text: `Dale click al siguiente lik para recuperar tu contraseña: ${resetURL}`,
+        text: `Dale click al siguiente link para recuperar tu contraseña: ${resetURL}`,
       };
 
       // You can use your existing email sending function
@@ -586,21 +586,35 @@ const resolvers = {
       if (!token || !newPassword) {
         throw new Error("Token and new password are required.");
       }
-
-      const user = await User.findOne({
+      // Buscar el token en la colección de usuarios y padres
+      let user = await User.findOne({
         resetPasswordToken: token,
         resetPasswordExpires: { $gt: Date.now() },
       });
 
-      if (!user) {
-        throw new Error("Token is invalid or has expired.");
+      let parent = await Parent.findOne({
+        resetPasswordToken: token,
+        resetPasswordExpires: { $gt: Date.now() },
+      });
+
+      if (!user && !parent) {
+        throw new Error("El token es inválido o ha expirado.");
       }
 
+      // Determinar el modelo y documento correspondiente
+      let doc;
+      if (user) {
+        doc = user;
+      } else {
+        doc = parent;
+      }
+
+      // Generar el hash de la nueva contraseña
       const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(newPassword, salt);
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save();
+      doc.password = await bcrypt.hash(newPassword, salt);
+      doc.resetPasswordToken = undefined;
+      doc.resetPasswordExpires = undefined;
+      await doc.save();
 
       return true;
     },

@@ -41,6 +41,9 @@ const ParentSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
+  notificationTokens: [{ type: String, required: false }],
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
 });
 
 module.exports = mongoose.model("Parent", ParentSchema);

@@ -56,6 +56,7 @@ const typeDefs = gql`
     role: String
     avatar: String
     children: [User]
+    notificationTokens: [String]
   }
 
   input ParentInput {
