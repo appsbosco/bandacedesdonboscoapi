@@ -526,7 +526,7 @@ const resolvers = {
     },
 
     // Mutation for requesting a password reset
-    requestReset: async (_, { email }, ctx) => {
+    requestReset: async (_, { email }) => {
       let user = await User.findOne({ email });
       let parent = await Parent.findOne({ email });
 
@@ -551,10 +551,18 @@ const resolvers = {
 
       doc.resetPasswordToken = token;
       doc.resetPasswordExpires = tokenExpiry;
+
+      console.log("Document before saving:", doc);
+
       await doc.save();
 
+      // Verificar si el token se guardó correctamente
+      const updatedDoc = await (user
+        ? User.findOne({ email })
+        : Parent.findOne({ email }));
+      console.log("Document after saving:", updatedDoc);
+
       // Send email with the token
-      // (Using your existing `sendEmail` mutation)
       const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar/${token}`;
 
       const transporter = nodemailer.createTransport({
@@ -582,10 +590,11 @@ const resolvers = {
     },
 
     // Mutation for resetting the password
-    resetPassword: async (_, { token, newPassword }, ctx) => {
+    resetPassword: async (_, { token, newPassword }) => {
       if (!token || !newPassword) {
-        throw new Error("Token and new password are required.");
+        throw new Error("Token y nueva contraseña son requeridos.");
       }
+
       // Buscar el token en la colección de usuarios y padres
       let user = await User.findOne({
         resetPasswordToken: token,
@@ -614,10 +623,16 @@ const resolvers = {
       doc.password = await bcrypt.hash(newPassword, salt);
       doc.resetPasswordToken = undefined;
       doc.resetPasswordExpires = undefined;
+
+      console.log("Document before saving new password:", doc);
+
       await doc.save();
+
+      console.log("Document after saving new password:", doc);
 
       return true;
     },
+
     // #################################################
 
     // Attendance
