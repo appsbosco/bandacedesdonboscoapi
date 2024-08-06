@@ -527,9 +527,21 @@ const resolvers = {
 
     // Mutation for requesting a password reset
     requestReset: async (_, { email }, ctx) => {
-      const user = await User.findOne({ email });
-      if (!user) {
-        throw new Error("No user found with that email");
+      let user = await User.findOne({ email });
+      let parent = await Parent.findOne({ email });
+
+      if (!user && !parent) {
+        throw new Error(
+          "No se encontró ningún usuario o padre con ese correo electrónico"
+        );
+      }
+
+      // Determinar el modelo y documento correspondiente
+      let doc;
+      if (user) {
+        doc = user;
+      } else {
+        doc = parent;
       }
 
       // Generate a token with some library (e.g., crypto)
@@ -537,9 +549,9 @@ const resolvers = {
       const now = new Date();
       const tokenExpiry = new Date(now.getTime() + 20 * 60 * 1000); // Token valid for 20 minutes
 
-      user.resetPasswordToken = token;
-      user.resetPasswordExpires = tokenExpiry;
-      await user.save();
+      doc.resetPasswordToken = token;
+      doc.resetPasswordExpires = tokenExpiry;
+      await doc.save();
 
       // Send email with the token
       // (Using your existing `sendEmail` mutation)
