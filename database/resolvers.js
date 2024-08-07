@@ -74,6 +74,32 @@ const createToken = (user, secret, expiresIn) => {
     }
   );
 };
+const generateRaffleNumbers = async (eventId, ticketQuantity) => {
+  const event = await EventTicket.findById(eventId);
+  const assignedNumbers = await Ticket.find({ eventId }).distinct(
+    "raffleNumbers"
+  );
+  const allNumbers = Array.from({ length: event.ticketLimit }, (_, i) =>
+    (i + 1).toString().padStart(3, "0")
+  );
+  const availableNumbers = allNumbers.filter(
+    (num) => !assignedNumbers.includes(num)
+  );
+
+  if (availableNumbers.length < ticketQuantity) {
+    throw new Error(
+      "No hay suficientes números de rifa disponibles para este evento."
+    );
+  }
+
+  const raffleNumbers = [];
+  for (let i = 0; i < ticketQuantity; i++) {
+    const randomIndex = Math.floor(Math.random() * availableNumbers.length);
+    raffleNumbers.push(availableNumbers.splice(randomIndex, 1)[0]);
+  }
+
+  return raffleNumbers;
+};
 
 const resolvers = {
   // #################################################
@@ -81,6 +107,12 @@ const resolvers = {
     id: (parent) => parent._id.toString(), // Convert the MongoDB ObjectId to a string
   },
 
+  Ticket: {
+    userId: (ticket) => {
+      // Si el campo userId ya está populado, simplemente devuélvelo
+      return ticket.userId;
+    },
+  },
   Query: {
     getUser: async (_, {}, ctx) => {
       // Retrieve the user from the database
@@ -349,8 +381,39 @@ const resolvers = {
 
     // #################################################
     //TICKETS
-    getTickets: async (_, { eventId }) => await Ticket.find({ eventId }),
-    getEventsT: async () => await Event.find(),
+    // getTickets: async () => {
+    //   try {
+    //     const tickets = await Ticket.find({}).populate("userId").exec();
+    //     return tickets.map((ticket) => {
+    //       const user = ticket.userId ? ticket.userId : null;
+    //       return {
+    //         ...ticket.toObject(),
+    //         userId: user ? user._id : null,
+    //         userName: user ? user.name : null,
+    //         userSurname: user ? user.firstSurName : null,
+    //       };
+    //     });
+    //   } catch (error) {
+    //     console.error("Error fetching tickets:", error);
+    //     throw error;
+    //   }
+    // },
+
+    getTickets: async (_, { eventId }) => {
+      try {
+        const query = eventId ? { eventId } : {};
+        const tickets = await Ticket.find(query).populate({
+          path: "userId",
+          select: "name firstSurName secondSurName email",
+        });
+        return tickets;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Failed to fetch tickets");
+      }
+    },
+
+    getEventsT: async () => await EventTicket.find(),
   },
 
   // #################################################
@@ -1219,26 +1282,44 @@ const resolvers = {
 
     //Tickets
 
-    createEvent: async (_, { name, date, description }) => {
-      const event = new EventTicket({ name, date, description });
+    createEvent: async (
+      _,
+      { name, date, description, ticketLimit, raffleEnabled, price }
+    ) => {
+      const event = new EventTicket({
+        name,
+        date,
+        description,
+        ticketLimit,
+        raffleEnabled,
+        price,
+      });
       await event.save();
       return event;
     },
 
-    assignTickets: async (_, { userId, eventId, type, totalAmount }) => {
+    assignTickets: async (_, { input }) => {
+      const { userId, eventId, type, ticketQuantity } = input;
       try {
-        // Crear el ticket primero para obtener su ID
+        const event = await EventTicket.findById(eventId);
+        if (!event) throw new Error("Event not found");
+
+        let raffleNumbers = [];
+        if (event.raffleEnabled) {
+          raffleNumbers = await generateRaffleNumbers(eventId, ticketQuantity);
+        }
+
         const ticket = new Ticket({
           userId,
           eventId,
           type,
-          totalAmount,
+          ticketQuantity,
           qrCode: "", // Inicialmente vacío
+          raffleNumbers, // Asignar números de rifa si aplica
         });
         await ticket.save();
         console.log("Saved ticket:", ticket);
 
-        // Generar los datos del QR code incluyendo el ticketId
         const qrCodeData = JSON.stringify({
           ticketId: ticket._id.toString(), // Incluir el ticketId
           userId: userId ? userId.toString() : null,
@@ -1249,7 +1330,6 @@ const resolvers = {
         const qrCode = await QRCode.toDataURL(qrCodeData);
         console.log("Generated QR code:", qrCode);
 
-        // Actualizar el ticket con el QR code
         ticket.qrCode = qrCodeData;
         await ticket.save();
         console.log("Updated ticket with QR code:", ticket);
@@ -1273,6 +1353,10 @@ const resolvers = {
           });
         }
 
+        await EventTicket.findByIdAndUpdate(eventId, {
+          $inc: { totalTickets: ticketQuantity },
+        });
+
         return ticket;
       } catch (error) {
         console.error("Error assigning tickets:", error);
@@ -1282,45 +1366,73 @@ const resolvers = {
 
     purchaseTicket: async (
       _,
-      { eventId, buyerName, buyerEmail, totalAmount }
+      { eventId, buyerName, buyerEmail, ticketQuantity }
     ) => {
-      const qrCodeData = {
-        eventId: eventId.toString(),
-        type: "purchased",
-      };
-      const qrCode = await QRCode.toDataURL(JSON.stringify(qrCodeData));
-      const ticket = new Ticket({
-        eventId,
-        type: "purchased",
-        totalAmount,
-        qrCode,
-        buyerName,
-        buyerEmail,
-      });
-      await ticket.save();
+      try {
+        const event = await EventTicket.findById(eventId);
+        if (!event) throw new Error("Event not found");
 
-      await resolvers.Mutation.sendEmail(null, {
-        input: {
-          to: buyerEmail,
-          subject: "Your Ticket",
-          text: "Here is your ticket.",
-          html: "<p>Here is your ticket.</p>",
-          attachments: [
-            {
-              filename: "ticket.png",
-              content: qrCode.split(",")[1],
-              encoding: "base64",
-            },
-          ],
-        },
-      });
+        let raffleNumbers = [];
+        if (event.raffleEnabled) {
+          raffleNumbers = await generateRaffleNumbers(eventId, ticketQuantity);
+        }
 
-      return ticket;
+        const ticket = new Ticket({
+          eventId,
+          type: "purchased",
+          ticketQuantity,
+          buyerName,
+          buyerEmail,
+          qrCode: "", // Inicialmente vacío
+          raffleNumbers, // Asignar números de rifa si aplica
+        });
+        await ticket.save();
+        console.log("Saved ticket:", ticket);
+
+        const qrCodeData = JSON.stringify({
+          ticketId: ticket._id.toString(), // Incluir el ticketId
+          eventId: eventId.toString(),
+          type: "purchased",
+        });
+        console.log("Generated QR code data:", qrCodeData);
+        const qrCode = await QRCode.toDataURL(qrCodeData);
+        console.log("Generated QR code:", qrCode);
+
+        ticket.qrCode = qrCodeData;
+        await ticket.save();
+        console.log("Updated ticket with QR code:", ticket);
+
+        await resolvers.Mutation.sendEmail(null, {
+          input: {
+            to: buyerEmail,
+            subject: "Your Ticket",
+            text: "Here is your ticket.",
+            html: "<p>Here is your ticket.</p>",
+            attachments: [
+              {
+                filename: "ticket.png",
+                content: qrCode.split(",")[1],
+                encoding: "base64",
+              },
+            ],
+          },
+        });
+
+        await EventTicket.findByIdAndUpdate(eventId, {
+          $inc: { totalTickets: ticketQuantity },
+        });
+
+        return ticket;
+      } catch (error) {
+        console.error("Error purchasing ticket:", error);
+        throw new Error("Error purchasing ticket");
+      }
     },
+
     updatePaymentStatus: async (_, { ticketId, amountPaid }) => {
       const ticket = await Ticket.findById(ticketId);
       ticket.amountPaid += amountPaid;
-      ticket.paid = ticket.amountPaid >= ticket.totalAmount;
+      ticket.paid = ticket.amountPaid >= ticket.ticketQuantity;
       await ticket.save();
       return ticket;
     },
@@ -1335,7 +1447,7 @@ const resolvers = {
         if (!ticketId) throw new Error("Invalid QR code: ticketId is missing");
         console.log("Ticket ID:", ticketId);
 
-        const ticket = await Ticket.findById(ticketId);
+        const ticket = await Ticket.findById(ticketId).populate("userId");
         console.log("Found ticket:", ticket);
 
         if (!ticket) throw new Error("Invalid ticket");
@@ -1346,11 +1458,30 @@ const resolvers = {
 
         ticket.scanned = true;
         await ticket.save();
-        return ticket;
+
+        console.log("Ticket validated successfully:", ticket);
+        return {
+          ...ticket.toObject(),
+          userName: ticket.userId
+            ? `${
+                ticket.userId.name +
+                " " +
+                ticket.userId.firstSurName +
+                " " +
+                ticket.userId.secondSurName
+              } `
+            : ticket.buyerName,
+        };
       } catch (error) {
         console.error("Error validating ticket:", error);
         throw new Error(error.message);
       }
+    },
+  },
+
+  Ticket: {
+    userId: async (ticket) => {
+      return await User.findById(ticket.userId);
     },
   },
 };

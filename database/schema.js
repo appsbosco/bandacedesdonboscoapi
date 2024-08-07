@@ -376,16 +376,24 @@ const typeDefs = gql`
 
   type Ticket {
     id: ID!
-    userId: ID
+    userId: User
     eventId: ID!
     type: String!
     paid: Boolean!
     amountPaid: Float!
-    totalAmount: Float!
+    ticketQuantity: Int!
     qrCode: String
     scanned: Boolean!
     buyerName: String
     buyerEmail: String
+    raffleNumbers: [String]
+  }
+
+  input TicketInput {
+    userId: ID!
+    eventId: ID!
+    type: String!
+    ticketQuantity: Int!
   }
 
   type EventTicket {
@@ -393,6 +401,10 @@ const typeDefs = gql`
     name: String!
     date: String!
     description: String!
+    ticketLimit: Int!
+    totalTickets: Int!
+    raffleEnabled: Boolean!
+    price: Float!
   }
 
   #################################################
@@ -450,8 +462,8 @@ const typeDefs = gql`
     orderById(id: ID!): Order
 
     # Tickets
-    getTickets(eventId: ID!): [Ticket]
-    getEventsT: [Event]
+    getTickets(eventId: ID): [Ticket!]!
+    getEventsT: [EventTicket]
   }
 
   #################################################
@@ -556,19 +568,21 @@ const typeDefs = gql`
     updateNotificationToken(userId: ID!, token: String!): User
 
     # Tickets
-    createEvent(name: String!, date: String!, description: String!): EventTicket
-    assignTickets(
-      userId: ID!
-      eventId: ID!
-      type: String!
-      totalAmount: Float!
-    ): Ticket
+    createEvent(
+      name: String!
+      date: String!
+      description: String!
+      ticketLimit: Int!
+      raffleEnabled: Boolean!
+      price: Float!
+    ): EventTicket!
+    assignTickets(input: TicketInput!): Ticket
 
     purchaseTicket(
       eventId: ID!
       buyerName: String!
       buyerEmail: String!
-      totalAmount: Float!
+      ticketQuantity: Int!
     ): Ticket
     updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket
     validateTicket(qrCode: String!): Ticket
