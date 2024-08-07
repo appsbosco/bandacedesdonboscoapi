@@ -19,7 +19,7 @@ const ticketSchema = new mongoose.Schema({
   paid: { type: Boolean, default: false },
   amountPaid: { type: Number, default: 0 },
   totalAmount: { type: Number, required: true },
-  qrCode: { type: String, required: true },
+  qrCode: { type: String },
   scanned: { type: Boolean, default: false },
   buyerName: { type: String, required: false },
   buyerEmail: { type: String, required: false },

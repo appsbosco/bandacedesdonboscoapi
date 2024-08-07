@@ -1227,28 +1227,35 @@ const resolvers = {
 
     assignTickets: async (_, { userId, eventId, type, totalAmount }) => {
       try {
-        const qrCodeData = JSON.stringify({
-          userId: userId ? userId.toString() : null,
-          eventId: eventId.toString(),
-          type,
-        });
-        console.log("Generated QR code data:", qrCodeData); // Log the QR code data
-        const qrCode = await QRCode.toDataURL(qrCodeData);
-        console.log("Generated QR code:", qrCode); // Log the generated QR code
-
+        // Crear el ticket primero para obtener su ID
         const ticket = new Ticket({
           userId,
           eventId,
           type,
           totalAmount,
-          qrCode: qrCodeData, // Store the original JSON string
+          qrCode: "", // Inicialmente vacío
         });
         await ticket.save();
-        console.log("Saved ticket:", ticket); // Log the saved ticket
+        console.log("Saved ticket:", ticket);
+
+        // Generar los datos del QR code incluyendo el ticketId
+        const qrCodeData = JSON.stringify({
+          ticketId: ticket._id.toString(), // Incluir el ticketId
+          userId: userId ? userId.toString() : null,
+          eventId: eventId.toString(),
+          type,
+        });
+        console.log("Generated QR code data:", qrCodeData);
+        const qrCode = await QRCode.toDataURL(qrCodeData);
+        console.log("Generated QR code:", qrCode);
+
+        // Actualizar el ticket con el QR code
+        ticket.qrCode = qrCodeData;
+        await ticket.save();
+        console.log("Updated ticket with QR code:", ticket);
 
         const user = await User.findById(userId);
         if (user) {
-          // Call sendEmail mutation
           await resolvers.Mutation.sendEmail(null, {
             input: {
               to: user.email,
@@ -1320,19 +1327,19 @@ const resolvers = {
 
     validateTicket: async (_, { qrCode }) => {
       try {
-        console.log("Received QR code for validation:", qrCode); // Log the received QR code
+        console.log("Received QR code for validation:", qrCode);
         const decodedData = JSON.parse(qrCode);
-        console.log("Decoded data:", decodedData); // Log the decoded data
-        const { userId, eventId, type } = decodedData;
-        console.log("User ID:", userId, "Event ID:", eventId, "Type:", type); // Log individual decoded fields
+        console.log("Decoded data:", decodedData);
 
-        // Search for the ticket using the decoded data
-        const ticket = await Ticket.findOne({ userId, eventId, type });
-        console.log("Found ticket:", ticket); // Log the found ticket
+        const { ticketId } = decodedData;
+        if (!ticketId) throw new Error("Invalid QR code: ticketId is missing");
+        console.log("Ticket ID:", ticketId);
+
+        const ticket = await Ticket.findById(ticketId);
+        console.log("Found ticket:", ticket);
 
         if (!ticket) throw new Error("Invalid ticket");
 
-        // Revisa si el ticket está pagado
         if (!ticket.paid) {
           throw new Error("Ticket not paid");
         }
@@ -1342,7 +1349,7 @@ const resolvers = {
         return ticket;
       } catch (error) {
         console.error("Error validating ticket:", error);
-        throw new Error(error.message); // Propagate the specific error message
+        throw new Error(error.message);
       }
     },
   },

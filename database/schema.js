@@ -382,7 +382,7 @@ const typeDefs = gql`
     paid: Boolean!
     amountPaid: Float!
     totalAmount: Float!
-    qrCode: String!
+    qrCode: String
     scanned: Boolean!
     buyerName: String
     buyerEmail: String
