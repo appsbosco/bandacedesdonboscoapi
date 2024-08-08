@@ -1489,7 +1489,9 @@ const resolvers = {
                                     font-weight: 500;
                                   "
                                 >
-                                  Acá están tus entrada para el evento. Utiliza el código QR
+                                  Acá están tu/s entrada/s para la/el ${
+                                    event.name
+                                  }. Utiliza el código QR
                                   al presentarlo en la entrada del evento.
                                 </p>
                                 <p
@@ -2006,7 +2008,7 @@ const resolvers = {
                                     font-weight: 500;
                                   "
                                 >
-                                  Acá están tus entrada para el evento. Utiliza el código QR
+                                  Acá están tu/s entrada/s para el evento. Utiliza el código QR
                                   al presentarlo en la entrada del evento.
                                 </p>
                                 <p
@@ -2573,7 +2575,7 @@ const resolvers = {
                                   font-weight: 500;
                                 "
                               >
-                                Acá están tus entrada para el evento. Utiliza el código QR
+                                Acá están tu/s entrada/s para el evento. Utiliza el código QR
                                 al presentarlo en la entrada del evento.
                               </p>
                               <p
