@@ -21,6 +21,7 @@ const ticketSchema = new mongoose.Schema({
   ticketQuantity: { type: Number, required: true },
   qrCode: { type: String },
   scanned: { type: Boolean, default: false },
+  scans: { type: Number, default: 0 },
   buyerName: { type: String, required: false },
   buyerEmail: { type: String, required: false },
   raffleNumbers: [{ type: String }],

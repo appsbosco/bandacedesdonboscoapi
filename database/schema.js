@@ -384,6 +384,7 @@ const typeDefs = gql`
     ticketQuantity: Int!
     qrCode: String
     scanned: Boolean!
+    scans: Int!
     buyerName: String
     buyerEmail: String
     raffleNumbers: [String]
