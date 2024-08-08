@@ -1348,9 +1348,12 @@ const resolvers = {
         console.log("Updated ticket with QR code:", ticket);
 
         const user = await User.findById(userId);
+        if (!user) throw new Error("User not found");
 
-        if (user) {
-          await resolvers.Mutation.sendEmail(null, {
+        const parent = await Parent.findOne({ children: userId });
+
+        const emailPromises = [
+          resolvers.Mutation.sendEmail(null, {
             input: {
               to: user.email,
               subject: "Entradas asignadas",
@@ -1862,8 +1865,528 @@ const resolvers = {
                 },
               ],
             },
-          });
+          }),
+        ];
+
+        if (parent) {
+          emailPromises.push(
+            resolvers.Mutation.sendEmail(null, {
+              input: {
+                to: parent.email,
+                subject: "Entradas asignadas a su hijo/a",
+                text: "Aquí están las entradas asignadas a su hijo/a.",
+                html: `<html dir="ltr" lang="en">
+              <head>
+                <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+                <meta name="x-apple-disable-message-reformatting" />
+              </head>
+              <body style="background-color: #ffffff">
+                <table
+                  align="center"
+                  width="100%"
+                  border="0"
+                  cellpadding="0"
+                  cellspacing="0"
+                  role="presentation"
+                  style="
+                    max-width: 100%;
+                    margin: 10px auto;
+                    width: 600px;
+                    border: 1px solid #e5e5e5;
+                  "
+                >
+                  <tbody>
+                    <tr style="width: 100%">
+                      <td>
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="padding: 22px 40px"
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <table
+                                  align="center"
+                                  width="100%"
+                                  border="0"
+                                  cellpadding="0"
+                                  cellspacing="0"
+                                  role="presentation"
+                                >
+                                  <tbody style="width: 100%">
+                                    <tr style="width: 100%">
+                                      <td data-id="__react-email-column">
+                                        <p
+                                          style="
+                                            font-size: 14px;
+                                            line-height: 2;
+                                            margin: 0;
+                                            font-weight: bold;
+                                            text-align: center;
+                                          "
+                                        >
+                                          Número de Entrada
+                                        </p>
+                                        <p
+                                          style="
+                                            font-size: 14px;
+                                            line-height: 1.4;
+                                            margin: 12px 0 0 0;
+                                            font-weight: 500;
+                                            color: #6f6f6f;
+                                            text-align: center;
+                                          "
+                                        >
+                                          ${ticket._id.toString()}
+                                        </p>
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                          "
+                        />
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="padding: 40px 74px; text-align: center"
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <img
+                                  alt="Banda CEDES Don Bosco"
+                                  height="120px"
+                                  src="https://res.cloudinary.com/dnv9akklf/image/upload/q_auto,f_auto/v1686511395/LOGO_BCDB_qvjabt.png"
+                                  style="
+                                    display: block;
+                                    outline: none;
+                                    border: none;
+                                    text-decoration: none;
+                                    margin: auto;
+                                  "
+                                  width="200px"
+                                />
+                                <h1
+                                  style="
+                                    font-size: 32px;
+                                    line-height: 1.3;
+                                    font-weight: 700;
+                                    text-align: center;
+                                    letter-spacing: -1px;
+                                  "
+                                >
+                                  ¡ ${event.description}!
+                                </h1>
+                                <p
+                                  style="
+                                    font-size: 14px;
+                                    line-height: 2;
+                                    margin: 0;
+                                    color: #747474;
+                                    font-weight: 500;
+                                  "
+                                >
+                                  Acá están tus entrada para el evento. Utiliza el código QR
+                                  al presentarlo en la entrada del evento.
+                                </p>
+                                <p
+                                  style="
+                                    font-size: 14px;
+                                    line-height: 2;
+                                    margin: 0;
+                                    color: #747474;
+                                    font-weight: 500;
+                                    margin-top: 24px;
+                                  "
+                                >
+                                  Antes de ingresar a la actividad, las entradas deben estar
+                                  canceladas al SINPE de la BCDB. (6445-3952) .
+                                </p>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                          "
+                        />
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="
+                            padding-left: 40px;
+                            padding-right: 40px;
+                            padding-top: 22px;
+                            padding-bottom: 22px;
+                          "
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <p
+                                  style="
+                                    font-size: 15px;
+                                    line-height: 2;
+                                    margin: auto;
+                                    font-weight: bold;
+                                    text-align: center;
+                                  "
+                                >
+                                  Entradas asignadas a:
+                                </p>
+                                <p
+                                  style="
+                                    font-size: 15px;
+                                    text-align: center;
+                                    line-height: 2;
+                                    margin: auto;
+                                    font-weight: bold;
+                                  "
+                                >
+                                  ${
+                                    user.name +
+                                    " " +
+                                    user.firstSurName +
+                                    " " +
+                                    user.secondSurName
+                                  }
+                                </p>
+                              </td>
+                            </tr>
+                            <h1
+                              style="
+                                font-size: 32px;
+                                line-height: 1.3;
+                                font-weight: 700;
+                                text-align: center;
+                                letter-spacing: -1px;
+                              "
+                            >
+                              Sus números para la rifa:
+                            </h1>
+                            <h1
+                              style="
+                                font-size: 32px;
+                                line-height: 1.3;
+                                font-weight: 700;
+                                text-align: center;
+                                letter-spacing: -1px;
+                              "
+                            >
+                              ${raffleNumbers.join(", ")}
+                            </h1>
+                          </tbody>
+                        </table>
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                          "
+                        />
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="
+                            padding-left: 40px;
+                            padding-right: 40px;
+                            padding-top: 40px;
+                            padding-bottom: 40px;
+                          "
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <table
+                                  align="center"
+                                  width="100%"
+                                  border="0"
+                                  cellpadding="0"
+                                  cellspacing="0"
+                                  role="presentation"
+                                >
+                                  <tbody style="width: 100%">
+                                    <tr style="width: 100%">
+                                      <td data-id="__react-email-column">
+                                        <img
+                                          alt="QR Code"
+                                          src="cid:qrCode"
+                                          style="
+                                            display: block;
+                                            outline: none;
+                                            border: none;
+                                            text-decoration: none;
+                                            float: left;
+                                          "
+                                          width="260px"
+                                        />
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                          "
+                        />
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="
+                            padding-left: 40px;
+                            padding-right: 40px;
+                            padding-top: 22px;
+                            padding-bottom: 22px;
+                          "
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <p
+                                  style="
+                                    font-size: 15px;
+                                    line-height: 2;
+                                    margin: auto;
+                                    font-weight: bold;
+                                    text-align: center;
+                                  "
+                                >
+                                  Fecha de reserva
+                                </p>
+                                <p
+                                  style="
+                                    font-size: 15px;
+                                    text-align: center;
+                                    line-height: 2;
+                                    margin: auto;
+                                    font-weight: bold;
+                                  "
+                                >
+                                  ${new Date().toLocaleDateString()}
+                                </p>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+            
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                          "
+                        />
+            
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                          "
+                        />
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="padding-top: 22px; padding-bottom: 22px"
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <table
+                                  align="center"
+                                  width="100%"
+                                  border="0"
+                                  cellpadding="0"
+                                  cellspacing="0"
+                                  role="presentation"
+                                >
+                                  <tbody style="width: 100%">
+                                    <tr style="width: 100%">
+                                      <p
+                                        style="
+                                          font-size: 32px;
+                                          line-height: 1.3;
+                                          margin: 16px 0;
+                                          font-weight: 700;
+                                          text-align: center;
+                                          letter-spacing: -1px;
+                                        "
+                                      >
+                                        www.bandacedesdonbosco.com
+                                      </p>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <hr
+                          style="
+                            width: 100%;
+                            border: none;
+                            border-top: 1px solid #eaeaea;
+                            border-color: #e5e5e5;
+                            margin: 0;
+                            margin-top: 12px;
+                          "
+                        />
+                        <table
+                          align="center"
+                          width="100%"
+                          border="0"
+                          cellpadding="0"
+                          cellspacing="0"
+                          role="presentation"
+                          style="padding-top: 22px; padding-bottom: 22px"
+                        >
+                          <tbody>
+                            <tr>
+                              <td>
+                                <table
+                                  align="center"
+                                  width="100%"
+                                  border="0"
+                                  cellpadding="0"
+                                  cellspacing="0"
+                                  role="presentation"
+                                >
+                                  <tbody style="width: 100%">
+                                    <tr style="width: 100%">
+                                      <p
+                                        style="
+                                          font-size: 13px;
+                                          line-height: 24px;
+                                          margin: 0;
+                                          color: #afafaf;
+                                          text-align: center;
+                                          padding-top: 30px;
+                                          padding-bottom: 30px;
+                                        "
+                                      >
+                                        Por favor contáctanos si tienes alguna pregunta. (Si
+                                        respondes a este correo, no podremos ver el
+                                        mensaje.)
+                                      </p>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                                <table
+                                  align="center"
+                                  width="100%"
+                                  border="0"
+                                  cellpadding="0"
+                                  cellspacing="0"
+                                  role="presentation"
+                                >
+                                  <tbody style="width: 100%">
+                                    <tr style="width: 100%">
+                                      <p
+                                        style="
+                                          font-size: 13px;
+                                          line-height: 24px;
+                                          margin: 0;
+                                          color: #afafaf;
+                                          text-align: center;
+                                        "
+                                      >
+                                        © 2024 Banda CEDES Don Bosco, Todos los derechos
+                                        reservados.
+                                      </p>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </body>
+            </html>
+             `,
+                context: {
+                  ticketNumber: ticket._id.toString(),
+                  eventDescription: event.description,
+                  ticketQuantity,
+                  raffleNumbers: raffleNumbers.join(", "),
+                  recipientName: user.name,
+                  recipientAddress: user.address,
+                  orderNumber: ticket._id.toString(),
+                  orderDate: new Date().toLocaleDateString(),
+                  QR_CODE_URL: qrCode,
+                },
+                attachments: [
+                  {
+                    filename: "ticket.png",
+                    content: qrCode.split(",")[1],
+                    encoding: "base64",
+                    cid: "qrCode",
+                  },
+                ],
+              },
+            })
+          );
         }
+
+        await Promise.all(emailPromises);
 
         await EventTicket.findByIdAndUpdate(eventId, {
           $inc: { totalTickets: ticketQuantity },
