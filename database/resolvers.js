@@ -1587,7 +1587,9 @@ const resolvers = {
                                 letter-spacing: -1px;
                               "
                             >
-                              ${raffleNumbers.join(", ")}
+                            ${raffleNumbers
+                              .map((number) => `<div>${number}</div>`)
+                              .join("")}
                             </h1>
                           </tbody>
                         </table>
@@ -2104,7 +2106,9 @@ const resolvers = {
                                 letter-spacing: -1px;
                               "
                             >
-                              ${raffleNumbers.join(", ")}
+                            ${raffleNumbers
+                              .map((number) => `<div>${number}</div>`)
+                              .join("")}
                             </h1>
                           </tbody>
                         </table>
@@ -2665,7 +2669,9 @@ const resolvers = {
                               letter-spacing: -1px;
                             "
                           >
-                            ${raffleNumbers.join(", ")}
+                           ${raffleNumbers
+                             .map((number) => `<div>${number}</div>`)
+                             .join("")}
                           </h1>
                         </tbody>
                       </table>
