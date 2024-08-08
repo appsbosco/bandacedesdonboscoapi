@@ -1567,6 +1567,34 @@ const resolvers = {
                                 </p>
                               </td>
                             </tr>
+
+                             <tr>
+                              <td>
+                                <p
+                                  style="
+                                    font-size: 12px;
+                                    line-height: 2;
+                                    margin: auto;
+                                    text-align: center;
+                                  "
+                                >
+                                 Si necesita más entradas contactar a:
+                                </p>
+                                  <div style="
+                                   width: 100%;
+                                    text-align: center;
+                                  " >
+                                <a href="https://wa.link/mh2ots"
+                                  style="
+                                    font-size: 12px;
+                                    text-align: center;
+                                    line-height: 2;
+                                    margin: auto;
+                                  "
+                              >Josué Chinchilla</a>
+                                 </div>
+                              </td>
+                            </tr>
                             <h1
                               style="
                                 font-size: 32px;
@@ -2084,6 +2112,35 @@ const resolvers = {
                                     user.secondSurName
                                   }
                                 </p>
+                              </td>
+                            </tr>
+                                <tr>
+                              <td>
+                                <p
+                                  style="
+                                    font-size: 12px;
+                                    line-height: 2;
+                                    margin: auto;
+                                    text-align: center;
+                                  "
+                                >
+                                 Si necesita más entradas contactar a:
+                                </p>
+                                <div style="
+                                   width: 100%;
+                                    text-align: center;
+                                  " >
+
+                                <a href="https://wa.link/mh2ots"
+                                  style="
+                                    font-size: 12px;
+                                    text-align: center;
+                                    line-height: 2;
+                                    margin: auto;
+                                  "
+                              >Josué Chinchilla</a>
+                                </div>
+
                               </td>
                             </tr>
                             <h1
