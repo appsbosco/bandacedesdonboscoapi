@@ -408,6 +408,14 @@ const typeDefs = gql`
     price: Float!
   }
 
+  type RaffleNumberInfo {
+    number: String!
+    buyerName: String
+    buyerEmail: String
+    userId: User
+    paid: Boolean
+  }
+
   #################################################
 
   # Queries
@@ -464,6 +472,7 @@ const typeDefs = gql`
 
     # Tickets
     getTickets(eventId: ID): [Ticket!]!
+    getTicketsNumbers(eventId: ID): [RaffleNumberInfo]!
     getEventsT: [EventTicket]
   }
 

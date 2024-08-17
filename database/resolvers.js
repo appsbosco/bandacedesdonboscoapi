@@ -415,6 +415,32 @@ const resolvers = {
       }
     },
 
+    getTicketsNumbers: async (_, { eventId }) => {
+      try {
+        const query = eventId ? { eventId } : {};
+        const tickets = await Ticket.find(query).populate({
+          path: "userId",
+          select: "name firstSurName secondSurName email",
+        });
+
+        // Crear un array de objetos que contengan los números de la rifa y la información del comprador
+        const allRaffleNumbers = tickets.flatMap((ticket) =>
+          ticket.raffleNumbers.map((number) => ({
+            number,
+            buyerName:
+              ticket.buyerName ||
+              `${ticket.userId?.name} ${ticket.userId?.firstSurName} ${ticket.userId?.secondSurName}`,
+            buyerEmail: ticket.buyerEmail || ticket.userId?.email,
+            paid: ticket.paid,
+          }))
+        );
+
+        return allRaffleNumbers;
+      } catch (error) {
+        console.log(error);
+        throw new Error("Failed to fetch tickets");
+      }
+    },
     getEventsT: async () => await EventTicket.find(),
   },
 
