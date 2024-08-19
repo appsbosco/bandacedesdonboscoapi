@@ -42,7 +42,13 @@ const startServer = async () => {
     },
   });
 
-  app.use(cors());
+  app.use(
+    cors({
+      origin: "*", // Permite solicitudes desde cualquier origen, asegúrate de restringir esto en producción si es necesario
+      methods: "GET,POST,PUT,DELETE,OPTIONS",
+      allowedHeaders: "Content-Type,Authorization",
+    })
+  );
 
   try {
     await server.start();
