@@ -26,6 +26,7 @@ const typeDefs = gql`
     medicalRecord: [MedicalRecord]
     inventory: [Inventory]
     notificationTokens: [String]
+    students: [User]
   }
 
   input UserInput {
@@ -88,6 +89,14 @@ const typeDefs = gql`
     user: ID!
     date: String!
     attended: String!
+  }
+
+  input AttendanceClassInput {
+    studentId: ID!
+    date: String!
+    attendanceStatus: String!
+    justification: String
+    paymentStatus: String!
   }
 
   # Medical Record
@@ -246,6 +255,17 @@ const typeDefs = gql`
     name: String
   }
 
+  ## Attendance Class
+
+  type AttendanceClass {
+    id: ID!
+    student: User!
+    instructor: User!
+    date: String!
+    attendanceStatus: String!
+    justification: String
+    paymentStatus: String!
+  }
   #################################################
   #Exalumnos
   type Exalumno {
@@ -370,6 +390,16 @@ const typeDefs = gql`
   }
 
   #################################################
+
+  input AttendanceClassInput {
+    studentId: ID!
+    date: String!
+    attendanceStatus: String!
+    justification: String
+    paymentStatus: String!
+  }
+
+  #################################################
   ############# TICKET #################
 
   #################################################
@@ -414,6 +444,20 @@ const typeDefs = gql`
     buyerEmail: String
     userId: User
     paid: Boolean
+  }
+
+  type UserStatus {
+    user: User
+    hasMedicalRecord: Boolean
+    hasAvatar: Boolean
+    hasNotificationTokens: Boolean
+  }
+
+  type UserMissingData {
+    name: String
+    instrument: String
+    missingFields: String
+    summary: String
   }
 
   #################################################
@@ -474,6 +518,18 @@ const typeDefs = gql`
     getTickets(eventId: ID): [Ticket!]!
     getTicketsNumbers(eventId: ID): [RaffleNumberInfo]!
     getEventsT: [EventTicket]
+
+    #Students instructores
+    getInstructorStudents: [User!]!
+    getInstructorStudentsAttendance(date: String!): [AttendanceClass]
+    getAllAttendances: [AttendanceClass!]!
+    getUsersByInstrument: [User!]!
+
+    usersWithoutMedicalRecord: [User]
+    usersWithoutAvatar: [User]
+    usersWithoutNotificationTokens: [User]
+    usersWithStatus: [UserStatus]
+    usersWithMissingData: [UserMissingData]
   }
 
   #################################################
@@ -596,6 +652,10 @@ const typeDefs = gql`
     ): Ticket
     updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket
     validateTicket(qrCode: String!): Ticket
+
+    ## AttendanceClass
+    assignStudentToInstructor(studentId: ID!): Boolean!
+    markAttendanceAndPayment(input: AttendanceClassInput!): AttendanceClass!
   }
 `;
 

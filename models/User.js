@@ -24,6 +24,8 @@ const UserSchema = mongoose.Schema({
   notificationTokens: [{ type: String, required: false }],
   resetPasswordToken: String,
   resetPasswordExpires: Date,
+  students: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  instructor: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
 module.exports = mongoose.model("User", UserSchema);

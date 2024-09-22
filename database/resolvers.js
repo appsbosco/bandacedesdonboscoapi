@@ -15,7 +15,7 @@ const crypto = require("crypto");
 const QRCode = require("qrcode");
 const hbs = require("nodemailer-express-handlebars");
 const path = require("path");
-
+const AttendanceClass = require("../models/ClassAttendance");
 // Hashing
 const bcrypt = require("bcrypt");
 const admin = require("firebase-admin");
@@ -442,6 +442,247 @@ const resolvers = {
       }
     },
     getEventsT: async () => await EventTicket.find(),
+
+    usersWithoutMedicalRecord: async () => {
+      const users = await User.aggregate([
+        {
+          $lookup: {
+            from: "medicalrecords", // Nombre de la colección en MongoDB
+            localField: "_id",
+            foreignField: "user",
+            as: "medicalRecord",
+          },
+        },
+        {
+          $match: {
+            medicalRecord: { $eq: [] },
+          },
+        },
+      ]);
+      return users;
+    },
+    usersWithoutAvatar: async () => {
+      const users = await User.find({
+        $or: [{ avatar: null }, { avatar: { $exists: false } }],
+      });
+      return users;
+    },
+    usersWithoutNotificationTokens: async () => {
+      const users = await User.find({
+        $or: [
+          { notificationTokens: { $exists: false } },
+          { notificationTokens: { $size: 0 } },
+        ],
+      });
+      return users;
+    },
+    usersWithStatus: async () => {
+      const usersWithStatus = await User.aggregate([
+        // Unir con la colección de fichas médicas
+        {
+          $lookup: {
+            from: "medicalrecords", // Asegúrate de que este nombre coincida con tu colección
+            localField: "_id",
+            foreignField: "user",
+            as: "medicalRecord",
+          },
+        },
+        // Proyectar los campos necesarios y calcular los indicadores
+        {
+          $project: {
+            user: {
+              _id: "$_id",
+              name: "$name",
+              firstSurName: "$firstSurName",
+              secondSurName: "$secondSurName",
+              email: "$email",
+              // ... otros campos del usuario que quieras incluir
+            },
+            hasMedicalRecord: {
+              $gt: [{ $size: "$medicalRecord" }, 0],
+            },
+            hasAvatar: {
+              $cond: [{ $ifNull: ["$avatar", false] }, true, false],
+            },
+            hasNotificationTokens: {
+              $gt: [{ $size: { $ifNull: ["$notificationTokens", []] } }, 0],
+            },
+          },
+        },
+      ]);
+
+      return usersWithStatus;
+    },
+
+    usersWithMissingData: async () => {
+      const usersWithMissingData = await User.aggregate([
+        // Unir con la colección de fichas médicas
+        {
+          $lookup: {
+            from: "medicalrecords",
+            localField: "_id",
+            foreignField: "user",
+            as: "medicalRecord",
+          },
+        },
+        // Calcular los campos faltantes y proyectar instrument
+        {
+          $project: {
+            name: {
+              $trim: {
+                input: {
+                  $concat: [
+                    "$name",
+                    " ",
+                    "$firstSurName",
+                    " ",
+                    "$secondSurName",
+                  ],
+                },
+              },
+            },
+            instrument: 1, // Incluir instrument
+            missingFieldsArray: {
+              $concatArrays: [
+                {
+                  $cond: [
+                    { $gt: [{ $size: "$medicalRecord" }, 0] },
+                    [],
+                    ["Ficha Médica"],
+                  ],
+                },
+                {
+                  $cond: [{ $ifNull: ["$avatar", false] }, [], ["Avatar"]],
+                },
+                {
+                  $cond: [
+                    {
+                      $gt: [
+                        { $size: { $ifNull: ["$notificationTokens", []] } },
+                        0,
+                      ],
+                    },
+                    [],
+                    ["Tokens de Notificación"],
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        // Filtrar usuarios que les falta al menos un campo
+        {
+          $match: {
+            missingFieldsArray: { $ne: [] },
+          },
+        },
+        // Combinar los campos faltantes en un solo string
+        {
+          $addFields: {
+            missingFields: {
+              $reduce: {
+                input: "$missingFieldsArray",
+                initialValue: "",
+                in: {
+                  $concat: [
+                    "$$value",
+                    {
+                      $cond: [{ $eq: ["$$value", ""] }, "", ", "],
+                    },
+                    "$$this",
+                  ],
+                },
+              },
+            },
+          },
+        },
+        // Agregar el campo summary incluyendo instrument
+        {
+          $addFields: {
+            summary: {
+              $concat: [
+                "Nombre: ",
+                "$name",
+                ", Instrumento: ",
+                { $ifNull: ["$instrument", "No especificado"] },
+                " - Pendiente de llenar: ",
+                "$missingFields",
+              ],
+            },
+          },
+        },
+        // Eliminar el campo temporal missingFieldsArray
+        {
+          $project: {
+            missingFieldsArray: 0,
+          },
+        },
+      ]);
+
+      return usersWithMissingData;
+    },
+
+    // Resolver para obtener estudiantes asignados al instructor
+    getInstructorStudents: async (_, {}, ctx) => {
+      console.log(ctx.user);
+      if (!ctx.user || ctx.user.role !== "Instructor de instrumento") {
+        throw new Error("No autorizado");
+      }
+      const instructor = await User.findById(ctx.user.id).populate("students");
+      return instructor.students;
+    },
+
+    // Resolver para obtener asistencias de los estudiantes asignados al instructor
+    getInstructorStudentsAttendance: async (_, { date }, ctx) => {
+      if (!ctx.user || ctx.user.role !== "Instructor de instrumento") {
+        throw new Error("No autorizado");
+      }
+
+      // Convierte la fecha proporcionada a un objeto Date y normaliza la hora
+      const selectedDate = new Date(date);
+      selectedDate.setHours(0, 0, 0, 0);
+
+      // Establece el rango de la fecha seleccionada para cubrir todo el día
+      const nextDate = new Date(selectedDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      // Busca los registros de asistencia para la fecha seleccionada
+      const attendances = await AttendanceClass.find({
+        instructor: ctx.user.id,
+        date: {
+          $gte: selectedDate,
+          $lt: nextDate,
+        },
+      })
+        .populate("student")
+        .populate("instructor");
+
+      return attendances;
+    },
+
+    getUsersByInstrument: async (_, {}, ctx) => {
+      if (!ctx.user || ctx.user.role !== "Instructor de instrumento") {
+        throw new Error("No autorizado");
+      }
+      const students = await User.find({
+        instrument: ctx.user.instrument,
+        role: { $ne: "Instructor de instrumento" },
+      });
+      return students;
+    },
+
+    // Resolver para obtener todas las asistencias y pagos
+    getAllAttendances: async (_, {}, ctx) => {
+      if (!ctx.user || ctx.user.role !== "Admin") {
+        throw new Error("No autorizado");
+      }
+
+      const attendances = await AttendanceClass.find({})
+        .populate("student")
+        .populate("instructor");
+
+      return attendances;
+    },
   },
 
   // #################################################
@@ -1093,6 +1334,89 @@ const resolvers = {
     },
 
     // #################################################
+    // Resolver para que un instructor se asigne a un estudiante
+    assignStudentToInstructor: async (_, { studentId }, { user }) => {
+      if (!user || user.role !== "Instructor de instrumento") {
+        throw new Error("No autorizado");
+      }
+
+      // Obtener estudiante
+      const student = await User.findById(studentId);
+      if (!student) {
+        throw new Error("Estudiante no encontrado");
+      }
+
+      // Verificar que el instrumento del estudiante coincida con el del instructor
+      if (student.instrument !== user.instrument) {
+        throw new Error(
+          "El estudiante no toca el mismo instrumento que el instructor"
+        );
+      }
+
+      // Verificar que el estudiante no sea un instructor
+      if (student.role === "Instructor de instrumento") {
+        throw new Error("No puedes asignar a otro instructor");
+      }
+
+      // Asignar estudiante al instructor
+      await User.findByIdAndUpdate(user.id, {
+        $addToSet: { students: studentId },
+      });
+      // Asignar instructor al estudiante
+      await User.findByIdAndUpdate(studentId, { instructor: user.id });
+
+      return true;
+    },
+
+    // Resolver para crear un registro de asistencia y pago
+    markAttendanceAndPayment: async (_, { input }, { user }) => {
+      if (!user || user.role !== "Instructor de instrumento") {
+        throw new Error("No autorizado");
+      }
+
+      const {
+        studentId,
+        date,
+        attendanceStatus,
+        justification,
+        paymentStatus,
+      } = input;
+
+      // Verificar que el estudiante esté asignado al instructor
+      const instructor = await User.findById(user.id);
+      if (!instructor.students.includes(studentId)) {
+        throw new Error("El estudiante no está asignado a este instructor");
+      }
+
+      // Buscar si ya existe un registro de asistencia para el estudiante en la fecha dada
+      let attendance = await AttendanceClass.findOne({
+        student: studentId,
+        instructor: user.id,
+        date: new Date(date).setHours(0, 0, 0, 0), // Ignorar horas, minutos, segundos
+      });
+
+      if (attendance) {
+        // Actualizar registro existente
+        attendance.attendanceStatus = attendanceStatus;
+        attendance.justification = justification;
+        attendance.paymentStatus = paymentStatus;
+      } else {
+        // Crear nuevo registro
+        attendance = new AttendanceClass({
+          student: studentId,
+          instructor: user.id,
+          date: new Date(date).setHours(0, 0, 0, 0),
+          attendanceStatus,
+          justification,
+          paymentStatus,
+        });
+      }
+
+      await attendance.save();
+      return attendance;
+    },
+
+    // #################################################
     // Exalumnos
 
     addExAlumno: async (_, { input }) => {
@@ -1176,6 +1500,7 @@ const resolvers = {
       // Utiliza flatMap para aplanar todos los tokens en un solo arreglo
       const tokens = users.flatMap((user) => user.notificationTokens);
 
+      console.log(tokens);
       // console.log(tokens);
 
       // 3. Enviar la notificación a todos los tokens, si es que existen
@@ -1198,6 +1523,7 @@ const resolvers = {
           tokens: tokens,
         };
 
+        admin.messaging().sendMulticast(message);
         admin
           .messaging()
           .sendMulticast(message)
@@ -1205,9 +1531,21 @@ const resolvers = {
             console.log(
               `${response.successCount} mensajes fueron enviados exitosamente.`
             );
+            console.log(`${response.failureCount} mensajes fallaron.`);
+
+            response.responses.forEach((resp, idx) => {
+              if (!resp.success) {
+                console.log(`Error en el token en índice ${idx}:`, resp.error);
+              }
+            });
           })
+
           .catch((error) => {
-            console.log("Error al enviar la notificación:", error);
+            console.error("Error al enviar la notificación:", error);
+            console.error(
+              "Detalles del error:",
+              JSON.stringify(error, null, 2)
+            );
           });
       }
 
@@ -1621,7 +1959,7 @@ const resolvers = {
                                  </div>
                               </td>
                             </tr>
-                            <h1
+                           <!--  <h1
                               style="
                                 font-size: 32px;
                                 line-height: 1.3;
@@ -1631,7 +1969,7 @@ const resolvers = {
                               "
                             >
                               Sus números para la rifa:
-                            </h1>
+                            </h1>-->
                             <h1
                               style="
                                 font-size: 32px;
@@ -2169,7 +2507,7 @@ const resolvers = {
 
                               </td>
                             </tr>
-                            <h1
+                         <!--  <h1
                               style="
                                 font-size: 32px;
                                 line-height: 1.3;
@@ -2179,7 +2517,7 @@ const resolvers = {
                               "
                             >
                               Sus números para la rifa:
-                            </h1>
+                            </h1>-->
                             <h1
                               style="
                                 font-size: 32px;
@@ -2732,17 +3070,17 @@ const resolvers = {
                               </p>
                             </td>
                           </tr>
-                          <h1
-                            style="
-                              font-size: 32px;
-                              line-height: 1.3;
-                              font-weight: 700;
-                              text-align: center;
-                              letter-spacing: -1px;
-                            "
-                          >
-                            Sus números para la rifa:
-                          </h1>
+                      <!--  <h1
+                              style="
+                                font-size: 32px;
+                                line-height: 1.3;
+                                font-weight: 700;
+                                text-align: center;
+                                letter-spacing: -1px;
+                              "
+                            >
+                              Sus números para la rifa:
+                            </h1>-->
                           <h1
                             style="
                               font-size: 32px;
