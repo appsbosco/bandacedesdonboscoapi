@@ -1421,11 +1421,32 @@ const resolvers = {
 
     addExAlumno: async (_, { input }) => {
       try {
+        if (input.instrument === "Percusión") {
+          const count = await Exalumno.countDocuments({
+            instrument: "Percusión",
+          });
+          if (count >= 6) {
+            throw new Error(
+              "El cupo para Percusión está lleno. No se permiten más inscripciones para Percusión."
+            );
+          }
+        }
+
+        if (input.instrument === "Mallets") {
+          const count = await Exalumno.countDocuments({
+            instrument: "Mallets",
+          });
+          if (count >= 3) {
+            throw new Error(
+              "El cupo para Mallets está lleno. No se permiten más inscripciones para Percusión."
+            );
+          }
+        }
         const newExAlumno = new Exalumno(input);
         return await newExAlumno.save();
       } catch (error) {
         console.error(error);
-        throw new Error("Failed to add ex-alumno.");
+        throw new Error(error.message || "Failed to add ex-alumno.");
       }
     },
 
