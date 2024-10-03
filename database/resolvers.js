@@ -1347,11 +1347,11 @@ const resolvers = {
       }
 
       // Verificar que el instrumento del estudiante coincida con el del instructor
-      if (student.instrument !== user.instrument) {
-        throw new Error(
-          "El estudiante no toca el mismo instrumento que el instructor"
-        );
-      }
+      // if (student.instrument !== user.instrument) {
+      //   throw new Error(
+      //     "El estudiante no toca el mismo instrumento que el instructor"
+      //   );
+      // }
 
       // Verificar que el estudiante no sea un instructor
       if (student.role === "Instructor de instrumento") {
