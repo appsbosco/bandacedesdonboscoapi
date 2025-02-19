@@ -630,7 +630,7 @@ const typeDefs = gql`
     completeOrder(orderId: ID!): Order
 
     upgradeUserGrades: Boolean!
-
+    updateUserState: Boolean!
     updateNotificationToken(userId: ID!, token: String!): User
 
     # Tickets

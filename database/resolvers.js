@@ -20,7 +20,7 @@ const AttendanceClass = require("../models/ClassAttendance");
 const bcrypt = require("bcrypt");
 const admin = require("firebase-admin");
 
-const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-d6e7d65d9d.json");
+const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-f234733af3.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -1047,7 +1047,10 @@ const resolvers = {
 
     // Medical Record
     newMedicalRecord: async (_, { input }, ctx) => {
-      // Assign to  user
+      if (!ctx.user || !ctx.user.id) {
+        throw new Error("User not authenticated");
+      }
+      // Assign to user
       input.user = ctx.user.id;
 
       // Save in the database
@@ -1057,9 +1060,11 @@ const resolvers = {
 
         return medicalRecord;
       } catch (error) {
-        console.log(error);
+        console.error("Error saving medical record:", error);
+        throw new Error(`Error saving medical record: ${error.message}`);
       }
     },
+
     updateMedicalRecord: async (_, { id, input }) => {
       try {
         // Check if the medical record exists
@@ -1500,77 +1505,67 @@ const resolvers = {
         closingDate,
       }
     ) => {
-      const newProduct = new Product({
-        name,
-        description,
-        category,
-        price,
-        availableForDays,
-        photo,
-        closingDate: new Date(closingDate),
-      });
+      try {
+        const newProduct = new Product({
+          name,
+          description,
+          category,
+          price,
+          availableForDays,
+          photo,
+          closingDate: new Date(closingDate),
+        });
 
-      // 1. Guardar el nuevo producto en la base de datos
-      await newProduct.save();
+        // 1. Guardar el nuevo producto en la base de datos
+        await newProduct.save();
 
-      // 2. Obtener todos los tokens de notificaciones de los usuarios que deseen recibir notificaciones
-      const users = await User.find({
-        notificationTokens: { $exists: true, $ne: [] }, // Asegúrate de que existen tokens y el arreglo no está vacío
-      });
+        // 2. Obtener todos los tokens de notificaciones de los usuarios que deseen recibir notificaciones
+        const users = await User.find({
+          notificationTokens: { $exists: true, $ne: [] }, // Asegúrate de que existen tokens y el arreglo no está vacío
+        });
 
-      // Utiliza flatMap para aplanar todos los tokens en un solo arreglo
-      const tokens = users.flatMap((user) => user.notificationTokens);
+        // Utiliza flatMap para aplanar todos los tokens en un solo arreglo
+        const tokens = users.flatMap((user) => user.notificationTokens);
 
-      console.log(tokens);
-      // console.log(tokens);
+        console.log(tokens);
+        // console.log(tokens);
 
-      // 3. Enviar la notificación a todos los tokens, si es que existen
-      if (tokens.length > 0) {
-        const message = {
-          notification: {
-            title: "Banda CEDES Don Bosco - Nuevo Producto Disponible",
-            body: "Un nuevo producto ha sido añadido y ya puedes hacer la solicitud de tus almuerzos.",
-            // sound: "default",
-          },
-          webpush: {
-            headers: {
-              Urgency: "high",
-            },
+        // 3️⃣ Enviar la notificación solo si hay tokens
+        if (tokens.length > 0) {
+          const message = {
             notification: {
-              icon: "../config/Icons-01.jpg",
-              badge: "../config/Icons-01.jpg",
+              title: "Banda CEDES Don Bosco - Nuevo Producto Disponible",
+              body: "Un nuevo producto ha sido añadido y ya puedes hacer la solicitud de tu almuerzo.",
             },
-          },
-          tokens: tokens,
-        };
+            tokens: tokens,
+          };
 
-        admin.messaging().sendMulticast(message);
-        admin
-          .messaging()
-          .sendMulticast(message)
-          .then((response) => {
-            console.log(
-              `${response.successCount} mensajes fueron enviados exitosamente.`
-            );
-            console.log(`${response.failureCount} mensajes fallaron.`);
+          // 🔹 Se usa `sendEachForMulticast()` en lugar de `sendMulticast()`
+          const response = await admin
+            .messaging()
+            .sendEachForMulticast(message);
+          console.log(
+            `${response.successCount} mensajes fueron enviados exitosamente.`
+          );
 
+          // 4️⃣ Manejo de errores en el envío de notificaciones
+          if (response.failureCount > 0) {
             response.responses.forEach((resp, idx) => {
               if (!resp.success) {
                 console.log(`Error en el token en índice ${idx}:`, resp.error);
               }
             });
-          })
+          }
+        }
 
-          .catch((error) => {
-            console.error("Error al enviar la notificación:", error);
-            console.error(
-              "Detalles del error:",
-              JSON.stringify(error, null, 2)
-            );
-          });
+        return newProduct;
+      } catch (error) {
+        console.error(
+          "Error al crear el producto o enviar notificación:",
+          error
+        );
+        throw new Error("Hubo un problema al crear el producto.");
       }
-
-      return newProduct;
     },
 
     updateProduct: async (
@@ -1646,6 +1641,19 @@ const resolvers = {
       }
     },
 
+    updateUserState: async () => {
+      try {
+        const users = await User.find({}); // Encuentra todos los usuarios
+        for (const user of users) {
+          if (user.grade === "") {
+            user.state = "Exalumno";
+            await user.save(); // Guarda los cambios en la base de datos
+          }
+        }
+
+        return true;
+      } catch (error) {}
+    },
     //Notifcation tokens
     updateNotificationToken: async (_, { userId, token }) => {
       try {

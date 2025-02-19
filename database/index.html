@@ -1,0 +1,513 @@
+`
+<html dir="ltr" lang="en">
+  <head>
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+    <meta name="x-apple-disable-message-reformatting" />
+  </head>
+  <body style="background-color: #ffffff">
+    <table
+      align="center"
+      width="100%"
+      border="0"
+      cellpadding="0"
+      cellspacing="0"
+      role="presentation"
+      style="
+        max-width: 100%;
+        margin: 10px auto;
+        width: 600px;
+        border: 1px solid #e5e5e5;
+      "
+    >
+      <tbody>
+        <tr style="width: 100%">
+          <td>
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding: 22px 40px"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <td data-id="__react-email-column">
+                            <p
+                              style="
+                                font-size: 14px;
+                                line-height: 2;
+                                margin: 0;
+                                font-weight: bold;
+                                text-align: center;
+                              "
+                            >
+                              Your booking code
+                            </p>
+                            <p
+                              style="
+                                font-size: 14px;
+                                line-height: 2;
+                                margin: 0;
+                                font-weight: bold;
+                                text-align: center;
+                              "
+                            >
+                              ${reservationCode}
+                            </p>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding: 40px 74px; text-align: center"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <img
+                      alt="VIP HELI SERVICES LOGO"
+                      height="120px"
+                      src="https://res.cloudinary.com/dxte5hd7h/image/upload/f_auto,q_auto/rfy7d9apk2snjayxpl7x"
+                      style="
+                        display: block;
+                        outline: none;
+                        border: none;
+                        text-decoration: none;
+                        margin: auto;
+                      "
+                      width="100%"
+                    />
+                    <h1
+                      style="
+                        font-size: 32px;
+                        line-height: 1.3;
+                        font-weight: 700;
+                        text-align: center;
+                        letter-spacing: -1px;
+                      "
+                    >
+                      ¡Your booking is confirmed!
+                    </h1>
+                    <p
+                      style="
+                        font-size: 14px;
+                        line-height: 2;
+                        margin: 0;
+                        color: #747474;
+                        font-weight: 500;
+                      "
+                    >
+                      Here are your flight details for your reservation:
+                    </p>
+                    <p
+                      style="
+                        font-size: 14px;
+                        line-height: 2;
+                        margin: 0;
+                        color: #747474;
+                        font-weight: 500;
+                        margin-top: 24px;
+                      "
+                    >
+                      <strong>From:</strong>
+                      ${session.itinerary.departureAirport.name}<br />
+                      <strong>To:</strong>
+                      ${session.itinerary.arrivalAirport.name}<br />
+                      <strong>Departure Date:</strong>
+                      ${session.itinerary.departureDate}<br />
+                      <strong>Trip Type:</strong> ${session.itinerary.tripType}
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="
+                padding-left: 40px;
+                padding-right: 40px;
+                padding-top: 22px;
+                padding-bottom: 22px;
+              "
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 15px;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                        text-align: center;
+                      "
+                    >
+                      Reserved for:
+                    </p>
+                    <p
+                      style="
+                        font-size: 15px;
+                        text-align: center;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                      "
+                    >
+                      ${session.bookingHolder.firstName}
+                      ${session.bookingHolder.firstSurName}
+                    </p>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 12px;
+                        line-height: 2;
+                        margin: auto;
+                        text-align: center;
+                      "
+                    >
+                      For further assistance, please contact:
+                    </p>
+                    <div style="width: 100%; text-align: center">
+                      <a
+                        href="mailto:help@vipheliservices.com"
+                        style="
+                          font-size: 12px;
+                          text-align: center;
+                          line-height: 2;
+                          margin: auto;
+                        "
+                        >help@vipheliservices.com</a
+                      >
+                    </div>
+                  </td>
+                </tr>
+                <!--  <h1
+                              style="
+                                font-size: 32px;
+                                line-height: 1.3;
+                                font-weight: 700;
+                                text-align: center;
+                                letter-spacing: -1px;
+                              "
+                            >
+                              Sus números para la rifa:
+                            </h1>-->
+                <!-- <h1
+                  style="
+                    font-size: 32px;
+                    line-height: 1.3;
+                    font-weight: 700;
+                    text-align: center;
+                    letter-spacing: -1px;
+                  "
+                >
+                  ${raffleNumbers .map((number) => `
+                  <div>${number}</div>
+                  `) .join("")}
+                </h1> -->
+              </tbody>
+            </table>
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="
+                padding-left: 40px;
+                padding-right: 40px;
+                padding-top: 40px;
+                padding-bottom: 40px;
+              "
+            >
+              <!-- <tbody>
+                <tr>
+                  <td>
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <td data-id="__react-email-column">
+                            <img
+                              alt="QR Code"
+                              src="cid:qrCode"
+                              style="
+                                display: block;
+                                outline: none;
+                                border: none;
+                                text-decoration: none;
+                                float: left;
+                              "
+                              width="260px"
+                            />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody> -->
+            </table>
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="
+                padding-left: 40px;
+                padding-right: 40px;
+                padding-top: 22px;
+                padding-bottom: 22px;
+              "
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 15px;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                        text-align: center;
+                      "
+                    >
+                      Booking Date
+                    </p>
+                    <p
+                      style="
+                        font-size: 15px;
+                        text-align: center;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                      "
+                    >
+                      ${new Date().toLocaleDateString()}
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding-top: 22px; padding-bottom: 22px"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <p
+                            style="
+                              font-size: 32px;
+                              line-height: 1.3;
+                              margin: 16px 0;
+                              font-weight: 700;
+                              text-align: center;
+                              letter-spacing: -1px;
+                            "
+                          >
+                            www.vipheliservices.com
+                          </p>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+                margin-top: 12px;
+              "
+            />
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding-top: 22px; padding-bottom: 22px"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <p
+                            style="
+                              font-size: 13px;
+                              line-height: 24px;
+                              margin: 0;
+                              color: #afafaf;
+                              text-align: center;
+                              padding-top: 30px;
+                              padding-bottom: 30px;
+                            "
+                          >
+                            Please contact us if you have any questions.
+                            (Replies to this email are not monitored.)
+                          </p>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <p
+                            style="
+                              font-size: 13px;
+                              line-height: 24px;
+                              margin: 0;
+                              color: #afafaf;
+                              text-align: center;
+                            "
+                          >
+                            © 2024 VIP Heli Services, All rights reserved.
+                          </p>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </body>
+</html>
+`
