@@ -128,10 +128,16 @@ const resolvers = {
 
     getUsers: async () => {
       try {
-        const users = await User.find({});
+        const users = await User.find({}).sort({
+          firstSurName: 1,
+          secondSurName: 1,
+          name: 1,
+        });
+
         return users;
       } catch (error) {
         console.log(error);
+        throw new Error("Error fetching users");
       }
     },
 
@@ -160,10 +166,15 @@ const resolvers = {
 
     getParents: async () => {
       try {
-        const parents = await Parent.find({});
+        const parents = await Parent.find({}).sort({
+          firstSurName: 1,
+          secondSurName: 1,
+          name: 1,
+        });
         return parents;
       } catch (error) {
         console.log(error);
+        throw new Error("Error fetching parents");
       }
     },
 
