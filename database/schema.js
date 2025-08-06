@@ -655,6 +655,7 @@ const typeDefs = gql`
       eventId: ID!
       buyerName: String!
       buyerEmail: String!
+      ticketQuantity: Int!
     ): Ticket!
 
     updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket

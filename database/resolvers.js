@@ -3421,7 +3421,10 @@ const resolvers = {
       }
     },
 
-    sendCourtesyTicket: async (_, { eventId, buyerName, buyerEmail }) => {
+    sendCourtesyTicket: async (
+      _,
+      { eventId, buyerName, buyerEmail, ticketQuantity }
+    ) => {
       try {
         const event = await EventTicket.findById(eventId);
         if (!event) throw new Error("Event not found");
@@ -3429,7 +3432,7 @@ const resolvers = {
         const ticket = new Ticket({
           eventId,
           type: "courtesy",
-          ticketQuantity: 2,
+          ticketQuantity,
           buyerName,
           buyerEmail,
           qrCode: "", // Se asignará después
@@ -3440,12 +3443,12 @@ const resolvers = {
 
         // QR válido con el ticket._id real
         const qrCodeData = JSON.stringify({
-          ticketId: ticket._id.toString(),
+          ticketId: ticket._id.toString(), // Incluir el ticketId
           eventId: eventId.toString(),
           type: "courtesy",
         });
 
-        const qrCodeImage = await QRCode.toDataURL(qrCodeData);
+        const qrCode = await QRCode.toDataURL(qrCodeData);
 
         // Asignar QR al ticket y guardar
         ticket.qrCode = qrCodeData;
@@ -5698,10 +5701,11 @@ const resolvers = {
   </body>
 </html>
             `,
+
             attachments: [
               {
                 filename: "entrada-cortesia.png",
-                content: qrCodeImage.split(",")[1],
+                content: qrCode.split(",")[1],
                 encoding: "base64",
                 cid: "qrCode",
               },
