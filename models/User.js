@@ -28,4 +28,6 @@ const UserSchema = mongoose.Schema({
   instructor: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
 });
 
+UserSchema.index({ firstSurName: 1, secondSurName: 1, name: 1 });
+
 module.exports = mongoose.model("User", UserSchema);

@@ -650,6 +650,13 @@ const typeDefs = gql`
       buyerEmail: String!
       ticketQuantity: Int!
     ): Ticket
+
+    sendCourtesyTicket(
+      eventId: ID!
+      buyerName: String!
+      buyerEmail: String!
+    ): Ticket!
+
     updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket
     validateTicket(qrCode: String!): Ticket
 

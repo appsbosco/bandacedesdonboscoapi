@@ -19,6 +19,7 @@ const AttendanceClass = require("../models/ClassAttendance");
 // Hashing
 const bcrypt = require("bcrypt");
 const admin = require("firebase-admin");
+const mongoose = require("mongoose");
 
 const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-f234733af3.json");
 
@@ -125,22 +126,21 @@ const resolvers = {
         console.log(error);
       }
     },
-
     getUsers: async () => {
-      try {
-        const users = await User.find({}).sort({
-          firstSurName: 1,
-          secondSurName: 1,
-          name: 1,
-        });
+      console.time("getUsers");
 
+      try {
+        const users = await User.find({})
+          .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
+          .lean({ virtuals: false }); // sin instancias Mongoose, mucho más rápido
+
+        console.timeEnd("getUsers");
         return users;
       } catch (error) {
-        console.log(error);
+        console.error(error);
         throw new Error("Error fetching users");
       }
     },
-
     getParent: async (_, {}, ctx) => {
       try {
         // Retrieve the parent from the database and populate the 'children' field
@@ -837,6 +837,8 @@ const resolvers = {
       if (!isValidPassword) {
         throw new Error("La contraseña es incorrecta");
       }
+
+      console.log("JWT_SECRET used to sign:", process.env.JWT_SECRET);
 
       // Return a token or session to authenticate the user
       return {
@@ -1743,13 +1745,10 @@ const resolvers = {
           eventId: eventId.toString(),
           type,
         });
-        console.log("Generated QR code data:", qrCodeData);
         const qrCode = await QRCode.toDataURL(qrCodeData);
-        console.log("Generated QR code:", qrCode);
 
         ticket.qrCode = qrCode;
         await ticket.save();
-        console.log("Updated ticket with QR code:", ticket);
 
         const user = await User.findById(userId);
         if (!user) throw new Error("User not found");
@@ -2896,13 +2895,10 @@ const resolvers = {
           eventId: eventId.toString(),
           type: "purchased",
         });
-        console.log("Generated QR code data:", qrCodeData);
         const qrCode = await QRCode.toDataURL(qrCodeData);
-        console.log("Generated QR code:", qrCode);
 
         ticket.qrCode = qrCodeData;
         await ticket.save();
-        console.log("Updated ticket with QR code:", ticket);
 
         await resolvers.Mutation.sendEmail(null, {
           input: {
@@ -3425,6 +3421,2304 @@ const resolvers = {
       }
     },
 
+    sendCourtesyTicket: async (_, { eventId, buyerName, buyerEmail }) => {
+      try {
+        const event = await EventTicket.findById(eventId);
+        if (!event) throw new Error("Event not found");
+
+        const ticket = new Ticket({
+          eventId,
+          type: "courtesy",
+          ticketQuantity: 2,
+          buyerName,
+          buyerEmail,
+          qrCode: "", // Se asignará después
+          paid: true, // Marcar como pagado
+        });
+
+        await ticket.save();
+
+        // QR válido con el ticket._id real
+        const qrCodeData = JSON.stringify({
+          ticketId: ticket._id.toString(),
+          eventId: eventId.toString(),
+          type: "courtesy",
+        });
+
+        const qrCodeImage = await QRCode.toDataURL(qrCodeData);
+
+        // Asignar QR al ticket y guardar
+        ticket.qrCode = qrCodeData;
+        await ticket.save();
+
+        await resolvers.Mutation.sendEmail(null, {
+          input: {
+            to: buyerEmail,
+            subject: "🎟 Entrada de cortesía - 60 Aniversario BCDB",
+            text: "Gracias por acompañarnos. Aquí está tu entrada.",
+            html: `
+            <html
+  xmlns:v="urn:schemas-microsoft-com:vml"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  lang="en"
+>
+  <head>
+    <title></title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--[if mso]>
+      <xml
+        ><w:WordDocument xmlns:w="urn:schemas-microsoft-com:office:word"
+          ><w:DontUseAdvancedTypographyReadingMail
+        /></w:WordDocument>
+        <o:OfficeDocumentSettings
+          ><o:PixelsPerInch>96</o:PixelsPerInch
+          ><o:AllowPNG /></o:OfficeDocumentSettings
+      ></xml>
+    <![endif]-->
+    <!--[if !mso]><!-->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Oswald:wght@100;200;300;400;500;600;700;800;900"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <!--<![endif]-->
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+      }
+
+      a[x-apple-data-detectors] {
+        color: inherit !important;
+        text-decoration: inherit !important;
+      }
+
+      #MessageViewBody a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      p {
+        line-height: inherit;
+      }
+
+      .desktop_hide,
+      .desktop_hide table {
+        mso-hide: all;
+        display: none;
+        max-height: 0px;
+        overflow: hidden;
+      }
+
+      .image_block img + div {
+        display: none;
+      }
+
+      sup,
+      sub {
+        font-size: 75%;
+        line-height: 0;
+      }
+
+      .row-2 .column-1 .block-3 .button:hover,
+      .row-7 .column-1 .block-3 .button:hover,
+      .row-8 .column-2 .block-1 .button:hover {
+        background-color: #fff8e6 !important;
+        border-bottom: 1px solid #ffc75e !important;
+        border-left: 1px solid #ffc75e !important;
+        border-right: 1px solid #ffc75e !important;
+        border-top: 1px solid #ffc75e !important;
+        color: #5a3b36 !important;
+      }
+
+      @media (max-width: 720px) {
+        .desktop_hide table.icons-inner,
+        .row-8 .column-2 .block-1.button_block .alignment .button,
+        .social_block.desktop_hide .social-table {
+          display: inline-block !important;
+        }
+
+        .icons-inner {
+          text-align: center;
+        }
+
+        .icons-inner td {
+          margin: 0 auto;
+        }
+
+        .image_block div.fullWidth {
+          max-width: 100% !important;
+        }
+
+        .mobile_hide {
+          display: none;
+        }
+
+        .row-content {
+          width: 100% !important;
+        }
+
+        .stack .column {
+          width: 100%;
+          display: block;
+        }
+
+        .mobile_hide {
+          min-height: 0;
+          max-height: 0;
+          max-width: 0;
+          overflow: hidden;
+          font-size: 0px;
+        }
+
+        .desktop_hide,
+        .desktop_hide table {
+          display: table !important;
+          max-height: none !important;
+        }
+
+        .reverse {
+          display: table;
+          width: 100%;
+        }
+
+        .reverse .column.first {
+          display: table-footer-group !important;
+        }
+
+        .reverse .column.last {
+          display: table-header-group !important;
+        }
+
+        .row-4 td.column.first .border {
+          padding: 0 15px;
+        }
+
+        .row-4 td.column.last .border {
+          padding: 0;
+        }
+
+        .row-1 .column-1 .block-3.heading_block h3,
+        .row-3 .column-2 .block-2.heading_block h3,
+        .row-4 .column-1 .block-2.heading_block h3,
+        .row-5 .column-1 .block-1.heading_block h3,
+        .row-8 .column-1 .block-1.heading_block h3 {
+          font-size: 25px !important;
+        }
+
+        .row-1 .column-1 .block-4.heading_block h1 {
+          font-size: 75px !important;
+        }
+
+        .row-2 .column-1 .block-2.paragraph_block td.pad {
+          padding: 10px !important;
+        }
+
+        .row-2 .column-1 .block-5.heading_block h2,
+        .row-5 .column-1 .block-2.heading_block h2 {
+          font-size: 45px !important;
+        }
+
+        .row-5 .column-1 .block-2.heading_block td.pad {
+          padding: 10px 25px !important;
+        }
+
+        .row-6 .column-1 .block-1.heading_block h3,
+        .row-6 .column-2 .block-1.paragraph_block td.pad > div,
+        .row-6 .column-2 .block-3.paragraph_block td.pad > div,
+        .row-6 .column-2 .block-5.paragraph_block td.pad > div,
+        .row-6 .column-2 .block-7.paragraph_block td.pad > div {
+          text-align: left !important;
+        }
+
+        .row-6 .column-2 .block-1.paragraph_block td.pad,
+        .row-6 .column-2 .block-2.divider_block td.pad,
+        .row-6 .column-2 .block-3.paragraph_block td.pad,
+        .row-6 .column-2 .block-4.divider_block td.pad,
+        .row-6 .column-2 .block-5.paragraph_block td.pad,
+        .row-6 .column-2 .block-6.divider_block td.pad,
+        .row-6 .column-2 .block-7.paragraph_block td.pad {
+          padding: 5px 10px !important;
+        }
+
+        .row-6 .column-2 .block-2.divider_block .alignment table,
+        .row-6 .column-2 .block-4.divider_block .alignment table,
+        .row-6 .column-2 .block-6.divider_block .alignment table {
+          display: inline-table;
+        }
+
+        .row-7 .column-1 .block-1.spacer_block {
+          height: 150px !important;
+        }
+
+        .row-7 .column-1 .block-4.spacer_block {
+          height: 10px !important;
+        }
+
+        .row-8 .column-1 .block-1.heading_block h3,
+        .row-8 .column-2 .block-1.button_block .alignment {
+          text-align: center !important;
+        }
+
+        .row-8 .column-2 .block-1.button_block span {
+          line-height: 36px !important;
+        }
+
+        .row-6 .row-content {
+          padding: 0 35px 25px !important;
+        }
+
+        .row-8 .row-content {
+          padding: 25px 15px 15px !important;
+        }
+
+        .row-9 .row-content {
+          padding: 0 0 25px !important;
+        }
+
+        .row-3 .column-2,
+        .row-4 .column-1 .border {
+          padding: 15px !important;
+        }
+
+        .row-6 .column-1 {
+          padding: 5px !important;
+        }
+
+        .row-7 .column-1 {
+          padding: 5px 25px !important;
+        }
+
+        .row-9 .column-1 {
+          padding: 0 3px 0 6px !important;
+        }
+
+        .row-9 .column-2 {
+          padding: 0 3px !important;
+        }
+
+        .row-9 .column-3 {
+          padding: 0 6px 0 3px !important;
+        }
+      }
+    </style>
+    <!--[if mso
+      ]><style>
+        sup,
+        sub {
+          font-size: 100% !important;
+        }
+        sup {
+          mso-text-raise: 10%;
+        }
+        sub {
+          mso-text-raise: -10%;
+        }
+      </style>
+    <![endif]-->
+  </head>
+
+  <body
+    class="body"
+    style="
+      background-color: #293964;
+      margin: 0;
+      padding: 0;
+      -webkit-text-size-adjust: none;
+      text-size-adjust: none;
+    "
+  >
+    <table
+      class="nl-container"
+      width="100%"
+      border="0"
+      cellpadding="0"
+      cellspacing="0"
+      role="presentation"
+      style="
+        mso-table-lspace: 0pt;
+        mso-table-rspace: 0pt;
+        background-color: #293964;
+      "
+    >
+      <tbody>
+        <tr>
+          <td>
+            <table
+              class="row row-1"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        background-color: #293964;
+                        background-image: url('https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511065/effect_sczdbc.png');
+                        background-repeat: no-repeat;
+                        color: #000000;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="100%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-top: 25px;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" style="width: 100%">
+                                  <div class="alignment" align="center">
+                                    <div style="max-width: 197px">
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/Logo_BCDB_-_Bg_White_mfxnej.png"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="197"
+                                        alt="Your Logo Placeholder"
+                                        title="Your Logo Placeholder"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <div
+                              class="spacer_block block-2"
+                              style="
+                                height: 21px;
+                                line-height: 21px;
+                                font-size: 1px;
+                              "
+                            >
+                              &#8202;
+                            </div>
+                            <table
+                              class="heading_block block-3"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    padding-top: 10px;
+                                    text-align: center;
+                                    width: 100%;
+                                  "
+                                >
+                                  <h3
+                                    style="
+                                      margin: 0;
+                                      color: #fafafa;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 35px;
+                                      font-weight: 700;
+                                      letter-spacing: normal;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 42px;
+                                    "
+                                  >
+                                    <span
+                                      class="tinyMce-placeholder"
+                                      style="word-break: break-word"
+                                      >   ¡GRACIAS POR SER PARTE DE ESTA HISTORIA!</span
+                                    >
+                                  </h3>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="heading_block block-4"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <h1
+                                    style="
+                                      margin: 0;
+                                      color: #fafafa;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 100px;
+                                      font-weight: 700;
+                                      letter-spacing: -2px;
+                                     line-height: 1.3; /* antes: 1 */
+    text-align: center;
+    mso-line-height-alt: 104px;
+                                      text-align: center;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                     
+                                    "
+                                  >
+                                  CELEBRAMOS <br />  60 AÑOS 
+                              
+                                  </h1>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-2"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        border-radius: 0;
+                        background-color: #fafafa;
+                        color: #000000;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="100%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" style="width: 100%">
+                                  <div class="alignment" align="center">
+                                    <div style="max-width: 700px; ">
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511066/DSC08255_ndwf2n.webp"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                         
+                                          width: 100%;
+                                        "
+                                        width="700"
+                                        alt="Hero Image"
+                                        title="Hero Image"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="paragraph_block block-2"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                word-break: break-word;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="
+                                    padding-bottom: 10px;
+                                    padding-left: 60px;
+                                    padding-right: 60px;
+                                    padding-top: 10px;
+                                  "
+                                >
+                                  <div
+                                    style="
+                                      color: #5a3b36;
+                                      direction: ltr;
+                                      font-family: Helvetica Neue, Helvetica,
+                                        Arial, sans-serif;
+                                      font-size: 18px;
+                                      font-weight: 400;
+                                      letter-spacing: 0px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      mso-line-height-alt: 22px;
+                                    "
+                                  >
+                                    <p style="margin: 0">
+                                      Estimado/a <strong>${buyerName}</strong>, nos complace invitarte cordialmente a la velada especial del 60 aniversario de la Banda CEDES Don Bosco.
+                                      <br />
+                                       <br />
+                           La Banda CEDES Don Bosco cumple 60 años y queremos celebrarlo junto a quienes han sido parte esencial de este legado musical. Te extendemos una cordial invitación para acompañarnos en esta histórica velada.
+
+                                    </p>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="button_block block-3"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <div class="alignment" align="center">
+                                    <a
+                                    href="https://wa.link/z7nmqs"
+                                      target="_blank"
+                                      style="
+                                        color: #5a3b36;
+                                        text-decoration: none;
+                                      "
+                                      >><!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"  href="www.example.com"  style="height:46px;width:257px;v-text-anchor:middle;" arcsize="123%" fillcolor="#ffc75e">
+<v:stroke dashstyle="Solid" weight="1px" color="#ffc75e"/>
+<w:anchorlock/>
+<v:textbox inset="0px,0px,0px,0px">
+<center dir="false" style="color:#5a3b36;font-family:sans-serif;font-size:18px">
+<!
+                                      [endif]--><span
+                                        class="button"
+                                        style="
+                                          background-color: #ffc75e;
+                                          border-bottom: 1px solid #ffc75e;
+                                          border-left: 1px solid #ffc75e;
+                                          border-radius: 60px;
+                                          border-right: 1px solid #ffc75e;
+                                          border-top: 1px solid #ffc75e;
+                                          color: #5a3b36;
+                                          display: inline-block;
+                                          font-family: Helvetica Neue, Helvetica,
+                                            Arial, sans-serif;
+                                          font-size: 18px;
+                                          font-weight: 500;
+                                          mso-border-alt: none;
+                                          padding-bottom: 5px;
+                                          padding-top: 5px;
+                                          padding-left: 20px;
+                                          padding-right: 20px;
+                                          text-align: center;
+                                          width: auto;
+                                          word-break: keep-all;
+                                          letter-spacing: normal;
+                                        "
+                                        ><span
+                                          style="
+                                            word-break: break-word;
+                                            line-height: 36px;
+                                          "
+                                          >CONFIRMAR ASISTENCIA</span
+                                        ></span
+                                      >><!--[if mso]></center></v:textbox></v:roundrect><![endif]--></a</a
+                                    >
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <div
+                              class="spacer_block block-4"
+                              style="
+                                height: 45px;
+                                line-height: 45px;
+                                font-size: 1px;
+                              "
+                            >
+                              &#8202;
+                            </div>
+                            <table
+                              class="heading_block block-5"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <h2
+                                    style="
+                                      margin: 0;
+                                      color: #293964;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 60px;
+                                      font-weight: 700;
+                                      letter-spacing: -2px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 72px;
+                                    "
+                                  >
+                                    <span
+                                      class="tinyMce-placeholder"
+                                      style="word-break: break-word"
+                                      >UNA NOCHE MEMORABLE</span
+                                    >
+                                  </h2>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-3"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        border-radius: 0;
+                        background-color: #fafafa;
+                        color: #000000;
+                        padding-left: 25px;
+                        padding-right: 25px;
+                        padding-top: 25px;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="50%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              background-color: #fafafa;
+                              vertical-align: middle;
+                              border-radius: 12px;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="
+                                    width: 100%;
+                                    padding-right: 0px;
+                                    padding-left: 0px;
+                                  "
+                                >
+                                  <div class="alignment" align="center">
+                                    <div style="max-width: 325px">
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511066/DSC07357_sut03v.png"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                          border-radius: 12px 12px 12px 12px;
+                                        "
+                                        width="325"
+                                        alt="Event Lifestyle Image"
+                                        title="Event Lifestyle Image"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                          <td
+                            class="column gap"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                width: 10px;
+                                height: 10px;
+                              "
+                              width="10"
+                              height="10"
+                            ></table>
+                          </td>
+                          <td
+                            class="column column-2"
+                            width="50%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              background-color: #e1e1e1;
+                              padding-bottom: 5px;
+                              padding-left: 15px;
+                              padding-right: 15px;
+                              padding-top: 5px;
+                              vertical-align: middle;
+                              border-radius: 12px;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" style="width: 100%">
+                                  <div class="alignment" align="center">
+                                    <div style="max-width: 77px">
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/ICON2_dxqwae.png"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="77"
+                                        alt="ticket icon"
+                                        title="ticket icon"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="heading_block block-2"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <h3
+                                    style="
+                                      margin: 0;
+                                      color: #293964;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 35px;
+                                      font-weight: 700;
+                                      letter-spacing: -1px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 42px;
+                                    "
+                                  >
+                                    <span
+                                      class="tinyMce-placeholder"
+                                      style="word-break: break-word"
+                                      >INVITACIÓN ESPECIAL</span
+                                    >
+                                  </h3>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="paragraph_block block-3"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                word-break: break-word;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <div
+                                    style="
+                                      color: #5a3b36;
+                                      direction: ltr;
+                                      font-family: Helvetica Neue, Helvetica,
+                                        Arial, sans-serif;
+                                      font-size: 18px;
+                                      font-weight: 400;
+                                      letter-spacing: 0px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      mso-line-height-alt: 22px;
+                                    "
+                                  >
+                                    <p style="margin: 0">
+                                     Te esperamos el sábado 16 de agosto en CEDES Don Bosco, a las 4:30 p.m. Entrada gratuita con previa confirmación.
+                                    </p>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-4"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        background-color: #fafafa;
+                        border-radius: 0;
+                        color: #000000;
+                        padding: 10px 25px 35px;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr class="reverse">
+                          <td
+                            class="column column-1 first"
+                            width="50%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              background-color: #e1e1e1;
+                              padding-left: 15px;
+                              padding-right: 15px;
+                              vertical-align: middle;
+                              border-radius: 12px;
+                            "
+                          >
+                            <div class="border">
+                              <table
+                                class="image_block block-1"
+                                width="100%"
+                                border="0"
+                                cellpadding="0"
+                                cellspacing="0"
+                                role="presentation"
+                                style="
+                                  mso-table-lspace: 0pt;
+                                  mso-table-rspace: 0pt;
+                                "
+                              >
+                                <tr>
+                                  <td class="pad" style="width: 100%">
+                                    <div class="alignment" align="center">
+                                      <div style="max-width: 77px">
+                                        <img
+                                          src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/ICON1_jmklvc.png"
+                                          style="
+                                            display: block;
+                                            height: auto;
+                                            border: 0;
+                                            width: 100%;
+                                          "
+                                          width="77"
+                                          alt="video icon"
+                                          title="video icon"
+                                          height="auto"
+                                        />
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </table>
+                              <table
+                                class="heading_block block-2"
+                                width="100%"
+                                border="0"
+                                cellpadding="10"
+                                cellspacing="0"
+                                role="presentation"
+                                style="
+                                  mso-table-lspace: 0pt;
+                                  mso-table-rspace: 0pt;
+                                "
+                              >
+                                <tr>
+                                  <td class="pad">
+                                    <h3
+                                      style="
+                                        margin: 0;
+                                        color: #293964;
+                                        direction: ltr;
+                                        font-family: 'Oswald', Arial,
+                                          'Helvetica Neue', Helvetica,
+                                          sans-serif;
+                                        font-size: 35px;
+                                        font-weight: 700;
+                                        letter-spacing: -1px;
+                                        line-height: 1.2;
+                                        text-align: center;
+                                        margin-top: 0;
+                                        margin-bottom: 0;
+                                        mso-line-height-alt: 42px;
+                                      "
+                                    >
+                                      <span
+                                        class="tinyMce-placeholder"
+                                        style="word-break: break-word"
+                                        >HOMENAJE Y MÚSICA EN VIVO</span
+                                      >
+                                    </h3>
+                                  </td>
+                                </tr>
+                              </table>
+                              <table
+                                class="paragraph_block block-3"
+                                width="100%"
+                                border="0"
+                                cellpadding="10"
+                                cellspacing="0"
+                                role="presentation"
+                                style="
+                                  mso-table-lspace: 0pt;
+                                  mso-table-rspace: 0pt;
+                                  word-break: break-word;
+                                "
+                              >
+                                <tr>
+                                  <td class="pad">
+                                    <div
+                                      style="
+                                        color: #5a3b36;
+                                        direction: ltr;
+                                        font-family: Helvetica Neue, Helvetica,
+                                          Arial, sans-serif;
+                                        font-size: 18px;
+                                        font-weight: 400;
+                                        letter-spacing: 0px;
+                                        line-height: 1.2;
+                                        text-align: center;
+                                        mso-line-height-alt: 22px;
+                                      "
+                                    >
+                                      <p style="margin: 0">
+                                      Un repertorio inolvidable que une generaciones. Desde nuestras raíces hasta lo que hoy somos.
+                                      </p>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </table>
+                            </div>
+                          </td>
+                          <td
+                            class="column gap"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                width: 10px;
+                                height: 10px;
+                              "
+                              width="10"
+                              height="10"
+                            ></table>
+                          </td>
+                          <td
+                            class="column column-2 last"
+                            width="50%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              background-color: #fafafa;
+                              vertical-align: middle;
+                              border-radius: 12px;
+                            "
+                          >
+                            <div class="border">
+                              <table
+                                class="image_block block-1"
+                                width="100%"
+                                border="0"
+                                cellpadding="0"
+                                cellspacing="0"
+                                role="presentation"
+                                style="
+                                  mso-table-lspace: 0pt;
+                                  mso-table-rspace: 0pt;
+                                "
+                              >
+                                <tr>
+                                  <td
+                                    class="pad"
+                                    style="
+                                      width: 100%;
+                                      padding-right: 0px;
+                                      padding-left: 0px;
+                                    "
+                                  >
+                                    <div class="alignment" align="center">
+                                      <div style="max-width: 325px">
+                                        <img
+                                          src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511065/DSC08050_vodv6p.png"
+                                          style="
+                                            display: block;
+                                            height: auto;
+                                            border: 0;
+                                            width: 100%;
+                                            border-radius: 12px;
+                                          "
+                                          width="325"
+                                          alt="Event Lifestyle Image"
+                                          title="Event Lifestyle Image"
+                                          height="auto"
+                                        />
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-5"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        background-color: #ffffff;
+                        border-radius: 0;
+                        color: #000000;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="100%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-top: 35px;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="heading_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    padding-top: 10px;
+                                    text-align: center;
+                                    width: 100%;
+                                  "
+                                >
+                                  <h3
+                                    style="
+                                      margin: 0;
+                                     color: #293964;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 28px;
+                                      font-weight: 700;
+                                      letter-spacing: normal;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 34px;
+                                    "
+                                  >
+                                    <span
+                                      class="tinyMce-placeholder"
+                                      style="word-break: break-word"
+                                      >Al llegar al evento</span
+                                    >
+                                  </h3>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="heading_block block-2"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <h2
+                                    style="
+                                      margin: 0;
+                                     color: #293964;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 60px;
+                                      font-weight: 700;
+                                      letter-spacing: -2px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 72px;
+                                    "
+                                  >
+                                    <span
+                                      class="tinyMce-placeholder"
+                                      style="word-break: break-word"
+                                      >PRESENTA ESTE QR</span
+                                    >
+                                  </h2>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="image_block block-3"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="padding-bottom: 15px; width: 100%"
+                                >
+                                  <div class="alignment" align="center">
+                                    <div style="max-width: 700px">
+                                      <img
+                                        alt="QR Code"
+                                          src="cid:qrCode"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="700"
+                                    
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+         
+            <table
+              class="row row-7"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                       background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+                        background-image: url('https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511066/DSC07446_a1zseh.webp');
+                        border-radius: 0;
+                        color: #000000;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+  
+                      <tbody>
+                        <tr>
+                          
+                          <td
+                            class="column column-1"
+                            width="100%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-left: 35px;
+                              padding-right: 60px;
+                              padding-top: 5px;
+                              vertical-align: top;
+                            "
+                          >
+                            <div
+                              class="spacer_block block-1"
+                              style="
+                                height: 220px;
+                                line-height: 220px;
+                                font-size: 1px;
+                              "
+                            >
+                              &#8202;
+                            </div>
+                                               
+                            <table
+                              class="heading_block block-2"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="
+                                    padding-bottom: 10px;
+                                    padding-left: 10px;
+                                    padding-right: 60px;
+                                    padding-top: 10px;
+                                    text-align: center;
+                                    width: 100%;
+                                  "
+                                >
+                                  <h3
+                                    style="
+                                      margin: 0;
+                                      color: #fafafa;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 35px;
+                                      font-weight: 700;
+                                      letter-spacing: -1px;
+                                      line-height: 1.2;
+                                      text-align: left;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 42px;
+                                    "
+                                  >
+                                  CELEBRA CON NOSOTROS 60 AÑOS <br />DE PASIÓN MUSICAL
+                                  </h3>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="button_block block-3"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <div class="alignment" align="left">
+                                    <a
+                                      href="https://wa.link/z7nmqs"
+                                      target="_blank"
+                                      style="
+                                        color: #5a3b36;
+                                        text-decoration: none;
+                                      "
+                                      >><!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"  href="www.example.com"  style="height:46px;width:205px;v-text-anchor:middle;" arcsize="123%" fillcolor="#ffc75e">
+<v:stroke dashstyle="Solid" weight="1px" color="#ffc75e"/>
+<w:anchorlock/>
+<v:textbox inset="0px,0px,0px,0px">
+<center dir="false" style="color:#5a3b36;font-family:sans-serif;font-size:18px">
+<!
+                                      [endif]--><span
+                                        class="button"
+                                        style="
+                                          background-color: #ffc75e;
+                                          border-bottom: 1px solid #ffc75e;
+                                          border-left: 1px solid #ffc75e;
+                                          border-radius: 60px;
+                                          border-right: 1px solid #ffc75e;
+                                          border-top: 1px solid #ffc75e;
+                                          color: #5a3b36;
+                                          display: inline-block;
+                                          font-family: Helvetica Neue, Helvetica,
+                                            Arial, sans-serif;
+                                          font-size: 18px;
+                                          font-weight: 500;
+                                          mso-border-alt: none;
+                                          padding-bottom: 5px;
+                                          padding-top: 5px;
+                                          padding-left: 20px;
+                                          padding-right: 20px;
+                                          text-align: center;
+                                          width: auto;
+                                          word-break: keep-all;
+                                          letter-spacing: normal;
+                                        "
+                                        ><span
+                                          style="
+                                            word-break: break-word;
+                                            line-height: 36px;
+                                          "
+                                          >CONFIRMAR ASISTENCIA</span
+                                        ></span
+                                      >><!--[if mso]></center></v:textbox></v:roundrect><![endif]--></a</a
+                                    >
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <div
+                              class="spacer_block block-4"
+                              style="
+                                height: 50px;
+                                line-height: 50px;
+                                font-size: 1px;
+                              "
+                            >
+                              &#8202;
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-8"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        background-color: #fafafa;
+                        border-radius: 0;
+                        color: #000000;
+                        padding: 25px 45px 15px;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="58.333333333333336%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              vertical-align: middle;
+                            "
+                          >
+                            <table
+                              class="heading_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="text-align: center; width: 100%"
+                                >
+                                  <h3
+                                    style="
+                                      margin: 0;
+                                      color: #293964;
+                                      direction: ltr;
+                                      font-family: 'Oswald', Arial,
+                                        'Helvetica Neue', Helvetica, sans-serif;
+                                      font-size: 35px;
+                                      font-weight: 700;
+                                      letter-spacing: -1px;
+                                      line-height: 1.2;
+                                      text-align: left;
+                                      margin-top: 0;
+                                      margin-bottom: 0;
+                                      mso-line-height-alt: 42px;
+                                    "
+                                  >
+                                    <span
+                                      class="tinyMce-placeholder"
+                                      style="word-break: break-word"
+                                      >Síguenos</span
+                                    >
+                                  </h3>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                          <td
+                            class="column column-2"
+                            width="41.666666666666664%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-top: 5px;
+                              vertical-align: middle;
+                            "
+                          >
+                            <table
+                              class="button_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <div class="alignment" align="right">
+                                    <a
+                                                                               href="https://www.instagram.com/bandacedesdonbosco/#"
+
+                                      target="_blank"
+                                      style="
+                                        color: #5a3b36;
+                                        text-decoration: none;
+                                      "
+                                      >><!--[if mso]>
+<v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"  href="www.example.com"  style="height:46px;width:168px;v-text-anchor:middle;" arcsize="123%" fillcolor="#ffc75e">
+<v:stroke dashstyle="Solid" weight="1px" color="#ffc75e"/>
+<w:anchorlock/>
+<v:textbox inset="0px,0px,0px,0px">
+<center dir="false" style="color:#5a3b36;font-family:sans-serif;font-size:18px">
+<!
+                                      [endif]--><span
+                                        class="button"
+                                        style="
+                                          background-color: #ffc75e;
+                                          border-bottom: 1px solid #ffc75e;
+                                          border-left: 1px solid #ffc75e;
+                                          border-radius: 60px;
+                                          border-right: 1px solid #ffc75e;
+                                          border-top: 1px solid #ffc75e;
+                                          color: #5a3b36;
+                                          display: inline-block;
+                                          font-family: Helvetica Neue, Helvetica,
+                                            Arial, sans-serif;
+                                          font-size: 18px;
+                                          font-weight: 500;
+                                          mso-border-alt: none;
+                                          padding-bottom: 5px;
+                                          padding-top: 5px;
+                                          padding-left: 20px;
+                                          padding-right: 20px;
+                                          text-align: center;
+                                          width: auto;
+                                          word-break: keep-all;
+                                          letter-spacing: normal;
+                                        "
+                                        ><span
+                                          style="
+                                            word-break: break-word;
+                                            line-height: 36px;
+                                          "
+                                          >Instagram</span
+                                        ></span
+                                      >><!--[if mso]></center></v:textbox></v:roundrect><![endif]--></a</a
+                                    >
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-9"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        background-color: #fafafa;
+                        border-radius: 0;
+                        color: #000000;
+                        padding-bottom: 25px;
+                        padding-left: 45px;
+                        padding-right: 45px;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="33.333333333333336%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-left: 5px;
+                              padding-right: 5px;
+                              padding-top: 5px;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" style="width: 100%">
+                                  <div class="alignment" align="center">
+                                    <div
+                                      class="fullWidth"
+                                      style="max-width: 185px"
+                                    >
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511304/IMG_7453_btathe.jpg"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="185"
+                                        alt="Social Image"
+                                        title="Social Image"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                          <td
+                            class="column column-2"
+                            width="33.333333333333336%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-left: 5px;
+                              padding-right: 5px;
+                              padding-top: 5px;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" style="width: 100%">
+                                  <div class="alignment" align="center">
+                                    <div
+                                      class="fullWidth"
+                                      style="max-width: 186px"
+                                    >
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511297/IMG_7694_anotz9.jpg"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="186"
+                                        alt="Social Image"
+                                        title="Social Image"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                          <td
+                            class="column column-3"
+                            width="33.333333333333336%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-left: 5px;
+                              padding-right: 5px;
+                              padding-top: 5px;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" style="width: 100%">
+                                  <div class="alignment" align="center">
+                                    <div
+                                      class="fullWidth"
+                                      style="max-width: 185px"
+                                    >
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511296/IMG_7641_gznw32.jpg"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="185"
+                                        alt="Social Image"
+                                        title="Social Image"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <table
+              class="row row-10"
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="mso-table-lspace: 0pt; mso-table-rspace: 0pt"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      class="row-content stack"
+                      align="center"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                      style="
+                        mso-table-lspace: 0pt;
+                        mso-table-rspace: 0pt;
+                        background-color: #293964;
+                        border-radius: 0;
+                        color: #000000;
+                        padding-bottom: 25px;
+                        padding-top: 25px;
+                        width: 700px;
+                        margin: 0 auto;
+                      "
+                      width="700"
+                    >
+                      <tbody>
+                        <tr>
+                          <td
+                            class="column column-1"
+                            width="100%"
+                            style="
+                              mso-table-lspace: 0pt;
+                              mso-table-rspace: 0pt;
+                              font-weight: 400;
+                              text-align: left;
+                              padding-bottom: 5px;
+                              padding-top: 5px;
+                              vertical-align: top;
+                            "
+                          >
+                            <table
+                              class="image_block block-1"
+                              width="100%"
+                              border="0"
+                              cellpadding="0"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                              "
+                            >
+                              <tr>
+                                <td
+                                  class="pad"
+                                  style="
+                                    width: 100%;
+                                    padding-right: 0px;
+                                    padding-left: 0px;
+                                  "
+                                >
+                                  <div class="alignment" align="center">
+                                    <div style="max-width: 210px">
+                                      <img
+                                        src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/Logo_BCDB_-_Bg_White_mfxnej.png"
+                                        style="
+                                          display: block;
+                                          height: auto;
+                                          border: 0;
+                                          width: 100%;
+                                        "
+                                        width="210"
+                                        alt="Your Logo Placeholder"
+                                        title="Your Logo Placeholder"
+                                        height="auto"
+                                      />
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="social_block block-2"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                margin: auto;
+                              "
+                            >
+                              <tr>
+                                <td class="pad" align="center">
+                                  <div class="alignment" align="center">
+                                    <table
+                                      class="social-table"
+                                      width="144px"
+                                      border="0"
+                                      cellpadding="0"
+                                      cellspacing="0"
+                                      role="presentation"
+                                        style="mso-table-lspace: 0pt; mso-table-rspace: 0pt; margin: 0 auto"
+
+                                    >
+                                      <tr>
+                                            <td style="padding: 0 10px">
+
+                                          <a
+                                            href="https://www.facebook.com/bcdbcr"
+                                            target="_blank"
+                                            ><img
+                                              src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/facebook_n4yyp8.png"
+                                              width="32"
+                                              height="auto"
+                                              alt="Facebook"
+                                              title="facebook"
+                                              style="
+                                                display: block;
+                                                height: auto;
+                                                border: 0;
+                                              "
+                                          /></a>
+                                        </td>
+                                      
+                                             <td style="padding: 0 10px">
+
+                                          <a
+                                            href="https://www.instagram.com/bandacedesdonbosco/#"
+                                            target="_blank"
+                                            ><img
+                                              src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511065/instagram_zxhfpb.png"
+                                              width="32"
+                                              height="auto"
+                                              alt="Instagram"
+                                              title="instagram"
+                                              style="
+                                                display: block;
+                                                height: auto;
+                                                border: 0;
+                                              "
+                                          /></a>
+                                        </td>
+                                      </tr>
+                                    </table>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="paragraph_block block-3"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                word-break: break-word;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <div
+                                    style="
+                                      color: #fafafa;
+                                      direction: ltr;
+                                      font-family: Helvetica Neue, Helvetica,
+                                        Arial, sans-serif;
+                                      font-size: 16px;
+                                      font-weight: 400;
+                                      letter-spacing: 0px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      mso-line-height-alt: 19px;
+                                    "
+                                  >
+                                    <p style="margin: 0">
+                                     San José, Costa Rica | © 2025 Banda CEDES Don Bosco
+                                    </p>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                            <table
+                              class="paragraph_block block-4"
+                              width="100%"
+                              border="0"
+                              cellpadding="10"
+                              cellspacing="0"
+                              role="presentation"
+                              style="
+                                mso-table-lspace: 0pt;
+                                mso-table-rspace: 0pt;
+                                word-break: break-word;
+                              "
+                            >
+                              <tr>
+                                <td class="pad">
+                                  <div
+                                    style="
+                                      color: #fafafa;
+                                      direction: ltr;
+                                      font-family: Helvetica Neue, Helvetica,
+                                        Arial, sans-serif;
+                                      font-size: 14px;
+                                      font-weight: 400;
+                                      letter-spacing: 0px;
+                                      line-height: 1.2;
+                                      text-align: center;
+                                      mso-line-height-alt: 17px;
+                                    "
+                                  >
+                                    <p style="margin: 0">
+                                      <a
+                                        href=""
+                                        target="_blank"
+                                        style="
+                                          text-decoration: underline;
+                                          color: #fafafa;
+                                        "
+                                        rel="noopener"
+                                        >Todos los derechos reservados</a
+                                      >
+
+                                    </p>
+                                  </div>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <!-- End -->
+  </body>
+</html>
+            `,
+            attachments: [
+              {
+                filename: "entrada-cortesia.png",
+                content: qrCodeImage.split(",")[1],
+                encoding: "base64",
+                cid: "qrCode",
+              },
+            ],
+          },
+        });
+
+        await EventTicket.findByIdAndUpdate(eventId, {
+          $inc: { totalTickets: 1 },
+        });
+
+        return ticket;
+      } catch (error) {
+        console.error("Error sending courtesy ticket:", error);
+        throw new Error("Error sending courtesy ticket");
+      }
+    },
     updatePaymentStatus: async (_, { ticketId, amountPaid }) => {
       const ticket = await Ticket.findById(ticketId);
       ticket.amountPaid += amountPaid;

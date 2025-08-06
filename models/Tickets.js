@@ -13,7 +13,7 @@ const ticketSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ["assigned", "extra", "purchased"],
+    enum: ["assigned", "extra", "purchased", "courtesy"],
     required: true,
   },
   paid: { type: Boolean, default: false },

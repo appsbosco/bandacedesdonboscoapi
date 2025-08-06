@@ -5,6 +5,7 @@ const resolvers = require("./database/resolvers");
 const cors = require("cors");
 
 // Import JWT
+
 const jwt = require("jsonwebtoken");
 
 // Import Environment Variables
@@ -28,6 +29,8 @@ const startServer = async () => {
       const token = req.headers["authorization"] || "";
       if (token) {
         try {
+          console.log("JWT_SECRET used to verify:", process.env.JWT_SECRET);
+
           const user = jwt.verify(
             token.replace("Bearer ", ""),
             process.env.JWT_SECRET
