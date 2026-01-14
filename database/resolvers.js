@@ -16,10 +16,14 @@ const QRCode = require("qrcode");
 const hbs = require("nodemailer-express-handlebars");
 const path = require("path");
 const AttendanceClass = require("../models/ClassAttendance");
+const { ApolloError } = require("apollo-server-express");
+
 // Hashing
 const bcrypt = require("bcrypt");
 const admin = require("firebase-admin");
-const mongoose = require("mongoose");
+const DocumentService = require("../services/documentService");
+const { daysUntilExpiration } = require("../utils/expiration");
+const { DateTimeScalar } = require("graphql-date-scalars");
 
 const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-f234733af3.json");
 
@@ -40,6 +44,19 @@ const Guatemala = require("../models/Guatemala");
 const Apoyo = require("../models/Apoyo");
 const { Ticket } = require("../models/Tickets");
 const { EventTicket } = require("../models/EventTicket");
+
+// HELPERS para resolvers
+function requireAuth(context) {
+  if (!context.user) {
+    throw new ApolloError("No autenticado", "UNAUTHENTICATED");
+  }
+  return context.user;
+}
+
+function getUserId(user) {
+  // Normalizar el ID del usuario (puede venir como _id o id)
+  return user._id || user.id;
+}
 
 const createToken = (user, secret, expiresIn) => {
   const {
@@ -106,6 +123,7 @@ const generateRaffleNumbers = async (eventId, ticketQuantity) => {
 
 const resolvers = {
   // #################################################
+  DateTime: DateTimeScalar,
   User: {
     id: (parent) => parent._id.toString(), // Convert the MongoDB ObjectId to a string
   },
@@ -127,12 +145,11 @@ const resolvers = {
       }
     },
     getUsers: async () => {
-      console.time("getUsers");
-
       try {
         const users = await User.find({})
+          .select("-password -resetPasswordToken -resetPasswordExpires") // AGREGAR - no traer campos innecesarios
           .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
-          .lean({ virtuals: false }); // sin instancias Mongoose, mucho más rápido
+          .lean();
 
         console.timeEnd("getUsers");
         return users;
@@ -693,6 +710,36 @@ const resolvers = {
         .populate("instructor");
 
       return attendances;
+    },
+
+    //
+
+    myDocuments: async (_, { filters, pagination }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.getMyDocuments(
+        filters || {},
+        pagination || {},
+        userId
+      );
+    },
+
+    documentById: async (_, { id }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.getDocumentById(id, userId);
+    },
+
+    documentsExpiringSummary: async (_, { referenceDate }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.getDocumentsExpiringSummary(
+        referenceDate,
+        userId
+      );
     },
   },
 
@@ -2263,7 +2310,7 @@ const resolvers = {
                                           text-align: center;
                                         "
                                       >
-                                        © 2024 Banda CEDES Don Bosco, Todos los derechos
+                                        © 2025 Banda CEDES Don Bosco, Todos los derechos
                                         reservados.
                                       </p>
                                     </tr>
@@ -2811,7 +2858,7 @@ const resolvers = {
                                           text-align: center;
                                         "
                                       >
-                                        © 2024 Banda CEDES Don Bosco, Todos los derechos
+                                        © 2025 Banda CEDES Don Bosco, Todos los derechos
                                         reservados.
                                       </p>
                                     </tr>
@@ -3371,7 +3418,7 @@ const resolvers = {
                                         text-align: center;
                                       "
                                     >
-                                      © 2024 Banda CEDES Don Bosco, Todos los derechos
+                                      © 2025 Banda CEDES Don Bosco, Todos los derechos
                                       reservados.
                                     </p>
                                   </tr>
@@ -5777,11 +5824,95 @@ const resolvers = {
         throw new Error(error.message);
       }
     },
+
+    createDocument: async (_, { input }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.createDocument(input, userId);
+    },
+
+    addDocumentImage: async (_, { input }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.addDocumentImage(input, userId);
+    },
+
+    upsertDocumentExtractedData: async (_, { input }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.upsertDocumentExtractedData(input, userId);
+    },
+
+    setDocumentStatus: async (_, { documentId, status }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.setDocumentStatus(
+        documentId,
+        status,
+        userId
+      );
+    },
+
+    deleteDocument: async (_, { documentId }, context) => {
+      const user = requireAuth(context);
+      const userId = getUserId(user);
+
+      return await DocumentService.deleteDocument(documentId, userId);
+    },
   },
 
   Ticket: {
     userId: async (ticket) => {
       return await User.findById(ticket.userId);
+    },
+  },
+
+  Document: {
+    owner: async (parent, _, context) => {
+      // Si ya está poblado, retornar
+      if (parent.owner && typeof parent.owner === "object") {
+        return parent.owner;
+      }
+
+      // Si no, buscar el User
+      const User = require("../models/User");
+      return await User.findById(parent.owner);
+    },
+
+    createdBy: async (parent) => {
+      if (parent.createdBy && typeof parent.createdBy === "object") {
+        return parent.createdBy;
+      }
+
+      const User = require("../models/User");
+      return await User.findById(parent.createdBy);
+    },
+
+    updatedBy: async (parent) => {
+      if (!parent.updatedBy) return null;
+
+      if (parent.updatedBy && typeof parent.updatedBy === "object") {
+        return parent.updatedBy;
+      }
+
+      const User = require("../models/User");
+      return await User.findById(parent.updatedBy);
+    },
+
+    isExpired: (parent) => {
+      if (!parent.extracted?.expirationDate) return null;
+
+      return new Date(parent.extracted.expirationDate) < new Date();
+    },
+
+    daysUntilExpiration: (parent) => {
+      if (!parent.extracted?.expirationDate) return null;
+
+      return daysUntilExpiration(parent.extracted.expirationDate);
     },
   },
 };
