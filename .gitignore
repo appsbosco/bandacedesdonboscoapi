@@ -3,3 +3,4 @@ package-lock*.json
 config/.env
 .DS_Store
 .vercel
+config/*.json
