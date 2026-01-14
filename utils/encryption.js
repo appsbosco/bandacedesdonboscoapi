@@ -14,7 +14,7 @@ function getEncryptionKey() {
   const key = process.env.DOCUMENT_ENCRYPTION_KEY;
 
   if (!key) {
-    throw new Error("DOCUMENT_ENCRYPTION_KEY no está configurada en .env");
+    throw new Error("DOCUMENT_ENCRYPTION_KEY no está configurada en .env ...");
   }
 
   // La key debe estar en base64 y ser de 32 bytes
