@@ -25,11 +25,11 @@ const DocumentService = require("../services/documentService");
 const { daysUntilExpiration } = require("../utils/expiration");
 const { DateTimeScalar } = require("graphql-date-scalars");
 
-const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-f234733af3.json");
+// const serviceAccount = require("../config/bcdb-app-9466f-firebase-adminsdk-zgvqc-f234733af3.json");
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+// admin.initializeApp({
+//   credential: admin.credential.cert(serviceAccount),
+// });
 
 //Import Environment Variables
 
