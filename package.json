@@ -7,6 +7,9 @@
     "start": "node .",
     "dev": "nodemon ."
   },
+  "engines": {
+    "node": "22.x"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/JosueChinchillaS/APP-BCDB.git"
