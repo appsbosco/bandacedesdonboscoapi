@@ -8,7 +8,7 @@ mongoose.connect(
   {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-  }
+  },
 );
 
 async function sendTestNotification() {
@@ -18,7 +18,6 @@ async function sendTestNotification() {
     });
 
     const tokens = users.flatMap((user) => user.notificationTokens);
-    console.log("Tokens encontrados:", tokens);
 
     if (tokens.length === 0) {
       console.log("No hay tokens registrados para recibir notificaciones.");
@@ -36,7 +35,7 @@ async function sendTestNotification() {
     // 🔹 Se usa `sendEachForMulticast()` en lugar de `sendMulticast()`
     const response = await admin.messaging().sendEachForMulticast(message);
     console.log(
-      `${response.successCount} mensajes fueron enviados exitosamente.`
+      `${response.successCount} mensajes fueron enviados exitosamente.`,
     );
 
     if (response.failureCount > 0) {

@@ -1,0 +1,19 @@
+// src/graphql/modules/index.js
+module.exports = [
+  require("./attendance"),
+  require("./apoyo"),
+  require("./camps"),
+  require("./classAttendance"),
+  require("./documents"),
+  require("./events"),
+  require("./exalumnos"),
+  require("./inventory"),
+  require("./medicalRecords"),
+  require("./parents"),
+  require("./payments"),
+  require("./presentations"),
+  require("./store"),
+  require("./tickets"),
+  require("./travelForms"),
+  require("./users"),
+];

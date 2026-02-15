@@ -1,70 +1,85 @@
 const express = require("express");
 const { ApolloServer } = require("apollo-server-express");
-const typeDefs = require("./database/schema");
-const resolvers = require("./database/resolvers");
 const cors = require("cors");
-
-// Import JWT
-
 const jwt = require("jsonwebtoken");
-
-// Import Environment Variables
 require("dotenv").config();
 
-// Import DB Connection
-const dbConnection = require("./config/database");
+const schema = require("./src/graphql/schema");
+const resolvers = require("./src/graphql/resolvers");
+const typeDefs = require("./src/graphql/base/typeDefs");
 
-// Connect to DB
+const dbConnection = require("./config/database");
+const User = require("./models/User");
+
 dbConnection();
 
-// Create an async function to start the server
+function extractToken(req) {
+  const auth = req.headers.authorization || req.headers.Authorization || "";
+  if (!auth) return null;
+  return auth.startsWith("Bearer ") ? auth.slice(7) : auth;
+}
+
 const startServer = async () => {
   const app = express();
 
-  // Create an ApolloServer instance
+  app.use(
+    cors({
+      origin: "*",
+      methods: "GET,POST,PUT,DELETE,OPTIONS",
+      allowedHeaders: "Content-Type,Authorization",
+    }),
+  );
+
   const server = new ApolloServer({
+    schema,
     typeDefs,
     resolvers,
-    context: ({ req }) => {
-      const token = req.headers["authorization"] || "";
-      if (token) {
-        try {
-          console.log("JWT_SECRET used to verify:", process.env.JWT_SECRET);
+    context: async ({ req }) => {
+      const token = extractToken(req);
 
-          const user = jwt.verify(
-            token.replace("Bearer ", ""),
-            process.env.JWT_SECRET
-          );
-          return {
-            user,
-          };
-        } catch (error) {
-          console.log(error);
-        }
+      // Siempre devolvemos un objeto de context
+      const ctx = { req, user: null, currentUser: null, me: null };
+
+      if (!token) return ctx;
+
+      try {
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = payload.id || payload._id || payload.sub;
+
+        if (!userId) return ctx;
+
+        const dbUser = await User.findById(userId)
+          .select("_id email role name students")
+          .lean();
+
+        if (!dbUser) return ctx;
+
+        const hydrated = {
+          id: String(dbUser._id),
+          email: dbUser.email,
+          role: dbUser.role,
+          name: dbUser.name,
+        };
+
+        req.user = hydrated;
+        ctx.user = hydrated;
+        ctx.currentUser = hydrated;
+        ctx.me = hydrated;
+
+        return ctx;
+      } catch (error) {
+        return ctx;
       }
     },
   });
 
-  app.use(
-    cors({
-      origin: "*", // Permite solicitudes desde cualquier origen, asegúrate de restringir esto en producción si es necesario
-      methods: "GET,POST,PUT,DELETE,OPTIONS",
-      allowedHeaders: "Content-Type,Authorization",
-    })
-  );
+  await server.start();
+  server.applyMiddleware({ app, path: "/api/graphql" });
 
-  try {
-    await server.start();
-    server.applyMiddleware({ app, path: "/api/graphql" });
-
-    const port = process.env.PORT || 4000;
-    app.listen(port, () => {
-      console.log(`Server running on http://localhost:${port}/`);
-    });
-  } catch (error) {
-    console.error("Error starting the server:");
-    console.error(error);
-  }
+  const port = process.env.PORT || 4000;
+  app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}/`);
+  });
 };
 
-startServer();
+startServer().catch((err) => console.error(err));

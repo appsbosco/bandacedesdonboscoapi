@@ -19,7 +19,7 @@ const AttendanceClass = require("../models/ClassAttendance");
 const { ApolloError } = require("apollo-server-express");
 
 // Hashing
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const admin = require("firebase-admin");
 const DocumentService = require("../services/documentService");
 const { daysUntilExpiration } = require("../utils/expiration");
@@ -91,24 +91,24 @@ const createToken = (user, secret, expiresIn) => {
     secret,
     {
       expiresIn,
-    }
+    },
   );
 };
 const generateRaffleNumbers = async (eventId, ticketQuantity) => {
   const event = await EventTicket.findById(eventId);
   const assignedNumbers = await Ticket.find({ eventId }).distinct(
-    "raffleNumbers"
+    "raffleNumbers",
   );
   const allNumbers = Array.from({ length: event.ticketLimit }, (_, i) =>
-    (i + 1).toString().padStart(3, "0")
+    (i + 1).toString().padStart(3, "0"),
   );
   const availableNumbers = allNumbers.filter(
-    (num) => !assignedNumbers.includes(num)
+    (num) => !assignedNumbers.includes(num),
   );
 
   if (availableNumbers.length < ticketQuantity) {
     throw new Error(
-      "No hay suficientes números de rifa disponibles para este evento."
+      "No hay suficientes números de rifa disponibles para este evento.",
     );
   }
 
@@ -135,6 +135,8 @@ const resolvers = {
     },
   },
   Query: {
+    // DONE ✅
+
     getUser: async (_, {}, ctx) => {
       // Retrieve the user from the database
       try {
@@ -144,6 +146,9 @@ const resolvers = {
         console.log(error);
       }
     },
+
+    // DONE ✅
+
     getUsers: async () => {
       try {
         const users = await User.find({})
@@ -158,6 +163,8 @@ const resolvers = {
         throw new Error("Error fetching users");
       }
     },
+
+    // DONE ✅
     getParent: async (_, {}, ctx) => {
       try {
         // Retrieve the parent from the database and populate the 'children' field
@@ -181,6 +188,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     getParents: async () => {
       try {
         const parents = await Parent.find({}).sort({
@@ -197,6 +205,7 @@ const resolvers = {
 
     // Attendance
 
+    // DONE ✅
     getAttendance: async (_, { id }) => {
       const attendance = await Attendance.findById(id).populate("user");
       if (!attendance) {
@@ -204,6 +213,8 @@ const resolvers = {
       }
       return attendance;
     },
+
+    // DONE ✅
 
     getAttendanceByUser: async (_, { userId }) => {
       try {
@@ -215,6 +226,7 @@ const resolvers = {
         console.log(error);
       }
     },
+    // DONE ✅
 
     getAllAttendance: async () => {
       try {
@@ -229,6 +241,8 @@ const resolvers = {
     },
 
     // Medical Record
+
+    //  DONE ✅
     getMedicalRecord: async (_, { id }) => {
       //Check if the medical record exists
       const medicalRecord = await MedicalRecord.findById(id);
@@ -238,6 +252,7 @@ const resolvers = {
       return medicalRecord;
     },
 
+    // DONE ✅
     getMedicalRecords: async () => {
       try {
         const medicalRecords = await MedicalRecord.find({}).populate("user");
@@ -247,6 +262,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     getMedicalRecordByUser: async (_, {}, ctx) => {
       try {
         const medicalRecord = await MedicalRecord.find({
@@ -259,6 +275,7 @@ const resolvers = {
     },
 
     // Inventory
+    // done ✅
     getInventory: async (_, { id }) => {
       // Check if the inventory exists
       const inventory = await Inventory.findById(id);
@@ -268,6 +285,7 @@ const resolvers = {
       return inventory;
     },
 
+    // done ✅
     getInventories: async () => {
       try {
         const inventories = await Inventory.find({}).populate("user");
@@ -277,6 +295,7 @@ const resolvers = {
       }
     },
 
+    // done ✅
     getInventoryByUser: async (_, {}, ctx) => {
       try {
         const inventory = await Inventory.find({
@@ -290,6 +309,7 @@ const resolvers = {
 
     // Events
 
+    // DONE ✅
     getEvent: async (_, { id }) => {
       // Check if the event exists
       const event = await Event.findById(id);
@@ -299,6 +319,7 @@ const resolvers = {
       return event;
     },
 
+    // DONE ✅
     getEvents: async () => {
       try {
         const events = await Event.find({});
@@ -310,6 +331,8 @@ const resolvers = {
 
     // #################################################
     // Payment Register
+
+    // DONE ✅
     getPaymentEvents: async () => {
       try {
         const events = await PaymentEvent.find({});
@@ -318,7 +341,7 @@ const resolvers = {
         console.log(error);
       }
     },
-
+    // DONE ✅
     getPaymentsByEvent: async (_, { paymentEvent }) => {
       try {
         const payments = await Payment.find({ paymentEvent })
@@ -339,41 +362,52 @@ const resolvers = {
 
     // #################################################
     // Presentations
+    // DONE ✅
     getPerformanceAttendanceByEvent: async (_, { event }) => {
       return await PerformanceAttendance.find({ event })
         .populate("user")
         .populate("hotel")
         .populate("event");
     },
+    // DONE ✅
     getHotel: async (_, { id }) => {
       return await Hotel.findById(id);
     },
+    // DONE ✅
     getHotels: async () => {
       return await Hotel.find();
     },
 
     // #################################################
     // Exalumnos
+    // DONE ✅
     getExAlumnos: async () => {
       return await Exalumno.find();
     },
 
     // #################################################
     // Color Guard Camp
+
+    // DONE ✅
     getColorGuardCampRegistrations: async () => {
       return await ColorGuardCampRegistration.find();
     },
 
+    //  Done ✅
     getGuatemala: async () => {
       return await Guatemala.find().populate("children");
     },
+
+    // DONE ✅
     getApoyo: async () => {
       return await Apoyo.find().populate("children");
     },
 
+    // DONE ✅
     products: async () => {
       return await Product.find({});
     },
+    // DONE ✅
     orders: async () => {
       return await Order.find({})
         .populate({
@@ -385,7 +419,7 @@ const resolvers = {
           model: "Product",
         });
     },
-
+    // DONE ✅
     orderByUserId: async (_, { userId }) => {
       let query = {};
 
@@ -404,7 +438,7 @@ const resolvers = {
           model: "Product",
         });
     },
-
+    // DONE ✅
     orderById: async (_, { id }) => {
       return await Order.findById(id).populate("userId").populate("products");
     },
@@ -429,6 +463,7 @@ const resolvers = {
     //   }
     // },
 
+    // DONE ✅
     getTickets: async (_, { eventId }) => {
       try {
         const query = eventId ? { eventId } : {};
@@ -442,7 +477,7 @@ const resolvers = {
         throw new Error("Failed to fetch tickets");
       }
     },
-
+    // DONE ✅
     getTicketsNumbers: async (_, { eventId }) => {
       try {
         const query = eventId ? { eventId } : {};
@@ -460,7 +495,7 @@ const resolvers = {
               `${ticket.userId?.name} ${ticket.userId?.firstSurName} ${ticket.userId?.secondSurName}`,
             buyerEmail: ticket.buyerEmail || ticket.userId?.email,
             paid: ticket.paid,
-          }))
+          })),
         );
 
         return allRaffleNumbers;
@@ -469,7 +504,10 @@ const resolvers = {
         throw new Error("Failed to fetch tickets");
       }
     },
+    // DONE ✅
     getEventsT: async () => await EventTicket.find(),
+
+    // DONE ✅
 
     usersWithoutMedicalRecord: async () => {
       const users = await User.aggregate([
@@ -489,12 +527,18 @@ const resolvers = {
       ]);
       return users;
     },
+
+    // DONE ✅
+
     usersWithoutAvatar: async () => {
       const users = await User.find({
         $or: [{ avatar: null }, { avatar: { $exists: false } }],
       });
       return users;
     },
+
+    // DONE ✅
+
     usersWithoutNotificationTokens: async () => {
       const users = await User.find({
         $or: [
@@ -504,6 +548,9 @@ const resolvers = {
       });
       return users;
     },
+
+    // DONE ✅
+
     usersWithStatus: async () => {
       const usersWithStatus = await User.aggregate([
         // Unir con la colección de fichas médicas
@@ -541,6 +588,8 @@ const resolvers = {
 
       return usersWithStatus;
     },
+
+    // DONE ✅
 
     usersWithMissingData: async () => {
       const usersWithMissingData = await User.aggregate([
@@ -650,6 +699,7 @@ const resolvers = {
       return usersWithMissingData;
     },
 
+    // DONE ✅
     // Resolver para obtener estudiantes asignados al instructor
     getInstructorStudents: async (_, {}, ctx) => {
       console.log(ctx.user);
@@ -661,6 +711,7 @@ const resolvers = {
     },
 
     // Resolver para obtener asistencias de los estudiantes asignados al instructor
+    // DONE ✅
     getInstructorStudentsAttendance: async (_, { date }, ctx) => {
       if (!ctx.user || ctx.user.role !== "Instructor de instrumento") {
         throw new Error("No autorizado");
@@ -688,6 +739,7 @@ const resolvers = {
       return attendances;
     },
 
+    // DONE ✅
     getUsersByInstrument: async (_, {}, ctx) => {
       if (!ctx.user || ctx.user.role !== "Instructor de instrumento") {
         throw new Error("No autorizado");
@@ -699,6 +751,7 @@ const resolvers = {
       return students;
     },
 
+    // doNE ✅
     // Resolver para obtener todas las asistencias y pagos
     getAllAttendances: async (_, {}, ctx) => {
       if (!ctx.user || ctx.user.role !== "Admin") {
@@ -712,8 +765,7 @@ const resolvers = {
       return attendances;
     },
 
-    //
-
+    // DONE ✅
     myDocuments: async (_, { filters, pagination }, context) => {
       const user = requireAuth(context);
       const userId = getUserId(user);
@@ -721,10 +773,11 @@ const resolvers = {
       return await DocumentService.getMyDocuments(
         filters || {},
         pagination || {},
-        userId
+        userId,
       );
     },
 
+    // DONE ✅
     documentById: async (_, { id }, context) => {
       const user = requireAuth(context);
       const userId = getUserId(user);
@@ -732,13 +785,14 @@ const resolvers = {
       return await DocumentService.getDocumentById(id, userId);
     },
 
+    // DONE ✅
     documentsExpiringSummary: async (_, { referenceDate }, context) => {
       const user = requireAuth(context);
       const userId = getUserId(user);
 
       return await DocumentService.getDocumentsExpiringSummary(
         referenceDate,
-        userId
+        userId,
       );
     },
   },
@@ -780,7 +834,6 @@ const resolvers = {
           viewPath: path.resolve("./views/"),
         };
 
-        console.log(handlebarOptions);
         transporter.use("compile", hbs(handlebarOptions));
 
         // Send the email
@@ -793,6 +846,8 @@ const resolvers = {
       }
     },
     // Users
+
+    // DONE ✅
 
     // Create a new user
     newUser: async (_, { input }, ctx) => {
@@ -816,6 +871,8 @@ const resolvers = {
         console.log(error);
       }
     },
+
+    // DONE ✅
 
     newParent: async (_, { input }) => {
       const { email, password } = input;
@@ -841,17 +898,18 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     uploadProfilePic: async (_, { id, avatar }) => {
       const updatedUser = await User.findByIdAndUpdate(
         id,
         { avatar },
-        { new: true }
+        { new: true },
       );
 
       return updatedUser;
     },
 
-    // Auth user
+    // DONE ✅
     // Auth user
     authUser: async (_, { input }, ctx) => {
       const { email, password } = input;
@@ -885,13 +943,12 @@ const resolvers = {
         throw new Error("La contraseña es incorrecta");
       }
 
-      console.log("JWT_SECRET used to sign:", process.env.JWT_SECRET);
-
       // Return a token or session to authenticate the user
       return {
         token: createToken(authenticatedUser, process.env.JWT_SECRET, "24h"),
       };
     },
+    // DONE ✅
 
     // Update user
     updateUser: async (_, { id, input }, ctx) => {
@@ -921,6 +978,7 @@ const resolvers = {
 
       return updatedUser;
     },
+    // DONE ✅
 
     // Delete user
     deleteUser: async (_, { id }, ctx) => {
@@ -940,6 +998,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     // Mutation for requesting a password reset
     requestReset: async (_, { email }) => {
       let user = await User.findOne({ email });
@@ -947,7 +1006,7 @@ const resolvers = {
 
       if (!user && !parent) {
         throw new Error(
-          "No se encontró ningún usuario o padre con ese correo electrónico"
+          "No se encontró ningún usuario o padre con ese correo electrónico",
         );
       }
 
@@ -967,15 +1026,12 @@ const resolvers = {
       doc.resetPasswordToken = token;
       doc.resetPasswordExpires = tokenExpiry;
 
-      console.log("Document before saving:", doc);
-
       await doc.save();
 
       // Verificar si el token se guardó correctamente
       const updatedDoc = await (user
         ? User.findOne({ email })
         : Parent.findOne({ email }));
-      console.log("Document after saving:", updatedDoc);
 
       // Send email with the token
       const resetURL = `https://bandacedesdonbosco.com/autenticacion/recuperar/${token}`;
@@ -1004,6 +1060,7 @@ const resolvers = {
       return true;
     },
 
+    // DONE ✅
     // Mutation for resetting the password
     resetPassword: async (_, { token, newPassword }) => {
       if (!token || !newPassword) {
@@ -1039,11 +1096,7 @@ const resolvers = {
       doc.resetPasswordToken = undefined;
       doc.resetPasswordExpires = undefined;
 
-      console.log("Document before saving new password:", doc);
-
       await doc.save();
-
-      console.log("Document after saving new password:", doc);
 
       return true;
     },
@@ -1053,6 +1106,7 @@ const resolvers = {
     // Attendance
 
     // Attendance
+    // DONE ✅
     newAttendance: async (_, { input }, ctx) => {
       try {
         const user = await User.findById(input.user); // Find the user by ID
@@ -1074,6 +1128,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     updateAttendance: async (_, { id, input }) => {
       let attendance = await Attendance.findById(id);
 
@@ -1088,6 +1143,7 @@ const resolvers = {
       return updatedAttendance;
     },
 
+    // DONE ✅
     deleteAttendance: async (_, { id }) => {
       let attendance = await Attendance.findById(id);
 
@@ -1106,6 +1162,8 @@ const resolvers = {
     // #################################################
 
     // Medical Record
+
+    // DONE ✅
     newMedicalRecord: async (_, { input }, ctx) => {
       if (!ctx.user || !ctx.user.id) {
         throw new Error("User not authenticated");
@@ -1124,7 +1182,7 @@ const resolvers = {
         throw new Error(`Error saving medical record: ${error.message}`);
       }
     },
-
+    // DONE ✅
     updateMedicalRecord: async (_, { id, input }) => {
       try {
         // Check if the medical record exists
@@ -1139,7 +1197,7 @@ const resolvers = {
           input,
           {
             new: true,
-          }
+          },
         );
         return updatedMedicalRecord;
       } catch (error) {
@@ -1147,6 +1205,9 @@ const resolvers = {
         throw new Error("Error updating medical record");
       }
     },
+
+    // 🚨
+
     updateEvent: async (_, { id, input }) => {
       // Check if the event exists
       let event = await Event.findById(id);
@@ -1164,6 +1225,8 @@ const resolvers = {
         console.log(error);
       }
     },
+
+    // DONE ✅
 
     deleteMedicalRecord: async (_, { id }) => {
       // Check if the medical record exists
@@ -1186,6 +1249,7 @@ const resolvers = {
 
     // Inventory
 
+    // DONE ✅
     newInventory: async (_, { input }, ctx) => {
       // Assign to  user
       input.user = ctx.user.id;
@@ -1200,6 +1264,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     updateInventory: async (_, { id, input }) => {
       // Check if the inventory exists
       let inventory = await Inventory.findById(id);
@@ -1214,7 +1279,7 @@ const resolvers = {
           input,
           {
             new: true,
-          }
+          },
         );
         return updatedInventory;
       } catch (error) {
@@ -1222,6 +1287,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     deleteInventory: async (_, { id }) => {
       // Check if the inventory exists
       let inventory = await Inventory.findById(id);
@@ -1243,6 +1309,7 @@ const resolvers = {
 
     // Events
 
+    // DONE ✅
     newEvent: async (_, { input }, ctx) => {
       // Save in the database
       try {
@@ -1253,7 +1320,7 @@ const resolvers = {
         console.log(error);
       }
     },
-
+    // DONE ✅
     updateEvent: async (_, { id, input }) => {
       // Check if the event exists
       let event = await Event.findById(id);
@@ -1271,7 +1338,7 @@ const resolvers = {
         console.log(error);
       }
     },
-
+    // DONE ✅
     deleteEvent: async (_, { id }) => {
       // Check if the event exists
       let event = await Event.findById(id);
@@ -1294,6 +1361,7 @@ const resolvers = {
     // #################################################
     // Payment Register
 
+    // DONE ✅
     createPaymentEvent: async (_, { input }) => {
       try {
         const event = new PaymentEvent({
@@ -1308,6 +1376,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     createPayment: async (_, { input }) => {
       try {
         const user = await User.findById(input.user);
@@ -1336,6 +1405,7 @@ const resolvers = {
         throw new Error("Failed to create payment");
       }
     },
+    // DONE ✅
     updatePayment: async (_, { paymentId, input }) => {
       try {
         const { amount } = input;
@@ -1343,7 +1413,7 @@ const resolvers = {
         const payment = await Payment.findByIdAndUpdate(
           paymentId,
           { $set: { amount } },
-          { new: true }
+          { new: true },
         );
 
         if (!payment) {
@@ -1357,6 +1427,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     deletePayment: async (_, { paymentId }) => {
       try {
         const deletedPayment = await Payment.findByIdAndDelete(paymentId);
@@ -1373,26 +1444,32 @@ const resolvers = {
 
     // #################################################
     // Presentations
+    // DONE ✅
     newPerformanceAttendance: async (_, { input }) => {
       const attendance = new PerformanceAttendance(input);
       return await attendance.save();
     },
+    // DONE ✅
     updatePerformanceAttendance: async (_, { id, input }) => {
       return await PerformanceAttendance.findByIdAndUpdate(id, input, {
         new: true,
       });
     },
+    // DONE ✅
     deletePerformanceAttendance: async (_, { id }) => {
       await PerformanceAttendance.findByIdAndDelete(id);
       return "Performance Attendance deleted successfully!";
     },
+    // DONE ✅
     newHotel: async (_, { input }) => {
       const hotel = new Hotel(input);
       return await hotel.save();
     },
+    // DONE ✅
     updateHotel: async (_, { id, input }) => {
       return await Hotel.findByIdAndUpdate(id, input, { new: true });
     },
+    // DONE ✅
     deleteHotel: async (_, { id }) => {
       await Hotel.findByIdAndDelete(id);
       return "Hotel deleted successfully!";
@@ -1400,6 +1477,8 @@ const resolvers = {
 
     // #################################################
     // Resolver para que un instructor se asigne a un estudiante
+
+    //  🚨
     assignStudentToInstructor: async (_, { studentId }, { user }) => {
       if (!user || user.role !== "Instructor de instrumento") {
         throw new Error("No autorizado");
@@ -1433,6 +1512,7 @@ const resolvers = {
       return true;
     },
 
+    // 🚨
     // Resolver para crear un registro de asistencia y pago
     markAttendanceAndPayment: async (_, { input }, { user }) => {
       if (!user || user.role !== "Instructor de instrumento") {
@@ -1484,6 +1564,7 @@ const resolvers = {
     // #################################################
     // Exalumnos
 
+    // DONE ✅
     addExAlumno: async (_, { input }) => {
       try {
         if (input.instrument === "Percusión") {
@@ -1492,7 +1573,7 @@ const resolvers = {
           });
           if (count >= 6) {
             throw new Error(
-              "El cupo para Percusión está lleno. No se permiten más inscripciones para Percusión."
+              "El cupo para Percusión está lleno. No se permiten más inscripciones para Percusión.",
             );
           }
         }
@@ -1503,7 +1584,7 @@ const resolvers = {
           });
           if (count >= 3) {
             throw new Error(
-              "El cupo para Mallets está lleno. No se permiten más inscripciones para Percusión."
+              "El cupo para Mallets está lleno. No se permiten más inscripciones para Percusión.",
             );
           }
         }
@@ -1518,6 +1599,7 @@ const resolvers = {
     // #################################################
     // Exalumnos
 
+    // DONE ✅
     addGuatemala: async (_, { input }) => {
       try {
         const newGuatemala = new Guatemala(input);
@@ -1528,6 +1610,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     addApoyo: async (_, { input }) => {
       try {
         const newApoyo = new Apoyo(input);
@@ -1541,6 +1624,8 @@ const resolvers = {
     // #################################################
     // Color Guard Camp
 
+    // DONE ✅
+
     createColorGuardCampRegistration: async (_, { input }) => {
       try {
         const newRegistration = new ColorGuardCampRegistration(input);
@@ -1553,6 +1638,7 @@ const resolvers = {
 
     // #################################################
     // Almuerzos
+    // DONE ✅
     createProduct: async (
       _,
       {
@@ -1563,7 +1649,7 @@ const resolvers = {
         availableForDays,
         photo,
         closingDate,
-      }
+      },
     ) => {
       try {
         const newProduct = new Product({
@@ -1605,7 +1691,7 @@ const resolvers = {
             .messaging()
             .sendEachForMulticast(message);
           console.log(
-            `${response.successCount} mensajes fueron enviados exitosamente.`
+            `${response.successCount} mensajes fueron enviados exitosamente.`,
           );
 
           // 4️⃣ Manejo de errores en el envío de notificaciones
@@ -1622,15 +1708,15 @@ const resolvers = {
       } catch (error) {
         console.error(
           "Error al crear el producto o enviar notificación:",
-          error
+          error,
         );
         throw new Error("Hubo un problema al crear el producto.");
       }
     },
-
+    // DONE ✅
     updateProduct: async (
       _,
-      { id, name, description, category, price, availableForDays, closingDate }
+      { id, name, description, category, price, availableForDays, closingDate },
     ) => {
       return await Product.findByIdAndUpdate(
         id,
@@ -1644,12 +1730,14 @@ const resolvers = {
             closingDate: new Date(closingDate),
           },
         },
-        { new: true }
+        { new: true },
       );
     },
+    // DONE ✅
     deleteProduct: async (_, { id }) => {
       return await Product.findByIdAndRemove(id);
     },
+    // DONE ✅
     createOrder: async (_, { userId, products }) => {
       const newOrder = new Order({
         userId,
@@ -1658,15 +1746,16 @@ const resolvers = {
       });
       return await newOrder.save();
     },
-
+    // DONE ✅
     completeOrder: async (_, { orderId }) => {
       return await Order.findByIdAndUpdate(
         orderId,
         { isCompleted: true },
-        { new: true }
+        { new: true },
       );
     },
 
+    // DONE ✅
     upgradeUserGrades: async () => {
       const gradesMapping = {
         "Tercero Primaria": "Cuarto Primaria",
@@ -1701,6 +1790,7 @@ const resolvers = {
       }
     },
 
+    //  DONE ✅
     updateUserState: async () => {
       try {
         const users = await User.find({}); // Encuentra todos los usuarios
@@ -1714,6 +1804,8 @@ const resolvers = {
         return true;
       } catch (error) {}
     },
+
+    // DONE ✅
     //Notifcation tokens
     updateNotificationToken: async (_, { userId, token }) => {
       try {
@@ -1724,19 +1816,19 @@ const resolvers = {
             await user.save();
             console.log(
               "Token de notificación guardado correctamente para el usuario:",
-              userId
+              userId,
             );
           } else {
             console.log(
               "El token ya existe para este usuario, no se necesita actualizar:",
-              userId
+              userId,
             );
           }
         } catch (error) {
           console.error(
             "Error al guardar el token de notificación para el usuario:",
             userId,
-            error
+            error,
           );
         }
 
@@ -1748,9 +1840,11 @@ const resolvers = {
 
     //Tickets
 
+    // DONE ✅
+
     createEvent: async (
       _,
-      { name, date, description, ticketLimit, raffleEnabled, price }
+      { name, date, description, ticketLimit, raffleEnabled, price },
     ) => {
       const event = new EventTicket({
         name,
@@ -1763,6 +1857,7 @@ const resolvers = {
       await event.save();
       return event;
     },
+    // DONE ✅
 
     assignTickets: async (_, { input }) => {
       const { userId, eventId, type, ticketQuantity } = input;
@@ -2895,7 +2990,7 @@ const resolvers = {
                   },
                 ],
               },
-            })
+            }),
           );
         }
 
@@ -2911,10 +3006,11 @@ const resolvers = {
         throw new Error("Error assigning tickets");
       }
     },
+    // DONE ✅
 
     purchaseTicket: async (
       _,
-      { eventId, buyerName, buyerEmail, ticketQuantity }
+      { eventId, buyerName, buyerEmail, ticketQuantity },
     ) => {
       try {
         const event = await EventTicket.findById(eventId);
@@ -3468,9 +3564,10 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     sendCourtesyTicket: async (
       _,
-      { eventId, buyerName, buyerEmail, ticketQuantity }
+      { eventId, buyerName, buyerEmail, ticketQuantity },
     ) => {
       try {
         const event = await EventTicket.findById(eventId);
@@ -5770,6 +5867,9 @@ const resolvers = {
         throw new Error("Error sending courtesy ticket");
       }
     },
+
+    // done ✅
+
     updatePaymentStatus: async (_, { ticketId, amountPaid }) => {
       const ticket = await Ticket.findById(ticketId);
       ticket.amountPaid += amountPaid;
@@ -5779,6 +5879,7 @@ const resolvers = {
       return ticket;
     },
 
+    // DONE ✅
     validateTicket: async (_, { qrCode }) => {
       try {
         console.log("Received QR code for validation:", qrCode);
@@ -5825,6 +5926,7 @@ const resolvers = {
       }
     },
 
+    // DONE ✅
     createDocument: async (_, { input }, context) => {
       const user = requireAuth(context);
       const userId = getUserId(user);
@@ -5832,12 +5934,15 @@ const resolvers = {
       return await DocumentService.createDocument(input, userId);
     },
 
+    // DONE ✅
     addDocumentImage: async (_, { input }, context) => {
       const user = requireAuth(context);
       const userId = getUserId(user);
 
       return await DocumentService.addDocumentImage(input, userId);
     },
+
+    // DONE ✅
 
     upsertDocumentExtractedData: async (_, { input }, context) => {
       const user = requireAuth(context);
@@ -5846,6 +5951,7 @@ const resolvers = {
       return await DocumentService.upsertDocumentExtractedData(input, userId);
     },
 
+    // DONE ✅
     setDocumentStatus: async (_, { documentId, status }, context) => {
       const user = requireAuth(context);
       const userId = getUserId(user);
@@ -5853,9 +5959,10 @@ const resolvers = {
       return await DocumentService.setDocumentStatus(
         documentId,
         status,
-        userId
+        userId,
       );
     },
+    // DONE ✅
 
     deleteDocument: async (_, { documentId }, context) => {
       const user = requireAuth(context);
