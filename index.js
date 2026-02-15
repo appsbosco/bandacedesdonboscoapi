@@ -53,7 +53,7 @@ async function initOnce() {
 
     // CORS
     app.use(cors(corsOptions));
-    app.options("*", cors(corsOptions)); // responde preflight
+    app.options("/api/graphql", cors(corsOptions));
 
     apollo = new ApolloServer({
       schema,
