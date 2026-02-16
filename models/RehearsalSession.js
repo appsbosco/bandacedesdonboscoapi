@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { normalizeDateToStartOfDayCR } = require("../utils/dates");
 
 const RehearsalSessionSchema = new mongoose.Schema({
   date: {
@@ -73,9 +74,9 @@ RehearsalSessionSchema.index({ status: 1, dateNormalized: -1 });
 // Hook: normalizar fecha antes de guardar
 RehearsalSessionSchema.pre("save", function (next) {
   if (this.date) {
-    const normalized = new Date(this.date);
-    normalized.setHours(0, 0, 0, 0);
+    const normalized = normalizeDateToStartOfDayCR(this.date);
     this.dateNormalized = normalized;
+    this.date = normalized;
   }
   this.updatedAt = new Date();
   next();

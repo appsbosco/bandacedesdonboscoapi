@@ -98,6 +98,12 @@ module.exports = gql`
     compliant: Boolean!
   }
 
+  type MissingSectionsReport {
+    date: String!
+    missingSections: [Section!]!
+    recordedSections: [Section!]!
+  }
+
   # ============================================
   # INPUTS
   # ============================================
@@ -166,6 +172,9 @@ module.exports = gql`
       offset: Int = 0
       filter: AttendanceFilterInput
     ): [Attendance!]!
+
+    # Reporte de secciones faltantes para una fecha dada
+    getMissingSectionsForDate(date: String!): MissingSectionsReport!
   }
 
   # ============================================

@@ -1,7 +1,7 @@
 const Attendance = require("../../../../../models/Attendance");
 const RehearsalSession = require("../../../../../models/RehearsalSession");
 const User = require("../../../../../models/User");
-
+const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
 // ============================================
 // HELPERS DE AUTENTICACIÓN Y PERMISOS
 // ============================================
@@ -36,16 +36,6 @@ function requireSectionLeader(ctx, allowedSections = []) {
 }
 
 // ============================================
-// UTILIDADES
-// ============================================
-
-function normalizeDateToStartOfDay(dateInput) {
-  const date = new Date(dateInput);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-// ============================================
 // SESSION MANAGEMENT
 // ============================================
 
@@ -56,7 +46,7 @@ async function createSession(input, ctx) {
     throw new Error("Fecha y sección requeridas");
   }
 
-  const dateNormalized = normalizeDateToStartOfDay(input.date);
+  const dateNormalized = normalizeDateToStartOfDayCR(input.date);
 
   try {
     // Intento de creación idempotente
@@ -64,7 +54,7 @@ async function createSession(input, ctx) {
       { dateNormalized, section: input.section },
       {
         $setOnInsert: {
-          date: new Date(input.date),
+          date: dateNormalized,
           dateNormalized,
           section: input.section,
           status: "SCHEDULED",
@@ -222,14 +212,14 @@ async function takeAttendance(date, section, attendances, ctx) {
     throw new Error("Fecha, sección y asistencias requeridas");
   }
 
-  const dateNormalized = normalizeDateToStartOfDay(date);
+  const dateNormalized = normalizeDateToStartOfDayCR(date);
 
   // 1. Buscar o crear sesión (idempotente)
   let session = await RehearsalSession.findOne({ dateNormalized, section });
 
   if (!session) {
     session = await RehearsalSession.create({
-      date: new Date(date),
+      date: dateNormalized,
       dateNormalized,
       section,
       status: "IN_PROGRESS",

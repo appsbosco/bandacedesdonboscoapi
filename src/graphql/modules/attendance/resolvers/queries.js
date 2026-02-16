@@ -1,4 +1,6 @@
 const attendanceService = require("../services/attendance.service");
+const RehearsalSession = require("../../../../../models/RehearsalSession");
+const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
 
 module.exports = {
   // Sessions
@@ -88,5 +90,42 @@ module.exports = {
     } catch (error) {
       throw new Error(error.message);
     }
+  },
+
+  getMissingSectionsForDate: async (_, { date }, ctx) => {
+    attendanceService.requireAuth(ctx);
+
+    const dateNormalized = normalizeDateToStartOfDayCR(date);
+
+    const allSections = [
+      "NO_APLICA",
+      "FLAUTAS",
+      "CLARINETES",
+      "SAXOFONES",
+      "TROMPETAS",
+      "TROMBONES",
+      "TUBAS",
+      "EUFONIOS",
+      "CORNOS",
+      "MALLETS",
+      "PERCUSION",
+      "COLOR_GUARD",
+      "DANZA",
+    ];
+
+    const sessions = await RehearsalSession.find({ dateNormalized }).select(
+      "section",
+    );
+
+    const recordedSections = sessions.map((s) => s.section);
+    const recordedSet = new Set(recordedSections);
+
+    const missingSections = allSections.filter((sec) => !recordedSet.has(sec));
+
+    return {
+      date: dateNormalized.toISOString().split("T")[0],
+      missingSections,
+      recordedSections,
+    };
   },
 };
