@@ -15,23 +15,28 @@ function requireAuth(ctx) {
 
 function requireAdmin(ctx) {
   const user = requireAuth(ctx);
-  // Activar cuando auth esté implementado:
-  // if (!user || user.role !== "ADMIN") {
-  //   throw new Error("Se requieren permisos de administrador");
-  // }
+
+  if (!user || user.role !== "Admin") {
+    throw new Error("Se requieren permisos de administrador");
+  }
   return user;
 }
 
 function requireSectionLeader(ctx, allowedSections = []) {
   const user = requireAuth(ctx);
-  // Activar cuando auth esté implementado:
-  // const validRoles = ["ADMIN", "PRINCIPAL_SECCION", "ASISTENTE_SECCION"];
-  // if (!user || !validRoles.includes(user.role)) {
-  //   throw new Error("No tienes permisos para pasar lista");
-  // }
-  // if (allowedSections.length > 0 && !allowedSections.includes(user.section)) {
-  //   throw new Error("No puedes pasar lista de esta sección");
-  // }
+
+  const validRoles = ["Admin", "Principal de sección", "Asistente de sección"];
+  if (!user || !validRoles.includes(user.role)) {
+    throw new Error("No tienes permisos para pasar lista");
+  }
+  if (
+    user.role !== "Admin" &&
+    allowedSections.length > 0 &&
+    !allowedSections.includes(user.section)
+  ) {
+    throw new Error("No puedes pasar lista de esta sección");
+  }
+
   return user;
 }
 
@@ -40,11 +45,11 @@ function requireSectionLeader(ctx, allowedSections = []) {
 // ============================================
 
 async function createSession(input, ctx) {
-  const user = requireSectionLeader(ctx);
-
-  if (!input.date || !input.section) {
+  if (!input || !input.date || !input.section) {
     throw new Error("Fecha y sección requeridas");
   }
+
+  requireSectionLeader(ctx, [input.section]);
 
   const dateNormalized = normalizeDateToStartOfDayCR(input.date);
 
@@ -81,7 +86,7 @@ async function createSession(input, ctx) {
 async function getActiveSession(date, section, ctx) {
   requireAuth(ctx);
 
-  const dateNormalized = normalizeDateToStartOfDay(date);
+  const dateNormalized = normalizeDateToStartOfDayCR(date);
 
   const session = await RehearsalSession.findOne({
     dateNormalized,
@@ -92,14 +97,12 @@ async function getActiveSession(date, section, ctx) {
 }
 
 async function closeSession(id, ctx) {
-  const user = requireSectionLeader(ctx);
-
   const session = await RehearsalSession.findById(id);
   if (!session) throw new Error("Sesión no encontrada");
 
-  if (session.status === "CLOSED") {
-    throw new Error("La sesión ya está cerrada");
-  }
+  requireSectionLeader(ctx, [session.section]);
+
+  if (session.status === "CLOSED") throw new Error("La sesión ya está cerrada");
 
   session.status = "CLOSED";
   session.closedAt = new Date();
@@ -116,10 +119,10 @@ async function getSessions(limit = 20, offset = 0, filter = {}, ctx) {
   if (filter.startDate || filter.endDate) {
     query.dateNormalized = {};
     if (filter.startDate) {
-      query.dateNormalized.$gte = normalizeDateToStartOfDay(filter.startDate);
+      query.dateNormalized.$gte = normalizeDateToStartOfDayCR(filter.startDate);
     }
     if (filter.endDate) {
-      query.dateNormalized.$lte = normalizeDateToStartOfDay(filter.endDate);
+      query.dateNormalized.$lte = normalizeDateToStartOfDayCR(filter.endDate);
     }
   }
 
@@ -145,8 +148,8 @@ async function getSessions(limit = 20, offset = 0, filter = {}, ctx) {
 async function getSectionComplianceReport(startDate, endDate, ctx) {
   requireAuth(ctx);
 
-  const start = normalizeDateToStartOfDay(startDate);
-  const end = normalizeDateToStartOfDay(endDate);
+  const start = normalizeDateToStartOfDayCR(startDate);
+  const end = normalizeDateToStartOfDayCR(endDate);
 
   // Todas las secciones esperadas
   const allSections = [
@@ -206,7 +209,7 @@ async function getSectionComplianceReport(startDate, endDate, ctx) {
 // ============================================
 
 async function takeAttendance(date, section, attendances, ctx) {
-  const user = requireSectionLeader(ctx);
+  const user = requireSectionLeader(ctx, [section]);
 
   if (!date || !section || !attendances || attendances.length === 0) {
     throw new Error("Fecha, sección y asistencias requeridas");
@@ -238,7 +241,7 @@ async function takeAttendance(date, section, attendances, ctx) {
       session.takenBy &&
       session.takenBy.toString() !== user?._id?.toString()
     ) {
-      const isAdmin = user?.role === "ADMIN";
+      const isAdmin = user?.role === "Admin";
       if (!isAdmin) {
         throw new Error(
           "La lista ya fue pasada por otro encargado. Solo administradores pueden editar.",
@@ -334,6 +337,8 @@ async function deleteSession(id, ctx) {
   const session = await RehearsalSession.findById(id);
   if (!session) throw new Error("Sesión no encontrada");
 
+  const user = requireSectionLeader(ctx, [session.section]);
+
   await Attendance.deleteMany({ session: id });
   await RehearsalSession.findByIdAndDelete(id);
 
@@ -398,12 +403,12 @@ async function getAllAttendancesRehearsal(
     if (filter.startDate || filter.endDate) {
       sessionQuery.dateNormalized = {};
       if (filter.startDate) {
-        sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDay(
+        sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDayCR(
           filter.startDate,
         );
       }
       if (filter.endDate) {
-        sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDay(
+        sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDayCR(
           filter.endDate,
         );
       }
@@ -447,9 +452,9 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
   if (startDate || endDate) {
     sessionQuery.dateNormalized = {};
     if (startDate)
-      sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDay(startDate);
+      sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDayCR(startDate);
     if (endDate)
-      sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDay(endDate);
+      sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDayCR(endDate);
   }
 
   const sessions = await RehearsalSession.find(sessionQuery).select("_id");
