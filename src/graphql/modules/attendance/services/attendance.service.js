@@ -8,6 +8,9 @@ const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
 
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
+  console.log("ctx.user =", ctx?.user);
+  console.log("ctx.user.section =", ctx?.user?.section);
+
   // Activar cuando auth esté implementado:
   // if (!currentUser) throw new Error("No autenticado");
   return currentUser;
@@ -22,19 +25,36 @@ function requireAdmin(ctx) {
   return user;
 }
 
+function normalizeSection(s) {
+  return String(s || "")
+    .trim()
+    .toUpperCase();
+}
+
 function requireSectionLeader(ctx, allowedSections = []) {
   const user = requireAuth(ctx);
+  if (!user) throw new Error("No autenticado");
+
+  console.log(
+    "Validando permisos para usuario:",
+    user?.name,
+    "Rol:",
+    user?.role,
+  );
 
   const validRoles = ["Admin", "Principal de sección", "Asistente de sección"];
-  if (!user || !validRoles.includes(user.role)) {
+  if (!validRoles.includes(user.role)) {
     throw new Error("No tienes permisos para pasar lista");
   }
-  if (
-    user.role !== "Admin" &&
-    allowedSections.length > 0 &&
-    !allowedSections.includes(user.section)
-  ) {
-    throw new Error("No puedes pasar lista de esta sección");
+
+  const isAdmin = user.role === "Admin";
+
+  // Admin puede pasar lista de cualquier sección
+  if (!isAdmin && allowedSections.length > 0) {
+    if (!user.section) throw new Error("Tu usuario no tiene sección asignada");
+    if (!allowedSections.includes(user.section)) {
+      throw new Error("No puedes pasar lista de esta sección");
+    }
   }
 
   return user;

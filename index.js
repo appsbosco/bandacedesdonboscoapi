@@ -11,6 +11,8 @@ const typeDefs = require("./src/graphql/base/typeDefs");
 const dbConnection = require("./config/database");
 const User = require("./models/User");
 
+const { inferSectionFromInstrument } = require("./utils/sections");
+
 // ============================
 // CORS: whitelist
 // ============================
@@ -71,16 +73,27 @@ async function initOnce() {
           if (!userId) return ctx;
 
           const dbUser = await User.findById(userId)
-            .select("_id email role name students")
+            .select("_id email role name students instrument section")
             .lean();
 
           if (!dbUser) return ctx;
+
+          let section = dbUser.section || null;
+
+          try {
+            if (!section)
+              section = inferSectionFromInstrument(dbUser.instrument) || null;
+          } catch (e) {
+            console.log("inferSectionFromInstrument failed:", e.message);
+            section = null;
+          }
 
           const hydrated = {
             id: String(dbUser._id),
             email: dbUser.email,
             role: dbUser.role,
             name: dbUser.name,
+            section,
           };
 
           req.user = hydrated;
