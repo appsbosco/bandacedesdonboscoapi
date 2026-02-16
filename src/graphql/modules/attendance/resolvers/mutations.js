@@ -1,26 +1,40 @@
-/**
- * attendance - Mutations
- * Resolvers delgados: delegan al service
- */
 const attendanceService = require("../services/attendance.service");
 
 module.exports = {
-  // Attendance
-  newAttendance: async (_, { input }, ctx) => {
+  createSession: async (_, { input }, ctx) => {
     try {
-      return await attendanceService.createAttendance(input, ctx);
+      return await attendanceService.createSession(input, ctx);
     } catch (error) {
-      console.error(error);
-      throw new Error(error.message || "No se pudo crear la asistencia");
+      throw new Error(error.message);
     }
   },
 
-  updateAttendance: async (_, { id, input }, ctx) => {
+  takeAttendance: async (_, { date, section, attendances }, ctx) => {
     try {
-      return await attendanceService.updateAttendance(id, input, ctx);
+      return await attendanceService.takeAttendance(
+        date,
+        section,
+        attendances,
+        ctx,
+      );
     } catch (error) {
-      console.error(error);
-      throw new Error(error.message || "No se pudo actualizar la asistencia");
+      throw new Error(error.message);
+    }
+  },
+
+  updateAttendance: async (_, { id, status, notes }, ctx) => {
+    try {
+      return await attendanceService.updateAttendance(id, status, notes, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  closeSession: async (_, { id }, ctx) => {
+    try {
+      return await attendanceService.closeSession(id, ctx);
+    } catch (error) {
+      throw new Error(error.message);
     }
   },
 
@@ -28,8 +42,15 @@ module.exports = {
     try {
       return await attendanceService.deleteAttendance(id, ctx);
     } catch (error) {
-      console.error(error);
-      throw new Error(error.message || "No se pudo eliminar la asistencia");
+      throw new Error(error.message);
+    }
+  },
+
+  deleteSession: async (_, { id }, ctx) => {
+    try {
+      return await attendanceService.deleteSession(id, ctx);
+    } catch (error) {
+      throw new Error(error.message);
     }
   },
 };

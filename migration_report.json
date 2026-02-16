@@ -1,0 +1,21 @@
+{
+  "processedAttendances": 222,
+  "producedSessions": 9,
+  "producedAttendanceRecords": 222,
+  "missingUsers": 3,
+  "unknownInstruments": {},
+  "examplesMissingUsers": [
+    {
+      "legacyAttendanceId": "69910d8c3e3f44497e32a27c",
+      "userId": "68152ceec9c3b5151b8a48f9"
+    },
+    {
+      "legacyAttendanceId": "69910d8e3b7b8d37a32e828f",
+      "userId": "65f5ae32ca62fcce4930526f"
+    },
+    {
+      "legacyAttendanceId": "69926cd483e30403f17929a1",
+      "userId": "68168af68c579677594453ce"
+    }
+  ]
+}

@@ -1,36 +1,92 @@
-/**
- * attendance - Queries
- * Resolvers delgados: delegan al service
- */
 const attendanceService = require("../services/attendance.service");
 
 module.exports = {
+  // Sessions
+  getSession: async (_, { id }, ctx) => {
+    try {
+      const session = await require("../../../../../models/RehearsalSession")
+        .findById(id)
+        .populate("takenBy");
+      if (!session) throw new Error("Sesión no encontrada");
+      return session;
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  getSessions: async (_, { limit, offset, filter }, ctx) => {
+    try {
+      return await attendanceService.getSessions(limit, offset, filter, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  getActiveSession: async (_, { date, section }, ctx) => {
+    try {
+      return await attendanceService.getActiveSession(date, section, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  getSectionComplianceReport: async (_, { startDate, endDate }, ctx) => {
+    try {
+      return await attendanceService.getSectionComplianceReport(
+        startDate,
+        endDate,
+        ctx,
+      );
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  // Attendances
   getAttendance: async (_, { id }, ctx) => {
     try {
       return await attendanceService.getAttendance(id, ctx);
     } catch (error) {
-      console.error(error);
-      throw new Error(error.message || "No se pudo obtener la asistencia");
+      throw new Error(error.message);
     }
   },
 
-  getAttendanceByUser: async (_, { userId }, ctx) => {
+  getAttendancesByUser: async (_, { userId, limit, offset }, ctx) => {
     try {
-      return await attendanceService.getAttendanceByUser(userId, ctx);
-    } catch (error) {
-      console.error(error);
-      throw new Error(
-        error.message || "No se pudo obtener la asistencia del usuario",
+      return await attendanceService.getAttendancesByUser(
+        userId,
+        limit,
+        offset,
+        ctx,
       );
+    } catch (error) {
+      throw new Error(error.message);
     }
   },
 
-  getAllAttendance: async (_, __, ctx) => {
+  getAllAttendancesRehearsal: async (_, { limit, offset, filter }, ctx) => {
     try {
-      return await attendanceService.getAllAttendance(ctx);
+      return await attendanceService.getAllAttendancesRehearsal(
+        limit,
+        offset,
+        filter,
+        ctx,
+      );
     } catch (error) {
-      console.error(error);
-      throw new Error(error.message || "No se pudo listar la asistencia");
+      throw new Error(error.message);
+    }
+  },
+
+  getUserAttendanceStats: async (_, { userId, startDate, endDate }, ctx) => {
+    try {
+      return await attendanceService.getUserAttendanceStats(
+        userId,
+        startDate,
+        endDate,
+        ctx,
+      );
+    } catch (error) {
+      throw new Error(error.message);
     }
   },
 };

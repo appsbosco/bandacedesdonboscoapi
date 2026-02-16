@@ -1,122 +1,559 @@
-/**
- * attendance - Service
- * Lógica de negocio + DB (Mongoose)
- */
 const Attendance = require("../../../../../models/Attendance");
+const RehearsalSession = require("../../../../../models/RehearsalSession");
 const User = require("../../../../../models/User");
 
-/**
- * Soft auth helper (preparado para activarse cuando el proyecto fije ctx.user/ctx.me/ctx.currentUser)
- */
+// ============================================
+// HELPERS DE AUTENTICACIÓN Y PERMISOS
+// ============================================
+
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
-
-  // NOTE: Activar cuando la autenticación esté fija en el contexto:
+  // Activar cuando auth esté implementado:
   // if (!currentUser) throw new Error("No autenticado");
-
   return currentUser;
 }
 
-async function createAttendance(input, ctx) {
-  requireAuth(ctx);
-
-  if (!input) throw new Error("Datos de asistencia requeridos");
-  if (!input.user) throw new Error("Usuario requerido para la asistencia");
-  // if (typeof input.attended !== "boolean") {
-  //   throw new Error("El campo 'attended' debe ser boolean");
+function requireAdmin(ctx) {
+  const user = requireAuth(ctx);
+  // Activar cuando auth esté implementado:
+  // if (!user || user.role !== "ADMIN") {
+  //   throw new Error("Se requieren permisos de administrador");
   // }
-
-  if (typeof input.attended !== "string" || !input.attended.trim()) {
-    throw new Error("El campo 'attended' debe ser un string válido");
-  }
-
-  const user = await User.findById(input.user);
-  if (!user) throw new Error("Usuario no existe");
-
-  const created = await Attendance.create({
-    user: user._id,
-    date: input.date,
-    attended: input.attended,
-  });
-
-  const attendance = await Attendance.findById(created._id).populate("user");
-  return attendance || created;
+  return user;
 }
 
-async function updateAttendance(id, input, ctx) {
-  requireAuth(ctx);
+function requireSectionLeader(ctx, allowedSections = []) {
+  const user = requireAuth(ctx);
+  // Activar cuando auth esté implementado:
+  // const validRoles = ["ADMIN", "PRINCIPAL_SECCION", "ASISTENTE_SECCION"];
+  // if (!user || !validRoles.includes(user.role)) {
+  //   throw new Error("No tienes permisos para pasar lista");
+  // }
+  // if (allowedSections.length > 0 && !allowedSections.includes(user.section)) {
+  //   throw new Error("No puedes pasar lista de esta sección");
+  // }
+  return user;
+}
 
-  if (!id) throw new Error("ID de asistencia requerido");
-  if (!input) throw new Error("Datos de actualización requeridos");
+// ============================================
+// UTILIDADES
+// ============================================
 
-  const exists = await Attendance.findById(id);
-  if (!exists) throw new Error("Registro de asistencia no existe");
+function normalizeDateToStartOfDay(dateInput) {
+  const date = new Date(dateInput);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
 
-  // Validación mínima si intentan cambiar el usuario
-  if (input.user) {
-    const user = await User.findById(input.user);
-    if (!user) throw new Error("Usuario no existe");
+// ============================================
+// SESSION MANAGEMENT
+// ============================================
+
+async function createSession(input, ctx) {
+  const user = requireSectionLeader(ctx);
+
+  if (!input.date || !input.section) {
+    throw new Error("Fecha y sección requeridas");
   }
 
-  const updated = await Attendance.findByIdAndUpdate(id, input, {
-    new: true,
-    runValidators: true,
-  }).populate("user");
+  const dateNormalized = normalizeDateToStartOfDay(input.date);
 
-  if (!updated) throw new Error("Registro de asistencia no existe");
+  try {
+    // Intento de creación idempotente
+    const session = await RehearsalSession.findOneAndUpdate(
+      { dateNormalized, section: input.section },
+      {
+        $setOnInsert: {
+          date: new Date(input.date),
+          dateNormalized,
+          section: input.section,
+          status: "SCHEDULED",
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    return session;
+  } catch (error) {
+    if (error.code === 11000) {
+      // Ya existe, retornar la sesión existente
+      const existing = await RehearsalSession.findOne({
+        dateNormalized,
+        section: input.section,
+      });
+      return existing;
+    }
+    throw error;
+  }
+}
+
+async function getActiveSession(date, section, ctx) {
+  requireAuth(ctx);
+
+  const dateNormalized = normalizeDateToStartOfDay(date);
+
+  const session = await RehearsalSession.findOne({
+    dateNormalized,
+    section,
+  }).populate("takenBy");
+
+  return session;
+}
+
+async function closeSession(id, ctx) {
+  const user = requireSectionLeader(ctx);
+
+  const session = await RehearsalSession.findById(id);
+  if (!session) throw new Error("Sesión no encontrada");
+
+  if (session.status === "CLOSED") {
+    throw new Error("La sesión ya está cerrada");
+  }
+
+  session.status = "CLOSED";
+  session.closedAt = new Date();
+  await session.save();
+
+  return session;
+}
+
+async function getSessions(limit = 20, offset = 0, filter = {}, ctx) {
+  requireAuth(ctx);
+
+  const query = {};
+
+  if (filter.startDate || filter.endDate) {
+    query.dateNormalized = {};
+    if (filter.startDate) {
+      query.dateNormalized.$gte = normalizeDateToStartOfDay(filter.startDate);
+    }
+    if (filter.endDate) {
+      query.dateNormalized.$lte = normalizeDateToStartOfDay(filter.endDate);
+    }
+  }
+
+  if (filter.section) {
+    query.section = filter.section;
+  }
+
+  const sessions = await RehearsalSession.find(query)
+    .sort({ dateNormalized: -1 })
+    .limit(limit)
+    .skip(offset)
+    .populate("takenBy");
+
+  const totalCount = await RehearsalSession.countDocuments(query);
+
+  return {
+    sessions,
+    totalCount,
+    hasMore: offset + limit < totalCount,
+  };
+}
+
+async function getSectionComplianceReport(startDate, endDate, ctx) {
+  requireAuth(ctx);
+
+  const start = normalizeDateToStartOfDay(startDate);
+  const end = normalizeDateToStartOfDay(endDate);
+
+  // Todas las secciones esperadas
+  const allSections = [
+    "NO_APLICA",
+    "FLAUTAS",
+    "CLARINETES",
+    "SAXOFONES",
+    "TROMPETAS",
+    "TROMBONES",
+    "TUBAS",
+    "EUFONIOS",
+    "CORNOS",
+    "MALLETS",
+    "PERCUSION",
+    "COLOR_GUARD",
+    "DANZA",
+  ];
+
+  // Generar todos los sábados en el rango
+  const expectedDates = [];
+  let current = new Date(start);
+  while (current <= end) {
+    if (current.getDay() === 6) {
+      // Sábado
+      expectedDates.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Buscar sesiones registradas
+  const sessions = await RehearsalSession.find({
+    dateNormalized: { $gte: start, $lte: end },
+  }).select("dateNormalized section");
+
+  const report = allSections.map((section) => {
+    const sectionSessions = sessions.filter((s) => s.section === section);
+    const recordedDates = sectionSessions.map((s) =>
+      s.dateNormalized.toISOString(),
+    );
+
+    const missedDates = expectedDates
+      .filter((d) => !recordedDates.includes(d.toISOString()))
+      .map((d) => d.toISOString().split("T")[0]);
+
+    return {
+      section,
+      missedDates,
+      compliant: missedDates.length === 0,
+    };
+  });
+
+  return report;
+}
+
+// ============================================
+// ATTENDANCE MANAGEMENT (IDEMPOTENTE)
+// ============================================
+
+async function takeAttendance(date, section, attendances, ctx) {
+  const user = requireSectionLeader(ctx);
+
+  if (!date || !section || !attendances || attendances.length === 0) {
+    throw new Error("Fecha, sección y asistencias requeridas");
+  }
+
+  const dateNormalized = normalizeDateToStartOfDay(date);
+
+  // 1. Buscar o crear sesión (idempotente)
+  let session = await RehearsalSession.findOne({ dateNormalized, section });
+
+  if (!session) {
+    session = await RehearsalSession.create({
+      date: new Date(date),
+      dateNormalized,
+      section,
+      status: "IN_PROGRESS",
+      takenBy: user?._id,
+      takenAt: new Date(),
+    });
+  } else {
+    // Validar que no esté cerrada
+    if (session.status === "CLOSED") {
+      // Solo admin puede editar sesión cerrada
+      requireAdmin(ctx);
+    }
+
+    // Validar que no haya sido pasada lista ya (solo encargados)
+    if (
+      session.takenBy &&
+      session.takenBy.toString() !== user?._id?.toString()
+    ) {
+      const isAdmin = user?.role === "ADMIN";
+      if (!isAdmin) {
+        throw new Error(
+          "La lista ya fue pasada por otro encargado. Solo administradores pueden editar.",
+        );
+      }
+    }
+
+    // Actualizar info de quien pasó lista
+    if (!session.takenBy) {
+      session.takenBy = user?._id;
+      session.takenAt = new Date();
+      session.status = "IN_PROGRESS";
+      await session.save();
+    }
+  }
+
+  // 2. Validar todos los usuarios existen
+  const userIds = attendances.map((a) => a.userId);
+  const users = await User.find({ _id: { $in: userIds } });
+
+  if (users.length !== userIds.length) {
+    throw new Error("Uno o más usuarios no existen");
+  }
+
+  // 3. UPSERT de asistencias (idempotente por índice único session + user)
+  const bulkOps = attendances.map((att) => ({
+    updateOne: {
+      filter: {
+        session: session._id,
+        user: att.userId,
+      },
+      update: {
+        $set: {
+          status: att.status,
+          notes: att.notes || "",
+          recordedBy: user?._id,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          session: session._id,
+          user: att.userId,
+          createdAt: new Date(),
+        },
+      },
+      upsert: true,
+    },
+  }));
+
+  await Attendance.bulkWrite(bulkOps);
+
+  // 4. Retornar sesión actualizada con asistencias
+  const updated = await RehearsalSession.findById(session._id).populate(
+    "takenBy",
+  );
+
   return updated;
 }
 
-async function deleteAttendance(id, ctx) {
-  requireAuth(ctx);
+async function updateAttendance(id, status, notes, ctx) {
+  const user = requireAdmin(ctx); // Solo admin puede actualizar individual
 
-  if (!id) throw new Error("ID de asistencia requerido");
+  if (!id || !status) {
+    throw new Error("ID y estado requeridos");
+  }
+
+  const attendance = await Attendance.findById(id).populate("session");
+  if (!attendance) throw new Error("Registro de asistencia no encontrado");
+
+  attendance.status = status;
+  attendance.notes = notes || attendance.notes;
+  attendance.updatedAt = new Date();
+  await attendance.save();
+
+  return await Attendance.findById(id)
+    .populate("user")
+    .populate("session")
+    .populate("recordedBy");
+}
+
+async function deleteAttendance(id, ctx) {
+  requireAdmin(ctx);
 
   const deleted = await Attendance.findByIdAndDelete(id);
-  if (!deleted) throw new Error("Registro de asistencia no existe");
+  if (!deleted) throw new Error("Registro no encontrado");
 
-  return "Registro de asistencia eliminado correctamente";
+  return "Registro de asistencia eliminado";
 }
+
+async function deleteSession(id, ctx) {
+  requireAdmin(ctx);
+
+  // Eliminar sesión y todas sus asistencias
+  const session = await RehearsalSession.findById(id);
+  if (!session) throw new Error("Sesión no encontrada");
+
+  await Attendance.deleteMany({ session: id });
+  await RehearsalSession.findByIdAndDelete(id);
+
+  return "Sesión y asistencias eliminadas";
+}
+
+// ============================================
+// QUERIES
+// ============================================
 
 async function getAttendance(id, ctx) {
   requireAuth(ctx);
 
-  if (!id) throw new Error("ID de asistencia requerido");
+  const attendance = await Attendance.findById(id)
+    .populate("user")
+    .populate("session")
+    .populate("recordedBy");
 
-  const attendance = await Attendance.findById(id).populate("user");
-  if (!attendance) throw new Error("Registro de asistencia no existe");
-
+  if (!attendance) throw new Error("Asistencia no encontrada");
   return attendance;
 }
 
-async function getAttendanceByUser(userId, ctx) {
+async function getAttendancesByUser(userId, limit = 50, offset = 0, ctx) {
   requireAuth(ctx);
 
-  if (!userId) throw new Error("ID de usuario requerido");
-
-  // (Opcional) validar existencia del usuario para mensajes consistentes
   const user = await User.findById(userId);
   if (!user) throw new Error("Usuario no existe");
 
-  const attendanceRecords = await Attendance.find({ user: userId }).populate(
-    "user",
-  );
-  return attendanceRecords;
+  const attendances = await Attendance.find({ user: userId })
+    .populate("session")
+    .populate("recordedBy")
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .skip(offset);
+
+  return attendances;
 }
 
-async function getAllAttendance(ctx) {
+async function getAllAttendancesRehearsal(
+  limit = 50,
+  offset = 0,
+  filter = {},
+  ctx,
+) {
   requireAuth(ctx);
 
-  const attendanceRecords = await Attendance.find({}).populate("user");
-  return attendanceRecords;
+  const query = {};
+
+  if (filter.userId) {
+    query.user = filter.userId;
+  }
+
+  if (filter.status) {
+    query.status = filter.status;
+  }
+
+  // Filtros por fecha requieren join con session
+  let sessionIds = null;
+  if (filter.startDate || filter.endDate || filter.section) {
+    const sessionQuery = {};
+
+    if (filter.startDate || filter.endDate) {
+      sessionQuery.dateNormalized = {};
+      if (filter.startDate) {
+        sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDay(
+          filter.startDate,
+        );
+      }
+      if (filter.endDate) {
+        sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDay(
+          filter.endDate,
+        );
+      }
+    }
+
+    if (filter.section) {
+      sessionQuery.section = filter.section;
+    }
+
+    const sessions = await RehearsalSession.find(sessionQuery).select("_id");
+    sessionIds = sessions.map((s) => s._id);
+    query.session = { $in: sessionIds };
+  }
+
+  const attendances = await Attendance.find(query)
+    .populate("user")
+    .populate("session")
+    .populate("recordedBy")
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .skip(offset);
+
+  return attendances;
 }
 
+// ============================================
+// ESTADÍSTICAS
+// ============================================
+
+async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
+  requireAuth(ctx);
+
+  const user = await User.findById(userId);
+  if (!user) throw new Error("Usuario no existe");
+
+  const sessionQuery = {
+    section: user.section,
+    status: { $in: ["IN_PROGRESS", "CLOSED"] },
+  };
+
+  if (startDate || endDate) {
+    sessionQuery.dateNormalized = {};
+    if (startDate)
+      sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDay(startDate);
+    if (endDate)
+      sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDay(endDate);
+  }
+
+  const sessions = await RehearsalSession.find(sessionQuery).select("_id");
+  const sessionIds = sessions.map((s) => s._id);
+
+  const attendances = await Attendance.find({
+    user: userId,
+    session: { $in: sessionIds },
+  }).select("status session");
+
+  const stats = {
+    present: 0,
+    absentUnjustified: 0,
+    absentJustified: 0,
+    late: 0,
+  };
+
+  // Conteo por status
+  const attendedSessionSet = new Set();
+  attendances.forEach((att) => {
+    attendedSessionSet.add(String(att.session));
+
+    switch (att.status) {
+      case "PRESENT":
+        stats.present++;
+        break;
+      case "LATE":
+        stats.late++;
+        break;
+      case "ABSENT_UNJUSTIFIED":
+      case "UNJUSTIFIED_WITHDRAWAL":
+        stats.absentUnjustified++;
+        break;
+      case "ABSENT_JUSTIFIED":
+      case "JUSTIFIED_WITHDRAWAL":
+        stats.absentJustified++;
+        break;
+    }
+  });
+
+  // Sesiones tomadas donde NO existe registro del usuario
+  const totalSessions = sessions.length;
+  const missing = totalSessions - attendedSessionSet.size;
+
+  // Política recomendada: missing = ausencia injustificada
+  if (missing > 0) stats.absentUnjustified += missing;
+
+  const equivalentAbsences =
+    stats.absentUnjustified + stats.absentJustified / 2;
+
+  const attendedCount = stats.present + stats.late;
+  const attendancePercentage =
+    totalSessions > 0 ? (attendedCount / totalSessions) * 100 : 0;
+
+  const exceedsLimit = equivalentAbsences > 6;
+
+  return {
+    userId,
+    user,
+    totalSessions,
+    present: stats.present,
+    absentUnjustified: stats.absentUnjustified,
+    absentJustified: stats.absentJustified,
+    late: stats.late,
+    equivalentAbsences: parseFloat(equivalentAbsences.toFixed(2)),
+    attendancePercentage: parseFloat(attendancePercentage.toFixed(2)),
+    exceedsLimit,
+  };
+}
+
+// ============================================
+// EXPORTS
+// ============================================
+
 module.exports = {
+  // Auth
   requireAuth,
-  createAttendance,
+  requireAdmin,
+  requireSectionLeader,
+
+  // Sessions
+  createSession,
+  getActiveSession,
+  closeSession,
+  getSessions,
+  getSectionComplianceReport,
+  deleteSession,
+
+  // Attendance
+  takeAttendance,
   updateAttendance,
   deleteAttendance,
   getAttendance,
-  getAttendanceByUser,
-  getAllAttendance,
+  getAttendancesByUser,
+  getAllAttendancesRehearsal,
+  getUserAttendanceStats,
 };
