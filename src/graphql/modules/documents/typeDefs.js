@@ -4,12 +4,16 @@ module.exports = gql`
   enum DocumentType {
     PASSPORT
     VISA
+    PERMISO_SALIDA
+    OTHER
   }
 
   enum DocumentStatus {
     UPLOADED
     DATA_CAPTURED
+    CAPTURE_ACCEPTED
     OCR_PENDING
+    OCR_PROCESSING
     OCR_SUCCESS
     OCR_FAILED
     VERIFIED
@@ -26,11 +30,36 @@ module.exports = gql`
     S3
   }
 
+  enum ImageKind {
+    RAW
+    NORMALIZED
+    MRZ_ROI
+  }
+
+  type CaptureMeta {
+    device: String
+    browser: String
+    w: Int
+    h: Int
+    blurVar: Float
+    glarePct: Float
+    attempt: Int
+    torchUsed: Boolean
+    ts: DateTime
+  }
+
   type DocumentImage {
     _id: ID!
+    kind: ImageKind
     url: String!
     provider: ImageProvider!
     publicId: String
+    width: Int
+    height: Int
+    bytes: Int
+    mimeType: String
+    sha256: String
+    captureMeta: CaptureMeta
     uploadedAt: DateTime!
   }
 
@@ -49,6 +78,8 @@ module.exports = gql`
     issueDate: DateTime
     mrzRaw: String
     mrzValid: Boolean
+    mrzFormat: String
+    reasonCodes: [String!]
     ocrText: String
     ocrConfidence: Float
   }
@@ -62,6 +93,9 @@ module.exports = gql`
     images: [DocumentImage!]!
     extracted: DocumentExtractedData
     notes: String
+    ocrAttempts: Int
+    ocrLastError: String
+    ocrUpdatedAt: DateTime
     retentionUntil: DateTime
     lastAccessedAt: DateTime
     isDeleted: Boolean!
@@ -100,6 +134,15 @@ module.exports = gql`
     message: String!
   }
 
+  type SignedUploadResult {
+    timestamp: Int!
+    signature: String!
+    apiKey: String!
+    cloudName: String!
+    folder: String!
+    publicId: String!
+  }
+
   input CreateDocumentInput {
     type: DocumentType!
     source: DocumentSource
@@ -107,11 +150,35 @@ module.exports = gql`
     retentionUntil: DateTime
   }
 
+  input GetSignedUploadInput {
+    documentId: ID!
+    kind: ImageKind!
+  }
+
+  input CaptureMetaInput {
+    device: String
+    browser: String
+    w: Int
+    h: Int
+    blurVar: Float
+    glarePct: Float
+    attempt: Int
+    torchUsed: Boolean
+    ts: DateTime
+  }
+
   input AddDocumentImageInput {
     documentId: ID!
+    kind: ImageKind
     url: String!
     provider: ImageProvider
     publicId: String
+    width: Int
+    height: Int
+    bytes: Int
+    mimeType: String
+    sha256: String
+    captureMeta: CaptureMetaInput
   }
 
   input UpsertDocumentExtractedDataInput {
@@ -129,6 +196,9 @@ module.exports = gql`
     expirationDate: DateTime
     issueDate: DateTime
     mrzRaw: String
+    mrzValid: Boolean
+    mrzFormat: String
+    reasonCodes: [String!]
     ocrText: String
     ocrConfidence: Float
   }
@@ -156,13 +226,24 @@ module.exports = gql`
     documentsExpiringSummary(referenceDate: DateTime): ExpirationSummary!
   }
 
+  input EnqueueDocumentOcrInput {
+    documentId: ID!
+  }
+
+  type EnqueueDocumentOcrResult {
+    success: Boolean!
+    jobId: String
+  }
+
   extend type Mutation {
     createDocument(input: CreateDocumentInput!): Document!
+    getSignedUpload(input: GetSignedUploadInput!): SignedUploadResult!
     addDocumentImage(input: AddDocumentImageInput!): Document!
     upsertDocumentExtractedData(
       input: UpsertDocumentExtractedDataInput!
     ): Document!
     setDocumentStatus(documentId: ID!, status: DocumentStatus!): Document!
     deleteDocument(documentId: ID!): DeleteDocumentResult!
+    enqueueDocumentOcr(input: EnqueueDocumentOcrInput!): EnqueueDocumentOcrResult!
   }
 `;

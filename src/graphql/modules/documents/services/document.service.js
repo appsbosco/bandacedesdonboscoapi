@@ -3,6 +3,7 @@
  * Lógica de negocio + DB (Mongoose)
  * CommonJS
  */
+const crypto = require("crypto");
 const Ticket = require("../../../../../models/Tickets");
 const Document = require("../../../../../models/Document");
 
@@ -52,7 +53,7 @@ function applyPagination(query, pagination) {
 
 function sanitizeMyDocumentsFilters(filters, userId) {
   const f = filters || {};
-  const mongo = { owner: userId };
+  const mongo = { owner: userId, isDeleted: { $ne: true } };
 
   // mínimos “seguros”
   if (f.status) mongo.status = f.status;
@@ -140,6 +141,50 @@ async function createDocument(input, ctx) {
   return doc || created;
 }
 
+/**
+ * getSignedUpload — genera firma Cloudinary para signed upload desde el browser
+ */
+async function getSignedUpload(input, ctx) {
+  const { userId } = requireUserId(ctx);
+  if (!input) throw new Error("Datos requeridos");
+
+  const { documentId, kind } = input;
+  if (!documentId) throw new Error("documentId requerido");
+  if (!kind) throw new Error("kind requerido");
+
+  // Verificar que el documento existe y pertenece al usuario
+  const doc = await Document.findOne({
+    _id: documentId,
+    owner: userId,
+    isDeleted: { $ne: true },
+  });
+  if (!doc) throw new Error("Documento no existe");
+
+  const kindLower = kind.toLowerCase();
+  const folder = `documents/${documentId}/${kindLower}`;
+  const publicId = `documents/${documentId}/${kindLower}/${Date.now()}`;
+  const timestamp = Math.round(Date.now() / 1000);
+
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (!apiSecret) throw new Error("Cloudinary no configurado");
+
+  // Generar signature: sha1 de params_to_sign + api_secret
+  const paramsToSign = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}`;
+  const signature = crypto
+    .createHash("sha1")
+    .update(paramsToSign + apiSecret)
+    .digest("hex");
+
+  return {
+    timestamp,
+    signature,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    folder,
+    publicId,
+  };
+}
+
 async function addDocumentImage(input, ctx) {
   const { userId } = requireUserId(ctx);
   if (!input) throw new Error("Datos requeridos");
@@ -152,13 +197,21 @@ async function addDocumentImage(input, ctx) {
     throw new Error("Datos de imagen requeridos");
   }
 
+  // Determinar si debemos actualizar el status a CAPTURE_ACCEPTED
+  const updateOps = {
+    $push: { images: imagePayload },
+    $set: { updatedBy: userId },
+  };
+
+  // Si kind=RAW, marcar como CAPTURE_ACCEPTED (solo si aún está en UPLOADED)
+  if (imagePayload.kind === "RAW") {
+    updateOps.$set.status = "CAPTURE_ACCEPTED";
+  }
+
   const updated = await baseDocumentPopulate(
     Document.findOneAndUpdate(
-      { _id: documentId, owner: userId },
-      {
-        $push: { images: imagePayload },
-        $set: { updatedBy: userId },
-      },
+      { _id: documentId, owner: userId, isDeleted: { $ne: true } },
+      updateOps,
       { new: true, runValidators: true },
     ),
   );
@@ -212,13 +265,15 @@ async function deleteDocument(documentId, ctx) {
   const { userId } = requireUserId(ctx);
   if (!documentId) throw new Error("documentId requerido");
 
-  const deleted = await Document.findOneAndDelete({
-    _id: documentId,
-    owner: userId,
-  });
-  if (!deleted) throw new Error("Documento no existe");
+  const updated = await Document.findOneAndUpdate(
+    { _id: documentId, owner: userId, isDeleted: { $ne: true } },
+    { $set: { isDeleted: true, deletedAt: new Date(), updatedBy: userId } },
+    { new: true },
+  );
+  if (!updated) throw new Error("Documento no existe");
 
-  return "Documento eliminado correctamente";
+  // TODO: encolar job de cleanup de assets Cloudinary
+  return { success: true, message: "Documento eliminado correctamente" };
 }
 
 /**
@@ -260,7 +315,7 @@ async function getDocumentById(id, ctx) {
   if (!id) throw new Error("ID de documento requerido");
 
   const doc = await baseDocumentPopulate(
-    Document.findOne({ _id: id, owner: userId }),
+    Document.findOne({ _id: id, owner: userId, isDeleted: { $ne: true } }),
   );
   if (!doc) throw new Error("Documento no existe");
 
@@ -278,10 +333,21 @@ async function getDocumentsExpiringSummary(referenceDate, ctx) {
 
   const base = {
     owner: userId,
+    isDeleted: { $ne: true },
     "extracted.expirationDate": { $exists: true, $ne: null },
   };
 
-  const [expiredCount, expiringIn30DaysCount, totalWithExpiration] =
+  const in60 = new Date(ref);
+  in60.setDate(in60.getDate() + 60);
+  const in90 = new Date(ref);
+  in90.setDate(in90.getDate() + 90);
+
+  const totalAll = await Document.countDocuments({
+    owner: userId,
+    isDeleted: { $ne: true },
+  });
+
+  const [expired, expiringIn30Days, expiringIn60Days, expiringIn90Days, totalWithExpiration, noExpirationDate] =
     await Promise.all([
       Document.countDocuments({
         ...base,
@@ -291,25 +357,86 @@ async function getDocumentsExpiringSummary(referenceDate, ctx) {
         ...base,
         "extracted.expirationDate": { $gte: ref, $lte: in30 },
       }),
+      Document.countDocuments({
+        ...base,
+        "extracted.expirationDate": { $gte: ref, $lte: in60 },
+      }),
+      Document.countDocuments({
+        ...base,
+        "extracted.expirationDate": { $gte: ref, $lte: in90 },
+      }),
       Document.countDocuments(base),
+      Document.countDocuments({
+        owner: userId,
+        isDeleted: { $ne: true },
+        $or: [
+          { "extracted.expirationDate": { $exists: false } },
+          { "extracted.expirationDate": null },
+        ],
+      }),
     ]);
 
-  const expiringSoon = await baseDocumentPopulate(
-    Document.find({
-      ...base,
-      "extracted.expirationDate": { $gte: ref, $lte: in30 },
-    })
-      .sort({ "extracted.expirationDate": 1 })
-      .limit(10),
-  );
+  const valid = totalWithExpiration - expired - expiringIn90Days;
 
   return {
-    referenceDate: ref.toISOString(),
-    totalWithExpiration,
-    expiredCount,
-    expiringIn30DaysCount,
-    expiringSoon,
+    total: totalAll,
+    expired,
+    expiringIn30Days,
+    expiringIn60Days,
+    expiringIn90Days,
+    valid: Math.max(0, valid),
+    noExpirationDate,
   };
+}
+
+const MAX_OCR_ATTEMPTS = 5;
+const OCR_COOLDOWN_MS = 30_000; // 30 seconds between enqueue attempts
+
+/**
+ * enqueueDocumentOcr — sets status to OCR_PENDING and increments attempt counter.
+ * The worker picks up documents with status=OCR_PENDING.
+ * Guards: max attempts, cooldown per document, ownership.
+ */
+async function enqueueDocumentOcr(input, ctx) {
+  const { userId } = requireUserId(ctx);
+  if (!input?.documentId) throw new Error("documentId requerido");
+
+  const doc = await Document.findOne({
+    _id: input.documentId,
+    owner: userId,
+    isDeleted: { $ne: true },
+  });
+  if (!doc) throw new Error("Documento no existe");
+
+  const hasRaw = doc.images?.some((img) => img.kind === "RAW");
+  if (!hasRaw) throw new Error("El documento no tiene imagen RAW");
+
+  // Guard: already processing
+  if (doc.status === "OCR_PENDING" || doc.status === "OCR_PROCESSING") {
+    return { success: true, jobId: String(doc._id) };
+  }
+
+  // Guard: max attempts
+  if ((doc.ocrAttempts || 0) >= MAX_OCR_ATTEMPTS) {
+    throw new Error(`Máximo de ${MAX_OCR_ATTEMPTS} intentos OCR alcanzado`);
+  }
+
+  // Guard: cooldown
+  if (doc.ocrUpdatedAt) {
+    const elapsed = Date.now() - new Date(doc.ocrUpdatedAt).getTime();
+    if (elapsed < OCR_COOLDOWN_MS) {
+      throw new Error("Espera antes de reintentar OCR");
+    }
+  }
+
+  doc.status = "OCR_PENDING";
+  doc.ocrAttempts = (doc.ocrAttempts || 0) + 1;
+  doc.ocrLastError = null;
+  doc.ocrUpdatedAt = new Date();
+  doc.updatedBy = userId;
+  await doc.save();
+
+  return { success: true, jobId: String(doc._id) };
 }
 
 module.exports = {
@@ -317,10 +444,12 @@ module.exports = {
   validateTicket,
 
   createDocument,
+  getSignedUpload,
   addDocumentImage,
   upsertDocumentExtractedData,
   setDocumentStatus,
   deleteDocument,
+  enqueueDocumentOcr,
 
   getMyDocuments,
   getDocumentById,

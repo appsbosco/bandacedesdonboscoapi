@@ -3,6 +3,7 @@
  * Generado por scaffold-graphql.js
  * (No sobreescribir: editá libremente)
  */
+const { daysUntilExpiration } = require("../../../../../utils/expiration");
 
 module.exports = {
   Document: {

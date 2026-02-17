@@ -23,6 +23,17 @@ module.exports = {
     }
   },
 
+  getSignedUpload: async (_, { input }, ctx) => {
+    try {
+      return await documentService.getSignedUpload(input, ctx);
+    } catch (error) {
+      console.error(error);
+      throw new Error(
+        error.message || "No se pudo generar la firma de upload",
+      );
+    }
+  },
+
   addDocumentImage: async (_, { input }, ctx) => {
     try {
       return await documentService.addDocumentImage(input, ctx);
@@ -62,6 +73,17 @@ module.exports = {
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo eliminar el documento");
+    }
+  },
+
+  enqueueDocumentOcr: async (_, { input }, ctx) => {
+    try {
+      return await documentService.enqueueDocumentOcr(input, ctx);
+    } catch (error) {
+      console.error(error);
+      throw new Error(
+        error.message || "No se pudo encolar el OCR del documento",
+      );
     }
   },
 };

@@ -1,8 +1,28 @@
 const mongoose = require("mongoose");
 const { encryptField, decryptField } = require("../utils/encryption");
 
+const captureMetaSchema = new mongoose.Schema(
+  {
+    device: String,
+    browser: String,
+    w: Number,
+    h: Number,
+    blurVar: Number,
+    glarePct: Number,
+    attempt: Number,
+    torchUsed: Boolean,
+    ts: Date,
+  },
+  { _id: false }
+);
+
 const documentImageSchema = new mongoose.Schema(
   {
+    kind: {
+      type: String,
+      enum: ["RAW", "NORMALIZED", "MRZ_ROI"],
+      default: "RAW",
+    },
     url: {
       type: String,
       required: true,
@@ -13,6 +33,12 @@ const documentImageSchema = new mongoose.Schema(
       default: "CLOUDINARY",
     },
     publicId: String,
+    width: Number,
+    height: Number,
+    bytes: Number,
+    mimeType: String,
+    sha256: String,
+    captureMeta: captureMetaSchema,
     uploadedAt: {
       type: Date,
       default: Date.now,
@@ -43,6 +69,11 @@ const extractedDataSchema = new mongoose.Schema(
     // MRZ fields
     mrzRaw: String, // También cifrado
     mrzValid: Boolean,
+    mrzFormat: {
+      type: String,
+      enum: ["TD1", "TD2", "TD3", null],
+    },
+    reasonCodes: [String],
     // OCR fields
     ocrText: String,
     ocrConfidence: Number,
@@ -60,7 +91,7 @@ const documentSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["PASSPORT", "VISA"],
+      enum: ["PASSPORT", "VISA", "PERMISO_SALIDA", "OTHER"],
       required: true,
     },
     status: {
@@ -68,7 +99,9 @@ const documentSchema = new mongoose.Schema(
       enum: [
         "UPLOADED",
         "DATA_CAPTURED",
+        "CAPTURE_ACCEPTED",
         "OCR_PENDING",
+        "OCR_PROCESSING",
         "OCR_SUCCESS",
         "OCR_FAILED",
         "VERIFIED",
@@ -86,6 +119,12 @@ const documentSchema = new mongoose.Schema(
     notes: String,
     retentionUntil: Date,
     lastAccessedAt: Date,
+    ocrAttempts: {
+      type: Number,
+      default: 0,
+    },
+    ocrLastError: String,
+    ocrUpdatedAt: Date,
     isDeleted: {
       type: Boolean,
       default: false,

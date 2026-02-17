@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node .",
-    "dev": "nodemon ."
+    "dev": "nodemon .",
+    "worker:ocr": "node workers/ocr-worker.js"
   },
   "engines": {
     "node": "22.x"
@@ -39,7 +40,9 @@
     "mongoose": "^7.1.0",
     "nodemailer": "^6.9.3",
     "nodemailer-express-handlebars": "^6.1.2",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "luxon": "^3.7.2",
