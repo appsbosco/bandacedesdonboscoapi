@@ -23,7 +23,6 @@ const AttendanceSchema = new mongoose.Schema({
       "ABSENT_UNJUSTIFIED",
       "ABSENT_JUSTIFIED",
       "LATE",
-
       "UNJUSTIFIED_WITHDRAWAL",
       "JUSTIFIED_WITHDRAWAL",
     ],

@@ -72,28 +72,46 @@ async function initOnce() {
           const userId = payload.id || payload._id || payload.sub;
           if (!userId) return ctx;
 
-          const dbUser = await User.findById(userId)
+          let dbUser = await User.findById(userId)
             .select("_id email role name students instrument section")
             .lean();
 
+          let entityType = "User";
+
+          if (!dbUser) {
+            const Parent = require("./models/Parents");
+            const dbParent = await Parent.findById(userId)
+              .select("_id email role name phone children")
+              .lean();
+
+            if (dbParent) {
+              dbUser = dbParent;
+              entityType = "Parent";
+            }
+          }
+
           if (!dbUser) return ctx;
 
-          let section = dbUser.section || null;
-
-          try {
-            if (!section)
-              section = inferSectionFromInstrument(dbUser.instrument) || null;
-          } catch (e) {
-            console.log("inferSectionFromInstrument failed:", e.message);
-            section = null;
+          let section = null;
+          if (entityType === "User") {
+            section = dbUser.section || null;
+            try {
+              if (!section)
+                section = inferSectionFromInstrument(dbUser.instrument) || null;
+            } catch (e) {
+              console.log("inferSectionFromInstrument failed:", e.message);
+            }
           }
 
           const hydrated = {
             id: String(dbUser._id),
+            _id: String(dbUser._id),
+            userId: String(dbUser._id),
             email: dbUser.email,
-            role: dbUser.role,
+            role: dbUser.role || "Parent",
             name: dbUser.name,
             section,
+            entityType,
           };
 
           req.user = hydrated;
@@ -103,6 +121,7 @@ async function initOnce() {
 
           return ctx;
         } catch (e) {
+          console.error("Context error:", e.message);
           return ctx;
         }
       },

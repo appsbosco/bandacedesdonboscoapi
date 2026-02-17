@@ -31,7 +31,7 @@ async function findAuthEntityByEmail(email) {
 }
 
 function getResetBaseUrl() {
-  // Recomendado: configurarlo en env para no hardcodear el dominio
+  // TODO: onfigurarlo en env para no hardcodear el dominio
   // e.g. RESET_PASSWORD_BASE_URL="https://bandacedesdonbosco.com/autenticacion/recuperar"
   return process.env.RESET_PASSWORD_BASE_URL
     ? process.env.RESET_PASSWORD_BASE_URL.replace(/\/$/, "")
@@ -39,7 +39,7 @@ function getResetBaseUrl() {
 }
 
 function getMailer() {
-  // Recomendado: mover user también a env si cambia
+  // TODO: mover user también a env si cambia
   const user = process.env.EMAIL_USER || "banda@cedesdonbosco.ed.cr";
   const pass = process.env.APP_PASSWORD;
 

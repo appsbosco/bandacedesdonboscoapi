@@ -8,8 +8,6 @@ const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
 
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
-  console.log("ctx.user =", ctx?.user);
-  console.log("ctx.user.section =", ctx?.user?.section);
 
   // Activar cuando auth esté implementado:
   // if (!currentUser) throw new Error("No autenticado");
@@ -25,22 +23,9 @@ function requireAdmin(ctx) {
   return user;
 }
 
-function normalizeSection(s) {
-  return String(s || "")
-    .trim()
-    .toUpperCase();
-}
-
 function requireSectionLeader(ctx, allowedSections = []) {
   const user = requireAuth(ctx);
   if (!user) throw new Error("No autenticado");
-
-  console.log(
-    "Validando permisos para usuario:",
-    user?.name,
-    "Rol:",
-    user?.role,
-  );
 
   const validRoles = ["Admin", "Principal de sección", "Asistente de sección"];
   if (!validRoles.includes(user.role)) {
