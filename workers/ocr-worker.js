@@ -15,7 +15,8 @@
  * Usage: node workers/ocr-worker.js
  * Env:   MONGODB_URI, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
  */
-require("dotenv").config();
+require("dotenv").config({ path: "./config/.env" });
+
 const mongoose = require("mongoose");
 const sharp = require("sharp");
 const cloudinary = require("cloudinary").v2;
@@ -48,10 +49,7 @@ cloudinary.config({
 let Document;
 
 async function connectDB() {
-  const uri =
-    process.env.MONGODB_URI ||
-    process.env.DB_MONGO ||
-    "mongodb://localhost:27017/bcdb";
+  const uri = process.env.DB_MONGO;
   await mongoose.connect(uri);
   Document = require("../models/Document");
   console.log("[ocr-worker] Connected to MongoDB");
@@ -61,7 +59,8 @@ async function connectDB() {
 
 async function downloadImage(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+  if (!res.ok)
+    throw new Error(`Download failed: ${res.status} ${res.statusText}`);
   return Buffer.from(await res.arrayBuffer());
 }
 
@@ -80,7 +79,7 @@ async function uploadBuffer(buffer, documentId, kind) {
       (err, result) => {
         if (err) return reject(err);
         resolve(result);
-      }
+      },
     );
     stream.end(buffer);
   });
@@ -190,9 +189,10 @@ async function tryRotationsForMrz(imageBuffer, docType) {
 
   for (const degrees of rotations) {
     try {
-      const rotated = degrees === 0
-        ? imageBuffer
-        : await sharp(imageBuffer).rotate(degrees).toBuffer();
+      const rotated =
+        degrees === 0
+          ? imageBuffer
+          : await sharp(imageBuffer).rotate(degrees).toBuffer();
 
       const roi = await extractMrzRoi(rotated, docType);
       const ocrResult = await ocrMrz(roi);
@@ -235,7 +235,9 @@ async function processDocument(doc) {
   const docId = String(doc._id);
   const docType = doc.type || "PASSPORT";
 
-  console.log(`[ocr-worker] Processing ${docId} (type=${docType}, attempt=${doc.ocrAttempts || 1})`);
+  console.log(
+    `[ocr-worker] Processing ${docId} (type=${docType}, attempt=${doc.ocrAttempts || 1})`,
+  );
 
   // 1. Find RAW image
   const rawImage = doc.images.find((img) => img.kind === "RAW");
@@ -286,7 +288,9 @@ async function processDocument(doc) {
       const partial = extractMRZData(mrzResult.mrzText);
       if (partial.extracted) {
         extracted = {
-          fullName: [partial.givenNames, partial.surname].filter(Boolean).join(" ") || null,
+          fullName:
+            [partial.givenNames, partial.surname].filter(Boolean).join(" ") ||
+            null,
           givenNames: partial.givenNames || null,
           surname: partial.surname || null,
           nationality: partial.nationality || null,
@@ -317,7 +321,11 @@ async function processDocument(doc) {
 
   // 5. Upload NORMALIZED to Cloudinary
   console.log(`[ocr-worker] [${docId}] Uploading NORMALIZED...`);
-  const uploadResult = await uploadBuffer(normalizedBuffer, docId, "NORMALIZED");
+  const uploadResult = await uploadBuffer(
+    normalizedBuffer,
+    docId,
+    "NORMALIZED",
+  );
 
   // 6. Build update
   const normalizedImage = {
@@ -342,7 +350,11 @@ async function processDocument(doc) {
     ocrText: mrzResult?.ocrResult?.rawText || null,
   };
 
-  const newStatus = mrzValid ? "OCR_SUCCESS" : (mrzRaw ? "OCR_SUCCESS" : "OCR_FAILED");
+  const newStatus = mrzValid
+    ? "OCR_SUCCESS"
+    : mrzRaw
+      ? "OCR_SUCCESS"
+      : "OCR_FAILED";
 
   // 7. Update document atomically
   await Document.findByIdAndUpdate(doc._id, {
@@ -350,14 +362,16 @@ async function processDocument(doc) {
     $set: {
       status: newStatus,
       extracted: extractedUpdate,
-      ocrLastError: mrzValid ? null : (reasonCodes.join(", ") || "Could not read MRZ"),
+      ocrLastError: mrzValid
+        ? null
+        : reasonCodes.join(", ") || "Could not read MRZ",
       ocrUpdatedAt: new Date(),
     },
   });
 
   const elapsed = Date.now() - startTime;
   console.log(
-    `[ocr-worker] [${docId}] Done in ${elapsed}ms → status=${newStatus}, mrzValid=${mrzValid}, confidence=${(ocrConfidence * 100).toFixed(1)}%`
+    `[ocr-worker] [${docId}] Done in ${elapsed}ms → status=${newStatus}, mrzValid=${mrzValid}, confidence=${(ocrConfidence * 100).toFixed(1)}%`,
   );
 }
 
@@ -373,7 +387,7 @@ async function claimAndProcess() {
         ocrUpdatedAt: new Date(),
       },
     },
-    { new: true, sort: { ocrUpdatedAt: 1, createdAt: 1 } } // oldest first
+    { new: true, sort: { ocrUpdatedAt: 1, createdAt: 1 } }, // oldest first
   );
 
   if (!doc) return false; // nothing to process
@@ -405,7 +419,11 @@ async function main() {
   // Pre-warm tesseract worker
   console.log("[ocr-worker] Initializing Tesseract...");
   await getTesseractWorker();
-  console.log("[ocr-worker] Tesseract ready. Polling every", POLL_INTERVAL_MS, "ms");
+  console.log(
+    "[ocr-worker] Tesseract ready. Polling every",
+    POLL_INTERVAL_MS,
+    "ms",
+  );
 
   let consecutiveErrors = 0;
 
@@ -435,7 +453,10 @@ async function main() {
       }
     } catch (err) {
       consecutiveErrors++;
-      console.error(`[ocr-worker] Poll error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, err.message);
+      console.error(
+        `[ocr-worker] Poll error (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`,
+        err.message,
+      );
 
       if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
         console.error("[ocr-worker] Too many consecutive errors, exiting.");
