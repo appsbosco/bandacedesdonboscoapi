@@ -7,6 +7,7 @@ module.exports = gql`
     CASH
     SINPE
     CARD
+    TRANSFER
     OTHER
   }
 

@@ -28,7 +28,7 @@ const SaleSchema = new mongoose.Schema(
 
     paymentMethod: {
       type: String,
-      enum: ["CASH", "SINPE", "CARD", "OTHER"],
+      enum: ["CASH", "SINPE", "CARD", "TRANSFER", "OTHER"],
       required: true,
     },
     source: {
