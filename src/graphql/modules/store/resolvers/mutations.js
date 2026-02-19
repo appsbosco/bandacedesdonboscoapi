@@ -1,7 +1,3 @@
-/**
- * store - Mutations
- * Resolvers delgados: delegan al service
- */
 const storeService = require("../services/store.service");
 
 module.exports = {
@@ -82,9 +78,14 @@ module.exports = {
     }
   },
 
-  createOrder: async (_, { userId, products }, ctx) => {
+  createOrder: async (_, { userId, products, fulfillmentDate }, ctx) => {
     try {
-      return await storeService.createOrder(userId, products, ctx);
+      return await storeService.createOrder(
+        userId,
+        products,
+        ctx,
+        fulfillmentDate,
+      );
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo crear la orden");
@@ -97,6 +98,25 @@ module.exports = {
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo completar la orden");
+    }
+  },
+
+  recordPickup: async (
+    _,
+    { orderId, itemId, quantityPickedUp, pickedUpAt },
+    ctx,
+  ) => {
+    try {
+      return await storeService.recordPickup(
+        orderId,
+        itemId,
+        quantityPickedUp,
+        pickedUpAt,
+        ctx,
+      );
+    } catch (error) {
+      console.error(error);
+      throw new Error(error.message || "No se pudo registrar el retiro");
     }
   },
 };
