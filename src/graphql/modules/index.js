@@ -16,4 +16,5 @@ module.exports = [
   require("./tickets"),
   require("./travelForms"),
   require("./users"),
+  require("./finance"),
 ];
