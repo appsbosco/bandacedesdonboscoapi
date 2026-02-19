@@ -6,6 +6,15 @@ const User = require("../../../../../models/User");
 const Product = require("../../../../../models/Product");
 const Order = require("../../../../../models/Order");
 
+const { dispatch } = require("../../../notifications/notification.dispatcher");
+const { EVENTS } = require("../../../notifications/notification.templates");
+
+async function sendNewProductNotification(productId) {
+  dispatch(EVENTS.STORE_PRODUCT_CREATED, { productId }).catch((err) =>
+    console.error("[store.service] notif error:", err.message),
+  );
+}
+
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
 
@@ -22,66 +31,6 @@ function normalizeDate(dateInput, fieldName) {
   if (Number.isNaN(d.getTime()))
     throw new Error(`${fieldName || "Fecha"} inválida`);
   return d;
-}
-
-function getAdminMessaging(ctx) {
-  // No invento imports: si tu proyecto ya inyecta firebase admin en ctx, lo usamos.
-  // Ejemplos posibles: ctx.admin, ctx.firebaseAdmin
-  const admin = ctx && (ctx.admin || ctx.firebaseAdmin);
-  if (!admin || !admin.messaging) return null;
-  try {
-    return admin.messaging();
-  } catch (e) {
-    return null;
-  }
-}
-
-async function sendNewProductNotification(ctx) {
-  const messaging = getAdminMessaging(ctx);
-  if (!messaging) return; // Silencioso: no rompe si no hay firebase admin en ctx.
-
-  const users = await User.find(
-    { notificationTokens: { $exists: true, $ne: [] } },
-    { notificationTokens: 1 },
-  );
-
-  const tokens = Array.from(
-    new Set(
-      users.flatMap((u) =>
-        Array.isArray(u.notificationTokens) ? u.notificationTokens : [],
-      ),
-    ),
-  );
-
-  if (tokens.length === 0) return;
-
-  const message = {
-    notification: {
-      title: "Banda CEDES Don Bosco - Nuevo Producto Disponible",
-      body: "Un nuevo producto ha sido añadido y ya puedes hacer la solicitud de tu almuerzo.",
-    },
-    tokens,
-  };
-
-  const response = await messaging.sendEachForMulticast(message);
-
-  if (response && typeof response.successCount === "number") {
-    console.log(
-      `${response.successCount} mensajes fueron enviados exitosamente.`,
-    );
-  }
-
-  if (
-    response &&
-    response.failureCount > 0 &&
-    Array.isArray(response.responses)
-  ) {
-    response.responses.forEach((resp, idx) => {
-      if (resp && !resp.success) {
-        console.log(`Error en el token en índice ${idx}:`, resp.error);
-      }
-    });
-  }
 }
 
 /**
@@ -107,6 +56,7 @@ async function createProduct(payload, ctx) {
   // Notificación best-effort (no rompe si falla)
   try {
     await sendNewProductNotification(ctx);
+    sendNewProductNotification(created._id.toString());
   } catch (e) {
     console.log("Error enviando notificación de nuevo producto:", e);
   }
