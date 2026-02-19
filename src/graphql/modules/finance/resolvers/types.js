@@ -1,6 +1,10 @@
 /**
  * finance/resolvers/types.js
  * Field-level resolvers para mapear _id → id y serializar fechas.
+ *
+ * CAMBIOS: agregado DailySummaryReport.breakdown → null si no existe.
+ * SessionVsExternalBreakdown no necesita resolver propio (todos los campos
+ * son escalares devueltos directamente por el service).
  */
 const toId = (parent) => String(parent._id || parent.id || "");
 const toStr = (v) => (v ? String(v) : null);
@@ -42,17 +46,12 @@ module.exports = {
     createdBy: (p) => toStr(p.createdBy),
   },
 
-  Category: {
-    ...sharedFields,
-  },
+  Category: { ...sharedFields },
+  Activity: { ...sharedFields },
 
-  Activity: {
-    ...sharedFields,
-  },
-
-  // DailySummaryReport.session puede ser null → el resolver de campo lo maneja
   DailySummaryReport: {
     session: (p) => p.session || null,
+    breakdown: (p) => p.breakdown || null,
   },
 
   ActivitySummary: {
@@ -66,4 +65,8 @@ module.exports = {
   ProductSalesSummary: {
     productId: (p) => (p.productId ? toStr(p.productId) : null),
   },
+
+  // SessionVsExternalBreakdown: no resolver explícito necesario.
+  // Todos los campos (sessionSales, externalSales, etc.) son Float/Array
+  // devueltos directamente por getDailySummary sin transformación.
 };

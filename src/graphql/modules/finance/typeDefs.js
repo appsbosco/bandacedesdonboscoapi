@@ -56,6 +56,7 @@ module.exports = gql`
     cash: Float!
     sinpe: Float!
     card: Float!
+    transfer: Float! # ← NUEVO: transferencias bancarias
     other: Float!
   }
 
@@ -158,9 +159,30 @@ module.exports = gql`
     net: Float!
   }
 
+  """
+  Desglose sesión (movimientos con cashSessionId) vs externos (sin cashSessionId).
+  Solo aparece en dailySummary cuando existe una sesión para ese día.
+  Campo 'breakdown' es nullable para compatibilidad hacia atrás.
+  """
+  type SessionVsExternalBreakdown {
+    # Movimientos vinculados a la sesión de caja
+    sessionSales: Float!
+    sessionExpenses: Float!
+    sessionNet: Float!
+    sessionByMethod: [PaymentMethodBreakdown!]!
+
+    # Movimientos externos (sin cashSessionId)
+    externalSales: Float!
+    externalExpenses: Float!
+    externalNet: Float!
+    externalByMethod: [PaymentMethodBreakdown!]!
+  }
+
   type DailySummaryReport {
     businessDate: String!
     session: CashSession
+
+    # Totales completos del día (sesión + externos)
     totalSales: Float!
     totalExpenses: Float!
     net: Float!
@@ -168,6 +190,9 @@ module.exports = gql`
     expensesByMethod: [PaymentMethodBreakdown!]!
     productSales: [ProductSalesSummary!]!
     expensesByCategory: [CategoryExpenseSummary!]!
+
+    # Desglose sesión vs externos. Null si no hay sesión ese día.
+    breakdown: SessionVsExternalBreakdown
   }
 
   type RangeSummaryReport {
@@ -247,7 +272,6 @@ module.exports = gql`
   # ─── Mutations ──────────────────────────────────────────────────────────────
 
   extend type Mutation {
-    # Caja
     openCashSession(
       businessDate: String!
       openingCash: Float
@@ -256,16 +280,13 @@ module.exports = gql`
 
     closeCashSession(input: CloseCashSessionInput!): CashSession
 
-    # Ventas
     recordSale(input: RecordSaleInput!): Sale
     voidSale(saleId: ID!, reason: String!): Sale
     refundSale(saleId: ID!, reason: String!): Sale
 
-    # Egresos
     recordExpense(input: RecordExpenseInput!): Expense
     voidExpense(expenseId: ID!, reason: String!): Expense
 
-    # Catálogos
     createCategory(input: CreateCategoryInput!): Category
     createActivity(input: CreateActivityInput!): Activity
     toggleCategoryActive(id: ID!): Category
@@ -275,19 +296,15 @@ module.exports = gql`
   # ─── Queries ────────────────────────────────────────────────────────────────
 
   extend type Query {
-    # Catálogos
     categories(onlyActive: Boolean): [Category!]!
     activities(onlyActive: Boolean): [Activity!]!
 
-    # Sesiones
     cashSessionDetail(businessDate: String, cashSessionId: ID): CashSession
     cashSessions(dateFrom: String!, dateTo: String!): [CashSession!]!
 
-    # Ventas / Egresos del día / rango
     salesByDate(businessDate: String!): [Sale!]!
     expensesByDate(businessDate: String!): [Expense!]!
 
-    # Reportes agregados
     dailySummary(businessDate: String!): DailySummaryReport!
     rangeSummary(dateFrom: String!, dateTo: String!): RangeSummaryReport!
     productSalesReport(
@@ -298,8 +315,6 @@ module.exports = gql`
       dateFrom: String!
       dateTo: String!
     ): [CategoryExpenseSummary!]!
-
-    # Dataset mensual (para PDF)
     monthlyReportDataset(month: Int!, year: Int!): MonthlyReportDataset!
   }
 `;

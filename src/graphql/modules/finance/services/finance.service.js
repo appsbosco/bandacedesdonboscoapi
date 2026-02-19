@@ -1,11 +1,14 @@
 /**
  * finance.service.js
- * Lógica de negocio + DB para el módulo finance.
  *
- * TIMEZONE DECISION:
- * businessDate se trata siempre como String "YYYY-MM-DD" (date-only).
- * Los filtros de rango hacen comparaciones lexicográficas (funciona correctamente
- * en ISO 8601). No se usa Date para businessDate — evita bugs de UTC midnight.
+ * CAMBIOS respecto a versión anterior:
+ * 1. closeCashSession: filtra por cashSessionId (no por businessDate) — solo
+ *    movimientos de la sesión afectan el cuadre.
+ * 2. byMethod: incluye 'transfer'; mapeo TRANSFER→transfer correcto.
+ * 3. recordSale / recordExpense: bloquea paymentMethod=CASH sin cashSessionId.
+ * 4. getDailySummary: agrega campo 'breakdown' con subtotales sesión vs externos.
+ *
+ * TIMEZONE: businessDate siempre String "YYYY-MM-DD". NO se convierte a Date.
  */
 
 const mongoose = require("mongoose");
@@ -26,18 +29,16 @@ function requireAuth(ctx) {
   return u;
 }
 
-/** Valida y normaliza "YYYY-MM-DD". Lanza si inválido. */
 function normalizeBusinessDate(value, field = "businessDate") {
   if (!value || typeof value !== "string")
     throw new Error(`${field} requerido (formato YYYY-MM-DD)`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value))
     throw new Error(`${field} inválido — usar formato YYYY-MM-DD`);
-  const d = new Date(value + "T12:00:00Z"); // noon UTC to avoid TZ boundary
+  const d = new Date(value + "T12:00:00Z");
   if (isNaN(d.getTime())) throw new Error(`${field} no es una fecha válida`);
   return value;
 }
 
-/** Requiere al menos uno de dos args (para cashSessionDetail). */
 function requireOneOf(a, b, nameA, nameB) {
   if (!a && !b) throw new Error(`Se requiere ${nameA} o ${nameB}`);
 }
@@ -45,6 +46,24 @@ function requireOneOf(a, b, nameA, nameB) {
 function userId(ctx) {
   const u = ctx && (ctx.user || ctx.me || ctx.currentUser);
   return u ? u._id || u.id : undefined;
+}
+
+/**
+ * Construye el objeto byMethod vacío con todos los métodos soportados.
+ * Incluye 'transfer' para compatibilidad con el nuevo enum.
+ */
+function emptyByMethod() {
+  return { cash: 0, sinpe: 0, card: 0, transfer: 0, other: 0 };
+}
+
+/**
+ * Normaliza el _id del método de pago a clave lowercase del byMethod.
+ * Maneja TRANSFER→transfer correctamente.
+ */
+function methodKey(paymentMethodEnum) {
+  const m = (paymentMethodEnum || "").toLowerCase();
+  // Todos los valores del enum mapean directamente (cash, sinpe, card, transfer, other)
+  return m;
 }
 
 // ─── Categories ─────────────────────────────────────────────────────────────
@@ -115,6 +134,16 @@ async function openCashSession({ businessDate, openingCash, notes }, ctx) {
   });
 }
 
+/**
+ * closeCashSession — CORREGIDO
+ *
+ * Calcula expectedTotalsByMethod SOLO con movimientos vinculados a esta sesión
+ * (cashSessionId === session._id). Los movimientos externos (sin cashSessionId)
+ * no afectan el cuadre de caja física.
+ *
+ * difference = countedCash - (expectedCash + openingCash)
+ * donde expectedCash = neto en efectivo de la sesión (ventas CASH - gastos CASH).
+ */
 async function closeCashSession(
   { businessDate, cashSessionId, countedCash, notes },
   ctx,
@@ -134,40 +163,76 @@ async function closeCashSession(
   if (!session) throw new Error("Sesión de caja no encontrada");
   if (session.status === "CLOSED") throw new Error("La sesión ya está cerrada");
 
-  // Calcular totales esperados desde ventas y egresos del día
-  const bd = session.businessDate;
+  const sessionOid = session._id;
+
+  // ── Agregar SOLO los movimientos de esta sesión ───────────────────────────
+  // Filtramos por cashSessionId === session._id, NO por businessDate.
+  // Esto garantiza que movimientos externos (sin cashSessionId) no contaminen
+  // el cuadre de caja física.
   const [salesAgg, expenseAgg] = await Promise.all([
     Sale.aggregate([
-      { $match: { businessDate: bd, status: "ACTIVE" } },
-      { $group: { _id: "$paymentMethod", total: { $sum: "$total" } } },
+      {
+        $match: {
+          cashSessionId: sessionOid,
+          status: "ACTIVE",
+        },
+      },
+      {
+        $group: {
+          _id: "$paymentMethod",
+          total: { $sum: "$total" },
+        },
+      },
     ]),
     Expense.aggregate([
-      { $match: { businessDate: bd, status: "ACTIVE" } },
-      { $group: { _id: "$paymentMethod", total: { $sum: "$amount" } } },
+      {
+        $match: {
+          cashSessionId: sessionOid,
+          status: "ACTIVE",
+        },
+      },
+      {
+        $group: {
+          _id: "$paymentMethod",
+          total: { $sum: "$amount" },
+        },
+      },
     ]),
   ]);
 
-  const byMethod = { cash: 0, sinpe: 0, card: 0, other: 0 };
-  for (const s of salesAgg)
-    byMethod[s._id.toLowerCase()] =
-      (byMethod[s._id.toLowerCase()] || 0) + s.total;
-  for (const e of expenseAgg)
-    byMethod[e._id.toLowerCase()] =
-      (byMethod[e._id.toLowerCase()] || 0) - e.total;
+  // Construir netos por método (ventas - egresos, por método de pago)
+  const byMethod = emptyByMethod();
 
+  for (const s of salesAgg) {
+    const k = methodKey(s._id);
+    if (k in byMethod) byMethod[k] += s.total;
+    // Si el key no existe (enum desconocido), va a 'other' como fallback
+    else byMethod.other += s.total;
+  }
+
+  for (const e of expenseAgg) {
+    const k = methodKey(e._id);
+    if (k in byMethod) byMethod[k] -= e.total;
+    else byMethod.other -= e.total;
+  }
+
+  // expectedCash = neto en efectivo de la sesión
+  // difference = cuánto debería haber en caja vs cuánto hay físicamente
   const expectedCash = byMethod.cash;
   const difference = countedCash - (expectedCash + (session.openingCash || 0));
 
+  // Persistimos los netos por método (pueden ser negativos si hubo más gastos que ingresos)
   session.status = "CLOSED";
   session.closedAt = new Date();
   session.closedBy = userId(ctx);
   session.countedCash = countedCash;
   session.difference = difference;
   session.expectedTotalsByMethod = {
-    cash: Math.max(0, byMethod.cash),
-    sinpe: Math.max(0, byMethod.sinpe),
-    card: Math.max(0, byMethod.card),
-    other: Math.max(0, byMethod.other),
+    cash: byMethod.cash,
+    sinpe: byMethod.sinpe,
+    card: byMethod.card,
+    transfer: byMethod.transfer,
+    other: byMethod.other,
   };
   if (notes) session.notes = notes;
 
@@ -196,6 +261,16 @@ async function getCashSessions({ dateFrom, dateTo }, ctx) {
 
 // ─── Sales ───────────────────────────────────────────────────────────────────
 
+/**
+ * recordSale — ACTUALIZADO
+ *
+ * Regla de CASH externo:
+ * Si paymentMethod === CASH y NO se proporciona cashSessionId → ERROR.
+ * Razón: el efectivo siempre pasa por caja física. Un CASH sin sesión es
+ * casi siempre un error operacional que generaría diferencias fantasma en
+ * el cierre. El staff debe vincular la sesión o usar TRANSFER/OTHER para
+ * pagos que no pasan por la caja del local.
+ */
 async function recordSale(input, ctx) {
   requireAuth(ctx);
   const {
@@ -212,7 +287,16 @@ async function recordSale(input, ctx) {
   const bd = normalizeBusinessDate(businessDate);
   if (!paymentMethod) throw new Error("paymentMethod requerido");
 
-  // Validar sesión si se pasa
+  // ── Validación CASH externo ───────────────────────────────────────────────
+  if (paymentMethod === "CASH" && !cashSessionId) {
+    throw new Error(
+      "Las ventas en EFECTIVO (CASH) deben vincularse a una sesión de caja " +
+        "(cashSessionId requerido). Si el pago no pasa por caja física, " +
+        "usá TRANSFER u OTHER.",
+    );
+  }
+
+  // ── Validar sesión ────────────────────────────────────────────────────────
   if (cashSessionId) {
     const sess = await CashSession.findById(cashSessionId);
     if (!sess) throw new Error("cashSessionId no existe");
@@ -220,13 +304,13 @@ async function recordSale(input, ctx) {
       throw new Error("La sesión de caja está cerrada");
   }
 
-  // Validar order si se pasa
+  // ── Validar order ─────────────────────────────────────────────────────────
   if (orderId) {
     const order = await Order.findById(orderId);
     if (!order) throw new Error("Order no encontrada");
   }
 
-  // Calcular lineItems y total
+  // ── Calcular lineItems y total ────────────────────────────────────────────
   let computedItems = [];
   let computedTotal = total;
 
@@ -241,7 +325,6 @@ async function recordSale(input, ctx) {
       return { ...li, subtotal };
     });
     const itemsTotal = computedItems.reduce((a, i) => a + i.subtotal, 0);
-    // Si pasaron total explícito, lo respetamos; si no, lo derivamos de items
     computedTotal = total !== undefined && total !== null ? total : itemsTotal;
   }
 
@@ -252,7 +335,7 @@ async function recordSale(input, ctx) {
   )
     throw new Error("total inválido (debe ser > 0)");
 
-  const sale = await Sale.create({
+  return Sale.create({
     businessDate: bd,
     cashSessionId: cashSessionId || undefined,
     activityId: activityId || undefined,
@@ -263,8 +346,6 @@ async function recordSale(input, ctx) {
     total: computedTotal,
     createdBy: userId(ctx),
   });
-
-  return sale;
 }
 
 async function voidSale(saleId, reason, ctx) {
@@ -305,6 +386,11 @@ async function getSalesByDate(businessDate, ctx) {
 
 // ─── Expenses ────────────────────────────────────────────────────────────────
 
+/**
+ * recordExpense — ACTUALIZADO
+ *
+ * Misma regla que recordSale: CASH sin cashSessionId → error.
+ */
 async function recordExpense(input, ctx) {
   requireAuth(ctx);
   const {
@@ -327,7 +413,16 @@ async function recordExpense(input, ctx) {
   if (!amount || amount <= 0) throw new Error("amount inválido (debe ser > 0)");
   if (!paymentMethod) throw new Error("paymentMethod requerido");
 
-  // Snapshot de categoría
+  // ── Validación CASH externo ───────────────────────────────────────────────
+  if (paymentMethod === "CASH" && !cashSessionId) {
+    throw new Error(
+      "Los gastos en EFECTIVO (CASH) deben vincularse a una sesión de caja " +
+        "(cashSessionId requerido). Si el pago no pasa por caja física, " +
+        "usá TRANSFER u OTHER.",
+    );
+  }
+
+  // ── Snapshot de categoría ─────────────────────────────────────────────────
   let categorySnapshot = undefined;
   if (categoryId) {
     const cat = await Category.findById(categoryId);
@@ -335,6 +430,7 @@ async function recordExpense(input, ctx) {
     categorySnapshot = cat.name;
   }
 
+  // ── Validar sesión ────────────────────────────────────────────────────────
   if (cashSessionId) {
     const sess = await CashSession.findById(cashSessionId);
     if (!sess) throw new Error("cashSessionId no existe");
@@ -381,22 +477,12 @@ async function getExpensesByDate(businessDate, ctx) {
   return Expense.find({ businessDate: bd }).sort({ createdAt: -1 });
 }
 
-// ─── Aggregations ────────────────────────────────────────────────────────────
-
-/**
- * Pipelines reutilizables
- */
+// ─── Aggregation pipelines ────────────────────────────────────────────────────
 
 function salesTotalPipeline(matchExtra = {}) {
   return [
     { $match: { status: "ACTIVE", ...matchExtra } },
-    {
-      $group: {
-        _id: null,
-        total: { $sum: "$total" },
-        count: { $sum: 1 },
-      },
-    },
+    { $group: { _id: null, total: { $sum: "$total" }, count: { $sum: 1 } } },
   ];
 }
 
@@ -515,7 +601,6 @@ async function activitiesSummaryPipeline(dateMatch) {
     map[id].totalExpenses = e.totalExpenses;
   }
 
-  // Enrich with activity names
   const activityIds = Object.values(map).map((m) => m.activityId);
   const activities = await Activity.find({ _id: { $in: activityIds } }).lean();
   const actMap = Object.fromEntries(
@@ -533,35 +618,124 @@ async function activitiesSummaryPipeline(dateMatch) {
 
 // ─── dailySummary ─────────────────────────────────────────────────────────────
 
+/**
+ * getDailySummary — ACTUALIZADO
+ *
+ * Retorna:
+ * - totalSales / totalExpenses / net: TODOS los movimientos del día (sesión + externos)
+ * - salesByMethod / expensesByMethod: ídem, todos
+ * - breakdown: subtotales separados sesión vs externos (null si no hay sesión)
+ *
+ * El campo 'breakdown' es nuevo y opcional en el type GraphQL.
+ */
 async function getDailySummary(businessDate, ctx) {
   requireAuth(ctx);
   const bd = normalizeBusinessDate(businessDate);
-
   const dateMatch = { businessDate: bd };
 
-  const [
-    salesTotalAgg,
-    expTotalAgg,
-    salesByMethod,
-    expByMethod,
-    productSales,
-    expByCategory,
-    session,
-  ] = await Promise.all([
+  // Buscar sesión del día
+  const session = await CashSession.findOne({ businessDate: bd });
+
+  // ── Queries en paralelo ───────────────────────────────────────────────────
+  const promises = [
+    // 0: total ventas del día (todos)
     Sale.aggregate(salesTotalPipeline(dateMatch)),
+    // 1: total egresos del día (todos)
     Expense.aggregate([
       { $match: { status: "ACTIVE", ...dateMatch } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
+    // 2: ventas por método (todos)
     Sale.aggregate(salesByMethodPipeline(dateMatch)),
+    // 3: egresos por método (todos)
     Expense.aggregate(expensesByMethodPipeline(dateMatch)),
+    // 4: ventas por producto (todos)
     Sale.aggregate(productSalesPipeline(dateMatch)),
+    // 5: egresos por categoría (todos)
     Expense.aggregate(expensesByCategoryPipeline(dateMatch)),
-    CashSession.findOne({ businessDate: bd }),
-  ]);
+  ];
 
-  const totalSales = salesTotalAgg[0]?.total || 0;
-  const totalExpenses = expTotalAgg[0]?.total || 0;
+  // Si hay sesión, agregar queries de breakdown sesión vs externos
+  if (session) {
+    const sessionOid = session._id;
+    const externalSaleMatch = {
+      ...dateMatch,
+      cashSessionId: { $exists: false },
+    };
+    const externalExpMatch = {
+      ...dateMatch,
+      cashSessionId: { $exists: false },
+    };
+    const sessionSaleMatch = { ...dateMatch, cashSessionId: sessionOid };
+    const sessionExpMatch = { ...dateMatch, cashSessionId: sessionOid };
+
+    promises.push(
+      // 6: ventas de la sesión por método
+      Sale.aggregate(salesByMethodPipeline(sessionSaleMatch)),
+      // 7: egresos de la sesión por método
+      Expense.aggregate(expensesByMethodPipeline(sessionExpMatch)),
+      // 8: total ventas de la sesión
+      Sale.aggregate(salesTotalPipeline(sessionSaleMatch)),
+      // 9: total egresos de la sesión
+      Expense.aggregate([
+        { $match: { status: "ACTIVE", ...sessionExpMatch } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+      // 10: ventas externas por método
+      Sale.aggregate(salesByMethodPipeline(externalSaleMatch)),
+      // 11: egresos externos por método
+      Expense.aggregate(expensesByMethodPipeline(externalExpMatch)),
+      // 12: total ventas externas
+      Sale.aggregate(salesTotalPipeline(externalSaleMatch)),
+      // 13: total egresos externos
+      Expense.aggregate([
+        { $match: { status: "ACTIVE", ...externalExpMatch } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
+    );
+  }
+
+  const results = await Promise.all(promises);
+
+  const totalSales = results[0][0]?.total || 0;
+  const totalExpenses = results[1][0]?.total || 0;
+  const salesByMethod = results[2];
+  const expensesByMethod = results[3];
+  const productSales = results[4];
+  const expensesByCategory = results[5];
+
+  // ── Construir breakdown si hay sesión ─────────────────────────────────────
+  let breakdown = null;
+  if (session) {
+    const sessionByMethod = results[6];
+    const expSessionByMethod = results[7];
+    const sessionSalesTotal = results[8][0]?.total || 0;
+    const sessionExpensesTotal = results[9][0]?.total || 0;
+    const externalByMethod = results[10];
+    const expExternalByMethod = results[11];
+    const externalSalesTotal = results[12][0]?.total || 0;
+    const externalExpensesTotal = results[13][0]?.total || 0;
+
+    breakdown = {
+      // Sesión
+      sessionSales: sessionSalesTotal,
+      sessionExpenses: sessionExpensesTotal,
+      sessionNet: sessionSalesTotal - sessionExpensesTotal,
+      sessionByMethod: mergeMethodBreakdowns(
+        sessionByMethod,
+        expSessionByMethod,
+      ),
+
+      // Externos
+      externalSales: externalSalesTotal,
+      externalExpenses: externalExpensesTotal,
+      externalNet: externalSalesTotal - externalExpensesTotal,
+      externalByMethod: mergeMethodBreakdowns(
+        externalByMethod,
+        expExternalByMethod,
+      ),
+    };
+  }
 
   return {
     businessDate: bd,
@@ -570,10 +744,31 @@ async function getDailySummary(businessDate, ctx) {
     totalExpenses,
     net: totalSales - totalExpenses,
     salesByMethod,
-    expensesByMethod: expByMethod,
+    expensesByMethod,
     productSales,
-    expensesByCategory: expByCategory,
+    expensesByCategory,
+    breakdown,
   };
+}
+
+/**
+ * Devuelve un array con todos los métodos que aparecen en salesArr o expensesArr,
+ * con total neto (ventas - gastos) y count sumado. Útil para el breakdown UI.
+ */
+function mergeMethodBreakdowns(salesArr, expensesArr) {
+  const map = {};
+  for (const s of salesArr) {
+    map[s.method] = map[s.method] || { method: s.method, total: 0, count: 0 };
+    map[s.method].total += s.total;
+    map[s.method].count += s.count;
+  }
+  for (const e of expensesArr) {
+    map[e.method] = map[e.method] || { method: e.method, total: 0, count: 0 };
+    // En el breakdown de sessionByMethod queremos ver ventas y gastos por separado
+    // en el frontend; aquí simplificamos: count refleja todas las transacciones
+    map[e.method].count += e.count;
+  }
+  return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
 // ─── rangeSummary ────────────────────────────────────────────────────────────
@@ -630,8 +825,9 @@ async function getProductSalesReport({ dateFrom, dateTo }, ctx) {
   requireAuth(ctx);
   const df = normalizeBusinessDate(dateFrom, "dateFrom");
   const dt = normalizeBusinessDate(dateTo, "dateTo");
-  const dateMatch = { businessDate: { $gte: df, $lte: dt } };
-  return Sale.aggregate(productSalesPipeline(dateMatch));
+  return Sale.aggregate(
+    productSalesPipeline({ businessDate: { $gte: df, $lte: dt } }),
+  );
 }
 
 // ─── expenseReport ────────────────────────────────────────────────────────────
@@ -640,8 +836,9 @@ async function getExpenseReport({ dateFrom, dateTo }, ctx) {
   requireAuth(ctx);
   const df = normalizeBusinessDate(dateFrom, "dateFrom");
   const dt = normalizeBusinessDate(dateTo, "dateTo");
-  const dateMatch = { businessDate: { $gte: df, $lte: dt } };
-  return Expense.aggregate(expensesByCategoryPipeline(dateMatch));
+  return Expense.aggregate(
+    expensesByCategoryPipeline({ businessDate: { $gte: df, $lte: dt } }),
+  );
 }
 
 // ─── monthlyReportDataset ────────────────────────────────────────────────────
@@ -655,15 +852,12 @@ async function buildMonthlyReportDataset(month, year, ctx) {
 
   const pad = (n) => String(n).padStart(2, "0");
   const dateFrom = `${year}-${pad(month)}-01`;
-  // Last day of month
   const lastDay = new Date(year, month, 0).getDate();
   const dateTo = `${year}-${pad(month)}-${pad(lastDay)}`;
 
-  // Range summary
   const summary = await getRangeSummary({ dateFrom, dateTo }, ctx);
 
-  // Daily breakdown (one summary per day that has activity)
-  const datesWithActivity = await Promise.all([
+  const [saleDates, expenseDates] = await Promise.all([
     Sale.distinct("businessDate", {
       businessDate: { $gte: dateFrom, $lte: dateTo },
       status: "ACTIVE",
@@ -673,15 +867,12 @@ async function buildMonthlyReportDataset(month, year, ctx) {
       status: "ACTIVE",
     }),
   ]);
-  const uniqueDates = [
-    ...new Set([...datesWithActivity[0], ...datesWithActivity[1]]),
-  ].sort();
+  const uniqueDates = [...new Set([...saleDates, ...expenseDates])].sort();
 
   const dailyBreakdown = await Promise.all(
     uniqueDates.map((bd) => getDailySummary(bd, ctx)),
   );
 
-  // Asset purchases for the period
   const assetPurchases = await Expense.find({
     businessDate: { $gte: dateFrom, $lte: dateTo },
     isAssetPurchase: true,
@@ -703,34 +894,28 @@ async function buildMonthlyReportDataset(month, year, ctx) {
 module.exports = {
   requireAuth,
 
-  // Categories
   createCategory,
   getCategories,
   toggleCategoryActive,
 
-  // Activities
   createActivity,
   getActivities,
   toggleActivityActive,
 
-  // CashSession
   openCashSession,
   closeCashSession,
   getCashSessionDetail,
   getCashSessions,
 
-  // Sales
   recordSale,
   voidSale,
   refundSale,
   getSalesByDate,
 
-  // Expenses
   recordExpense,
   voidExpense,
   getExpensesByDate,
 
-  // Reports
   getDailySummary,
   getRangeSummary,
   getProductSalesReport,
