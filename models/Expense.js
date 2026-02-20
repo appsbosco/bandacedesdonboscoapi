@@ -47,6 +47,12 @@ const ExpenseSchema = new mongoose.Schema(
     voidedAt: { type: Date },
     voidedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    scope: {
+      type: String,
+      enum: ["SESSION", "EXTERNAL"],
+      required: true,
+      default: "SESSION",
+    },
   },
   { timestamps: true },
 );
@@ -59,5 +65,6 @@ ExpenseSchema.index({ status: 1 });
 ExpenseSchema.index({ activityId: 1, businessDate: 1 });
 ExpenseSchema.index({ isAssetPurchase: 1, businessDate: 1 });
 ExpenseSchema.index({ cashSessionId: 1 });
+ExpenseSchema.index({ scope: 1, businessDate: 1 });
 
 module.exports = mongoose.model("Expense", ExpenseSchema);

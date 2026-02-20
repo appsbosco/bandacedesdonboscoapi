@@ -55,6 +55,12 @@ const SaleSchema = new mongoose.Schema(
     voidedAt: { type: Date },
     voidedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    scope: {
+      type: String,
+      enum: ["SESSION", "EXTERNAL"],
+      required: true,
+      default: "SESSION",
+    },
   },
   { timestamps: true },
 );
@@ -67,5 +73,6 @@ SaleSchema.index({ activityId: 1, businessDate: 1 });
 SaleSchema.index({ orderId: 1 });
 SaleSchema.index({ cashSessionId: 1 });
 SaleSchema.index({ "lineItems.productId": 1, businessDate: 1 });
+SaleSchema.index({ scope: 1, businessDate: 1 });
 
 module.exports = mongoose.model("Sale", SaleSchema);

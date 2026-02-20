@@ -32,6 +32,11 @@ module.exports = gql`
     CLOSED
   }
 
+  enum MovementScope {
+    SESSION
+    EXTERNAL
+  }
+
   # ─── Catalogues ─────────────────────────────────────────────────────────────
 
   type Category {
@@ -103,6 +108,7 @@ module.exports = gql`
     voidedAt: String
     createdBy: ID
     createdAt: String
+    scope: MovementScope!
   }
 
   # ─── Expense ────────────────────────────────────────────────────────────────
@@ -127,6 +133,7 @@ module.exports = gql`
     voidedAt: String
     createdBy: ID
     createdAt: String
+    scope: MovementScope!
   }
 
   # ─── Report types ───────────────────────────────────────────────────────────
@@ -235,6 +242,7 @@ module.exports = gql`
     orderId: ID
     activityId: ID
     cashSessionId: ID
+    scope: MovementScope
   }
 
   input RecordExpenseInput {
@@ -250,6 +258,7 @@ module.exports = gql`
     receiptUrl: String
     isAssetPurchase: Boolean
     purpose: String
+    scope: MovementScope
   }
 
   input CloseCashSessionInput {

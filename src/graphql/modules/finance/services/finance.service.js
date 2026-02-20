@@ -287,27 +287,26 @@ async function recordSale(input, ctx) {
   const bd = normalizeBusinessDate(businessDate);
   if (!paymentMethod) throw new Error("paymentMethod requerido");
 
-  // ── Validación CASH externo ───────────────────────────────────────────────
-  if (paymentMethod === "CASH" && !cashSessionId) {
-    throw new Error(
-      "Las ventas en EFECTIVO (CASH) deben vincularse a una sesión de caja " +
-        "(cashSessionId requerido). Si el pago no pasa por caja física, " +
-        "usá TRANSFER u OTHER.",
-    );
-  }
+  const resolvedScope = input.scope ?? (cashSessionId ? "SESSION" : "EXTERNAL");
 
-  // ── Validar sesión ────────────────────────────────────────────────────────
-  if (cashSessionId) {
+  let resolvedSessionId = undefined;
+
+  if (resolvedScope === "EXTERNAL") {
+    // Externos ignoran cashSessionId aunque venga. Permiten cualquier paymentMethod.
+    resolvedSessionId = undefined;
+  } else {
+    // SESSION: requiere cashSessionId
+    if (!cashSessionId)
+      throw new Error("Ventas SESSION requieren cashSessionId.");
     const sess = await CashSession.findById(cashSessionId);
     if (!sess) throw new Error("cashSessionId no existe");
     if (sess.status !== "OPEN")
       throw new Error("La sesión de caja está cerrada");
-  }
-
-  // ── Validar order ─────────────────────────────────────────────────────────
-  if (orderId) {
-    const order = await Order.findById(orderId);
-    if (!order) throw new Error("Order no encontrada");
+    if (sess.businessDate !== bd)
+      throw new Error(
+        `businessDate (${bd}) no coincide con la sesión (${sess.businessDate})`,
+      );
+    resolvedSessionId = sess._id;
   }
 
   // ── Calcular lineItems y total ────────────────────────────────────────────
@@ -337,7 +336,8 @@ async function recordSale(input, ctx) {
 
   return Sale.create({
     businessDate: bd,
-    cashSessionId: cashSessionId || undefined,
+    cashSessionId: resolvedSessionId,
+    scope: resolvedScope,
     activityId: activityId || undefined,
     orderId: orderId || undefined,
     paymentMethod,
@@ -413,37 +413,42 @@ async function recordExpense(input, ctx) {
   if (!amount || amount <= 0) throw new Error("amount inválido (debe ser > 0)");
   if (!paymentMethod) throw new Error("paymentMethod requerido");
 
-  // ── Validación CASH externo ───────────────────────────────────────────────
-  if (paymentMethod === "CASH" && !cashSessionId) {
-    throw new Error(
-      "Los gastos en EFECTIVO (CASH) deben vincularse a una sesión de caja " +
-        "(cashSessionId requerido). Si el pago no pasa por caja física, " +
-        "usá TRANSFER u OTHER.",
-    );
-  }
+  const resolvedScope = input.scope ?? (cashSessionId ? "SESSION" : "EXTERNAL");
 
-  // ── Snapshot de categoría ─────────────────────────────────────────────────
-  let categorySnapshot = undefined;
-  if (categoryId) {
-    const cat = await Category.findById(categoryId);
-    if (!cat) throw new Error("categoryId no existe");
-    categorySnapshot = cat.name;
-  }
+  let resolvedSessionId = undefined;
 
-  // ── Validar sesión ────────────────────────────────────────────────────────
-  if (cashSessionId) {
+  if (resolvedScope === "EXTERNAL") {
+    resolvedSessionId = undefined;
+  } else {
+    if (!cashSessionId)
+      throw new Error("Gastos SESSION requieren cashSessionId.");
     const sess = await CashSession.findById(cashSessionId);
     if (!sess) throw new Error("cashSessionId no existe");
     if (sess.status !== "OPEN")
       throw new Error("La sesión de caja está cerrada");
+    if (sess.businessDate !== bd)
+      throw new Error(
+        `businessDate (${bd}) no coincide con la sesión (${sess.businessDate})`,
+      );
+    resolvedSessionId = sess._id;
+  }
+
+  let categorySnapshot = undefined;
+  if (categoryId) {
+    const cat = await Category.findById(categoryId).select("name").lean();
+    if (!cat) throw new Error("Categoría no existe");
+    categorySnapshot = cat.name;
   }
 
   return Expense.create({
     businessDate: bd,
-    cashSessionId: cashSessionId || undefined,
+    cashSessionId: resolvedSessionId,
+    scope: resolvedScope,
+
     activityId: activityId || undefined,
     categoryId: categoryId || undefined,
-    categorySnapshot,
+    categorySnapshot: categorySnapshot || undefined,
+
     concept,
     detail,
     amount,
@@ -660,14 +665,28 @@ async function getDailySummary(businessDate, ctx) {
     const sessionOid = session._id;
     const externalSaleMatch = {
       ...dateMatch,
-      cashSessionId: { $exists: false },
+      $or: [
+        { scope: "EXTERNAL" },
+        { scope: { $exists: false }, cashSessionId: { $exists: false } },
+      ],
     };
     const externalExpMatch = {
       ...dateMatch,
-      cashSessionId: { $exists: false },
+      $or: [
+        { scope: "EXTERNAL" },
+        { scope: { $exists: false }, cashSessionId: { $exists: false } },
+      ],
     };
-    const sessionSaleMatch = { ...dateMatch, cashSessionId: sessionOid };
-    const sessionExpMatch = { ...dateMatch, cashSessionId: sessionOid };
+    const sessionSaleMatch = {
+      ...dateMatch,
+      cashSessionId: sessionOid,
+      $or: [{ scope: "SESSION" }, { scope: { $exists: false } }],
+    };
+    const sessionExpMatch = {
+      ...dateMatch,
+      cashSessionId: sessionOid,
+      $or: [{ scope: "SESSION" }, { scope: { $exists: false } }],
+    };
 
     promises.push(
       // 6: ventas de la sesión por método
