@@ -1,6 +1,12 @@
 /**
  * Sale — Ingreso registrado en caja.
- * businessDate: String "YYYY-MM-DD" (ver decisión en CashSession.js)
+ *
+ * CAMBIOS v2:
+ * - donationType: soporta MONETARY (donación monetaria) y null (venta normal)
+ * - donorName: para donaciones monetarias
+ * - Todos los campos legacy se mantienen
+ *
+ * businessDate: String "YYYY-MM-DD"
  */
 const mongoose = require("mongoose");
 
@@ -33,12 +39,20 @@ const SaleSchema = new mongoose.Schema(
     },
     source: {
       type: String,
-      enum: ["ORDER", "WALK_IN"],
+      enum: ["ORDER", "WALK_IN", "DONATION", "BANK_INCOME"],
       required: true,
       default: "WALK_IN",
     },
 
-    // Items opcionales. Si están, permiten reporte por producto.
+    // ── Donaciones monetarias ──────────────────────────────────────────────
+    // null = venta normal, MONETARY = donación en dinero
+    donationType: {
+      type: String,
+      enum: ["MONETARY", null],
+      default: null,
+    },
+    donorName: { type: String, trim: true },
+
     lineItems: { type: [LineItemSchema], default: [] },
 
     total: { type: Number, required: true, min: 0.01 },
@@ -49,7 +63,6 @@ const SaleSchema = new mongoose.Schema(
       default: "ACTIVE",
     },
 
-    // Audit trail
     voidReason: { type: String, trim: true },
     refundReason: { type: String, trim: true },
     voidedAt: { type: Date },
@@ -74,5 +87,6 @@ SaleSchema.index({ orderId: 1 });
 SaleSchema.index({ cashSessionId: 1 });
 SaleSchema.index({ "lineItems.productId": 1, businessDate: 1 });
 SaleSchema.index({ scope: 1, businessDate: 1 });
+SaleSchema.index({ donationType: 1, businessDate: 1 });
 
 module.exports = mongoose.model("Sale", SaleSchema);
