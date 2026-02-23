@@ -448,7 +448,9 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
 
   const user = await User.findById(userId);
   if (!user) throw new Error("Usuario no existe");
+  if (!user.section) throw new Error("El usuario no tiene sección asignada");
 
+  // 1) Sesiones válidas para calcular asistencia (solo de su sección)
   const sessionQuery = {
     section: user.section,
     status: { $in: ["IN_PROGRESS", "CLOSED"] },
@@ -456,76 +458,169 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
 
   if (startDate || endDate) {
     sessionQuery.dateNormalized = {};
-    if (startDate)
+    if (startDate) {
       sessionQuery.dateNormalized.$gte = normalizeDateToStartOfDayCR(startDate);
-    if (endDate)
+    }
+    if (endDate) {
       sessionQuery.dateNormalized.$lte = normalizeDateToStartOfDayCR(endDate);
+    }
   }
 
   const sessions = await RehearsalSession.find(sessionQuery).select("_id");
   const sessionIds = sessions.map((s) => s._id);
+  const totalSessions = sessions.length;
 
+  // Si no hay sesiones en el rango, devolver stats en cero
+  if (totalSessions === 0) {
+    return {
+      userId,
+      user,
+      totalSessions: 0,
+
+      // Conteos directos por estado
+      present: 0,
+      late: 0,
+      absentUnjustified: 0, // compatibilidad (total injustificadas computadas)
+      absentJustified: 0, // compatibilidad (total justificadas computadas)
+      unjustifiedWithdrawals: 0,
+      justifiedWithdrawals: 0,
+      missingAsUnjustified: 0,
+
+      // Totales agregados útiles
+      unjustifiedCount: 0,
+      justifiedCount: 0,
+
+      // Métricas
+      equivalentAbsences: 0, // injustificadas + justificadas/2
+      attendanceCredits: 0, // present + late + justified/2
+      attendancePercentage: 0, // % ponderado
+      strictAttendancePercentage: 0, // % estricto (solo presentes+tardes)
+
+      // Alertas rápidas
+      hasThreeUnjustified: false,
+      exceedsLimit: false, // mantiene compatibilidad con tu lógica anterior (>6 equivalentes)
+    };
+  }
+
+  // 2) Asistencias del usuario en esas sesiones
   const attendances = await Attendance.find({
     user: userId,
     session: { $in: sessionIds },
   }).select("status session");
 
-  const stats = {
+  // 3) Conteo por estado
+  const counters = {
     present: 0,
-    absentUnjustified: 0,
-    absentJustified: 0,
     late: 0,
+    absentUnjustifiedOnly: 0,
+    absentJustifiedOnly: 0,
+    unjustifiedWithdrawals: 0,
+    justifiedWithdrawals: 0,
   };
 
-  // Conteo por status
   const attendedSessionSet = new Set();
+
   attendances.forEach((att) => {
     attendedSessionSet.add(String(att.session));
 
     switch (att.status) {
       case "PRESENT":
-        stats.present++;
+        counters.present++;
         break;
       case "LATE":
-        stats.late++;
+        counters.late++;
         break;
       case "ABSENT_UNJUSTIFIED":
-      case "UNJUSTIFIED_WITHDRAWAL":
-        stats.absentUnjustified++;
+        counters.absentUnjustifiedOnly++;
         break;
       case "ABSENT_JUSTIFIED":
+        counters.absentJustifiedOnly++;
+        break;
+      case "UNJUSTIFIED_WITHDRAWAL":
+        counters.unjustifiedWithdrawals++;
+        break;
       case "JUSTIFIED_WITHDRAWAL":
-        stats.absentJustified++;
+        counters.justifiedWithdrawals++;
+        break;
+      default:
+        // Si aparece un estado no esperado, no rompe el cálculo
         break;
     }
   });
 
-  // Sesiones tomadas donde NO existe registro del usuario
-  const totalSessions = sessions.length;
-  const missing = totalSessions - attendedSessionSet.size;
+  // 4) Sesiones sin registro -> cuentan como injustificadas
+  const missingAsUnjustified = Math.max(
+    0,
+    totalSessions - attendedSessionSet.size,
+  );
 
-  // Política recomendada: missing = ausencia injustificada
-  if (missing > 0) stats.absentUnjustified += missing;
+  // 5) Totales agregados
+  const unjustifiedCount =
+    counters.absentUnjustifiedOnly +
+    counters.unjustifiedWithdrawals +
+    missingAsUnjustified;
 
-  const equivalentAbsences =
-    stats.absentUnjustified + stats.absentJustified / 2;
+  const justifiedCount =
+    counters.absentJustifiedOnly + counters.justifiedWithdrawals;
 
-  const attendedCount = stats.present + stats.late;
-  const attendancePercentage =
-    totalSessions > 0 ? (attendedCount / totalSessions) * 100 : 0;
+  // 6) Reglas solicitadas
+  // 2 justificadas = 1 ausencia
+  const equivalentAbsences = unjustifiedCount + justifiedCount / 2;
 
+  // Créditos de asistencia (porcentaje ponderado)
+  // PRESENT = 1
+  // LATE = 1
+  // JUSTIFICADAS (ausencia/retiro) = 0.5
+  const attendanceCredits =
+    counters.present + counters.late + justifiedCount / 2;
+
+  // % Ponderado
+  const attendancePercentage = (attendanceCredits / totalSessions) * 100;
+
+  const strictAttendancePercentage =
+    ((counters.present + counters.late) / totalSessions) * 100;
+
+  // 7) Alertas rápidas
+  const hasThreeUnjustified = unjustifiedCount >= 3;
+
+  // Mantengo tu bandera anterior para compatibilidad
   const exceedsLimit = equivalentAbsences > 6;
 
+  // 8) Retorno (compatibilidad + campos nuevos útiles)
   return {
     userId,
     user,
     totalSessions,
-    present: stats.present,
-    absentUnjustified: stats.absentUnjustified,
-    absentJustified: stats.absentJustified,
-    late: stats.late,
+
+    // Conteos visibles
+    present: counters.present,
+    late: counters.late,
+
+    // Compatibilidad con tu contrato anterior:
+    // ahora incluyen también retiros + missing según la nueva lógica
+    absentUnjustified: unjustifiedCount,
+    absentJustified: justifiedCount,
+
+    // Nuevos campos más detallados (útiles para reportes)
+    unjustifiedWithdrawals: counters.unjustifiedWithdrawals,
+    justifiedWithdrawals: counters.justifiedWithdrawals,
+    missingAsUnjustified,
+
+    unjustifiedCount,
+    justifiedCount,
+
     equivalentAbsences: parseFloat(equivalentAbsences.toFixed(2)),
+    attendanceCredits: parseFloat(attendanceCredits.toFixed(2)),
+
+    // Este ya queda con lógica ponderada (recomendada)
     attendancePercentage: parseFloat(attendancePercentage.toFixed(2)),
+
+    // Opcional: comparar contra método estricto
+    strictAttendancePercentage: parseFloat(
+      strictAttendancePercentage.toFixed(2),
+    ),
+
+    hasThreeUnjustified,
     exceedsLimit,
   };
 }
