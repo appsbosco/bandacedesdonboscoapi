@@ -146,9 +146,129 @@ async function getAllAttendances(ctx) {
     .populate("instructor");
 }
 
+// Asignar alumno a instructor (el instructor se auto-asigna)
+async function assignStudentToInstructor(studentId, ctx) {
+  const currentUser = await requireAuth(ctx);
+  requireRole(currentUser, "Instructor de instrumento");
+
+  const student = await User.findById(studentId).lean();
+  if (!student) throw new Error("Alumno no encontrado");
+
+  const normalizedStudentRole = normalizeRole(student.role);
+  if (normalizedStudentRole !== "alumno")
+    throw new Error("El usuario no tiene rol de Alumno");
+
+  // Evitar duplicados
+  await User.findByIdAndUpdate(
+    currentUser.id,
+    { $addToSet: { students: studentId } },
+    { new: true },
+  );
+
+  // Asignar instructor al alumno
+  await User.findByIdAndUpdate(studentId, { instructor: currentUser.id });
+
+  return true;
+}
+
+// Desasignar alumno de instructor
+async function removeStudentFromInstructor(studentId, ctx) {
+  const currentUser = await requireAuth(ctx);
+  requireRole(currentUser, "Instructor de instrumento");
+
+  const instructor = await User.findById(currentUser.id);
+  if (!instructor) throw new Error("Instructor no encontrado");
+
+  const isAssigned = instructor.students.some(
+    (s) => String(s) === String(studentId),
+  );
+  if (!isAssigned)
+    throw new Error("El alumno no está asignado a este instructor");
+
+  await User.findByIdAndUpdate(currentUser.id, {
+    $pull: { students: studentId },
+  });
+
+  // Limpiar referencia del alumno
+  await User.findByIdAndUpdate(studentId, { $unset: { instructor: "" } });
+
+  return true;
+}
+
+// Eliminar alumno completamente (Admin) — borra también su asistencia
+async function deleteStudent(studentId, ctx) {
+  const currentUser = await requireAuth(ctx);
+  requireRole(currentUser, "Admin");
+
+  const student = await User.findById(studentId).lean();
+  if (!student) throw new Error("Alumno no encontrado");
+
+  // Quitar de todos los instructores que lo tengan
+  await User.updateMany(
+    { students: studentId },
+    { $pull: { students: studentId } },
+  );
+
+  // Borrar todas sus asistencias
+  await AttendanceClass.deleteMany({ student: studentId });
+
+  // Borrar usuario
+  await User.findByIdAndDelete(studentId);
+
+  return true;
+}
+
+// Alumnos sin instructor asignado (sin clases)
+async function getStudentsWithoutInstructor(ctx) {
+  const currentUser = await requireAuth(ctx);
+  requireRole(currentUser, "Admin");
+
+  return await User.find({
+    role: { $regex: /^alumno$/i },
+    $or: [{ instructor: null }, { instructor: { $exists: false } }],
+  }).lean();
+}
+
+// Asistencia general de un alumno (Admin)
+async function getStudentAttendanceSummary(studentId, ctx) {
+  const currentUser = await requireAuth(ctx);
+  requireRole(currentUser, "Admin");
+
+  const attendances = await AttendanceClass.find({ student: studentId })
+    .populate("student")
+    .populate("instructor")
+    .sort({ date: -1 });
+
+  const total = attendances.length;
+  const present = attendances.filter(
+    (a) => a.attendanceStatus === "Presente",
+  ).length;
+  const justifiedAbsence = attendances.filter(
+    (a) => a.attendanceStatus === "Ausencia Justificada",
+  ).length;
+  const unjustifiedAbsence = attendances.filter(
+    (a) => a.attendanceStatus === "Ausencia No Justificada",
+  ).length;
+
+  return {
+    studentId,
+    total,
+    present,
+    justifiedAbsence,
+    unjustifiedAbsence,
+    attendanceRate: total > 0 ? ((present / total) * 100).toFixed(2) : "0.00",
+    records: attendances,
+  };
+}
+
 module.exports = {
   requireAuth,
   markAttendanceAndPayment,
   getInstructorStudentsAttendance,
   getAllAttendances,
+  assignStudentToInstructor,
+  removeStudentFromInstructor,
+  deleteStudent,
+  getStudentsWithoutInstructor,
+  getStudentAttendanceSummary,
 };
