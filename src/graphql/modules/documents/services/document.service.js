@@ -347,34 +347,40 @@ async function getDocumentsExpiringSummary(referenceDate, ctx) {
     isDeleted: { $ne: true },
   });
 
-  const [expired, expiringIn30Days, expiringIn60Days, expiringIn90Days, totalWithExpiration, noExpirationDate] =
-    await Promise.all([
-      Document.countDocuments({
-        ...base,
-        "extracted.expirationDate": { $lt: ref },
-      }),
-      Document.countDocuments({
-        ...base,
-        "extracted.expirationDate": { $gte: ref, $lte: in30 },
-      }),
-      Document.countDocuments({
-        ...base,
-        "extracted.expirationDate": { $gte: ref, $lte: in60 },
-      }),
-      Document.countDocuments({
-        ...base,
-        "extracted.expirationDate": { $gte: ref, $lte: in90 },
-      }),
-      Document.countDocuments(base),
-      Document.countDocuments({
-        owner: userId,
-        isDeleted: { $ne: true },
-        $or: [
-          { "extracted.expirationDate": { $exists: false } },
-          { "extracted.expirationDate": null },
-        ],
-      }),
-    ]);
+  const [
+    expired,
+    expiringIn30Days,
+    expiringIn60Days,
+    expiringIn90Days,
+    totalWithExpiration,
+    noExpirationDate,
+  ] = await Promise.all([
+    Document.countDocuments({
+      ...base,
+      "extracted.expirationDate": { $lt: ref },
+    }),
+    Document.countDocuments({
+      ...base,
+      "extracted.expirationDate": { $gte: ref, $lte: in30 },
+    }),
+    Document.countDocuments({
+      ...base,
+      "extracted.expirationDate": { $gte: ref, $lte: in60 },
+    }),
+    Document.countDocuments({
+      ...base,
+      "extracted.expirationDate": { $gte: ref, $lte: in90 },
+    }),
+    Document.countDocuments(base),
+    Document.countDocuments({
+      owner: userId,
+      isDeleted: { $ne: true },
+      $or: [
+        { "extracted.expirationDate": { $exists: false } },
+        { "extracted.expirationDate": null },
+      ],
+    }),
+  ]);
 
   const valid = totalWithExpiration - expired - expiringIn90Days;
 
@@ -407,6 +413,10 @@ async function enqueueDocumentOcr(input, ctx) {
     isDeleted: { $ne: true },
   });
   if (!doc) throw new Error("Documento no existe");
+
+  if (!["PASSPORT", "VISA"].includes(doc.type)) {
+    throw new Error("OCR disponible solo para PASSPORT o VISA");
+  }
 
   const hasRaw = doc.images?.some((img) => img.kind === "RAW");
   if (!hasRaw) throw new Error("El documento no tiene imagen RAW");

@@ -155,7 +155,12 @@ async function assignStudentToInstructor(studentId, ctx) {
   if (!student) throw new Error("Alumno no encontrado");
 
   const normalizedStudentRole = normalizeRole(student.role);
-  if (normalizedStudentRole !== "alumno")
+  if (
+    normalizedStudentRole !== "Integrante BCDB" &&
+    normalizedStudentRole !== "Principal de sección" &&
+    normalizedStudentRole !== "Asistente de sección" &&
+    normalizedStudentRole !== "Exalumno"
+  )
     throw new Error("El usuario no tiene rol de Alumno");
 
   // Evitar duplicados
