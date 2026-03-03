@@ -6,6 +6,7 @@
 const crypto = require("crypto");
 const Ticket = require("../../../../../models/Tickets");
 const Document = require("../../../../../models/Document");
+const User = require("../../../../../models/User");
 
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
@@ -315,14 +316,38 @@ async function getMyDocuments(filters, pagination, ctx) {
  * Filtra por cualquier owner, tipo, status, etc.
  */
 async function getAllDocuments(filters, pagination, ctx) {
-  requireUserId(ctx); // debe estar autenticado al menos
+  requireUserId(ctx);
 
   const f = filters || {};
   const mongo = { isDeleted: { $ne: true } };
 
   if (f.status) mongo.status = f.status;
   if (f.type) mongo.type = f.type;
-  if (f.owner) mongo.owner = f.owner; // filtrar por usuario específico si se quiere
+
+  // Búsqueda por nombre: busca los IDs de usuarios que coincidan
+  if (f.ownerName && f.ownerName.trim()) {
+    const regex = new RegExp(f.ownerName.trim(), "i");
+    const matchingUsers = await User.find({
+      $or: [
+        { name: regex },
+        { firstSurName: regex },
+        { secondSurName: regex },
+        { email: regex },
+      ],
+    })
+      .select("_id")
+      .lean();
+
+    const ids = matchingUsers.map((u) => u._id);
+    if (ids.length === 0) {
+      // No hay usuarios que coincidan → retornar vacío sin consultar documentos
+      return {
+        documents: [],
+        pagination: { total: 0, limit: 20, skip: 0, hasMore: false },
+      };
+    }
+    mongo.owner = { $in: ids };
+  }
 
   if (f.expirationBefore || f.expirationAfter) {
     mongo["extracted.expirationDate"] = {};
@@ -343,7 +368,6 @@ async function getAllDocuments(filters, pagination, ctx) {
   ]);
 
   const safeDocs = Array.isArray(docs) ? docs : [];
-
   return {
     documents: safeDocs,
     pagination: { total, limit, skip, hasMore: skip + safeDocs.length < total },
@@ -351,17 +375,20 @@ async function getAllDocuments(filters, pagination, ctx) {
 }
 
 async function getDocumentById(id, ctx) {
-  const { userId } = requireUserId(ctx);
+  const { user, userId } = requireUserId(ctx);
   if (!id) throw new Error("ID de documento requerido");
 
-  const doc = await baseDocumentPopulate(
-    Document.findOne({ _id: id, owner: userId, isDeleted: { $ne: true } }),
-  );
-  if (!doc) throw new Error("Documento no existe");
+  const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
 
+  // Admin puede ver cualquier documento; usuario normal solo los suyos
+  const filter = isAdmin
+    ? { _id: id, isDeleted: { $ne: true } }
+    : { _id: id, owner: userId, isDeleted: { $ne: true } };
+
+  const doc = await baseDocumentPopulate(Document.findOne(filter));
+  if (!doc) throw new Error("Documento no existe");
   return doc;
 }
-
 async function getDocumentsExpiringSummary(referenceDate, ctx) {
   const { userId } = requireUserId(ctx);
 

@@ -146,7 +146,7 @@ module.exports = gql`
   input AllDocumentsFiltersInput {
     type: DocumentType
     status: DocumentStatus
-    owner: ID
+    ownerName: String
     expirationBefore: DateTime
     expirationAfter: DateTime
   }
