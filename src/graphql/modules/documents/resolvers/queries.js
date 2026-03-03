@@ -40,4 +40,22 @@ module.exports = {
       );
     }
   },
+
+  allDocuments: async (_, { filters, pagination }, ctx) => {
+    try {
+      // Verificar rol admin en el resolver (no en el service, para mantener separación)
+      const user = ctx?.user || ctx?.me || ctx?.currentUser;
+      const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+      if (!isAdmin) throw new Error("No autorizado");
+
+      return await documentService.getAllDocuments(
+        filters || {},
+        pagination || {},
+        ctx,
+      );
+    } catch (error) {
+      console.error(error);
+      throw new Error(error.message || "No se pudo obtener los documentos");
+    }
+  },
 };

@@ -28,9 +28,7 @@ module.exports = {
       return await documentService.getSignedUpload(input, ctx);
     } catch (error) {
       console.error(error);
-      throw new Error(
-        error.message || "No se pudo generar la firma de upload",
-      );
+      throw new Error(error.message || "No se pudo generar la firma de upload");
     }
   },
 

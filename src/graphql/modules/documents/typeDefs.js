@@ -143,6 +143,14 @@ module.exports = gql`
     publicId: String!
   }
 
+  input AllDocumentsFiltersInput {
+    type: DocumentType
+    status: DocumentStatus
+    owner: ID
+    expirationBefore: DateTime
+    expirationAfter: DateTime
+  }
+
   input CreateDocumentInput {
     type: DocumentType!
     source: DocumentSource
@@ -222,6 +230,12 @@ module.exports = gql`
       filters: DocumentFiltersInput
       pagination: PaginationInput
     ): DocumentsResult!
+
+    allDocuments(
+      filters: AllDocumentsFiltersInput
+      pagination: PaginationInput
+    ): DocumentsResult!
+
     documentById(id: ID!): Document!
     documentsExpiringSummary(referenceDate: DateTime): ExpirationSummary!
   }
@@ -244,6 +258,8 @@ module.exports = gql`
     ): Document!
     setDocumentStatus(documentId: ID!, status: DocumentStatus!): Document!
     deleteDocument(documentId: ID!): DeleteDocumentResult!
-    enqueueDocumentOcr(input: EnqueueDocumentOcrInput!): EnqueueDocumentOcrResult!
+    enqueueDocumentOcr(
+      input: EnqueueDocumentOcrInput!
+    ): EnqueueDocumentOcrResult!
   }
 `;

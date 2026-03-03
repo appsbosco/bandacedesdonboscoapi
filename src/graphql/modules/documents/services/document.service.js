@@ -310,6 +310,46 @@ async function getMyDocuments(filters, pagination, ctx) {
   };
 }
 
+/**
+ * getAllDocuments — solo para admins
+ * Filtra por cualquier owner, tipo, status, etc.
+ */
+async function getAllDocuments(filters, pagination, ctx) {
+  requireUserId(ctx); // debe estar autenticado al menos
+
+  const f = filters || {};
+  const mongo = { isDeleted: { $ne: true } };
+
+  if (f.status) mongo.status = f.status;
+  if (f.type) mongo.type = f.type;
+  if (f.owner) mongo.owner = f.owner; // filtrar por usuario específico si se quiere
+
+  if (f.expirationBefore || f.expirationAfter) {
+    mongo["extracted.expirationDate"] = {};
+    if (f.expirationAfter)
+      mongo["extracted.expirationDate"].$gte = new Date(f.expirationAfter);
+    if (f.expirationBefore)
+      mongo["extracted.expirationDate"].$lte = new Date(f.expirationBefore);
+  }
+
+  const limit = Math.max(1, Math.min(Number(pagination?.limit ?? 20), 200));
+  const skip = Math.max(0, Number(pagination?.skip ?? 0));
+
+  const [total, docs] = await Promise.all([
+    Document.countDocuments(mongo),
+    baseDocumentPopulate(
+      Document.find(mongo).sort({ createdAt: -1 }).skip(skip).limit(limit),
+    ),
+  ]);
+
+  const safeDocs = Array.isArray(docs) ? docs : [];
+
+  return {
+    documents: safeDocs,
+    pagination: { total, limit, skip, hasMore: skip + safeDocs.length < total },
+  };
+}
+
 async function getDocumentById(id, ctx) {
   const { userId } = requireUserId(ctx);
   if (!id) throw new Error("ID de documento requerido");
@@ -462,6 +502,8 @@ module.exports = {
   enqueueDocumentOcr,
 
   getMyDocuments,
+  getAllDocuments,
+
   getDocumentById,
   getDocumentsExpiringSummary,
 };
