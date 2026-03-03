@@ -23,7 +23,7 @@ function getUserIdFromCtx(ctx) {
 }
 
 async function createParent(input, ctx) {
-  requireAuth(ctx);
+  // requireAuth(ctx);
 
   if (!input) throw new Error("Datos de padre requeridos");
   const { email, password, children } = input;
