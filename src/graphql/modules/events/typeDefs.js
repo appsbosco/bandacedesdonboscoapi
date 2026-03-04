@@ -61,6 +61,7 @@ module.exports = gql`
 
   # ─── Inputs ─────────────────────────────────────────────────────────────────
   input EventInput {
+    id: ID
     title: String!
     description: String
     category: EventCategory!

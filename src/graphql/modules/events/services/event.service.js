@@ -171,6 +171,7 @@ async function handleNotification(event, mode, ctx) {
     audience: event.audience ?? [],
   };
 
+  console.log(payload);
   if (mode === "DRY_RUN") {
     // Guardar payload para auditoría, NO enviar nada
     console.log(
@@ -195,7 +196,7 @@ async function handleNotification(event, mode, ctx) {
     try {
       await dispatch(EVENTS.EVENT_PUBLISHED, payload);
       console.log(
-        `[eventService] LIVE — notificación enviada para evento: ${event._id}`,
+        `[eventService] LIVE — notificación enviada para evento: ${event}`,
       );
     } catch (err) {
       // Nunca propagar: la creación del evento no debe fallar por notificaciones
@@ -225,18 +226,56 @@ async function handleNotification(event, mode, ctx) {
  * - ISO string: "2026-01-01T00:00:00Z"
  * - Date: ya es Date
  */
-function parseDate(val) {
-  if (val instanceof Date) return val;
 
-  const n = Number(val);
-  if (!isNaN(n) && String(val).length >= 10) {
-    // Si parece ms (> año 2000 en ms = > 946684800000)
-    if (n > 946684800000) return new Date(n);
+/**
+ * Normaliza cualquier input de fecha para que represente
+ * 00:00 hora Costa Rica (UTC-6).
+ *
+ * Acepta:
+ * - Timestamp ms (number o string)
+ * - ISO string
+ * - YYYY-MM-DD
+ * - Date
+ */
+function parseDate(val) {
+  console.log("parseDate recibió:", val);
+
+  if (!val) throw new Error("Fecha inválida");
+
+  let date;
+
+  // ───── 1. Si ya es Date ─────
+  if (val instanceof Date) {
+    date = val;
   }
 
-  const d = new Date(val);
-  if (isNaN(d.getTime())) throw new Error(`Fecha inválida: ${val}`);
-  return d;
+  // ───── 2. Si es número o timestamp string ─────
+  else if (!isNaN(Number(val))) {
+    date = new Date(Number(val));
+  }
+
+  // ───── 3. Si es string ISO o YYYY-MM-DD ─────
+  else if (typeof val === "string") {
+    date = new Date(val);
+  } else {
+    throw new Error("Formato de fecha no soportado");
+  }
+
+  if (isNaN(date.getTime())) {
+    throw new Error(`Fecha inválida: ${val}`);
+  }
+
+  // Convertimos SIEMPRE a 00:00 hora Costa Rica
+
+  const year = date.getUTCFullYear();
+  const month = date.getUTCMonth();
+  const day = date.getUTCDate();
+
+  // Crear fecha equivalente a 00:00 CR
+  // CR = UTC-6 → entonces en UTC es 06:00
+  const costaRicaMidnightUTC = new Date(Date.UTC(year, month, day, 6, 0, 0));
+
+  return costaRicaMidnightUTC;
 }
 
 module.exports = {

@@ -1,4 +1,8 @@
-// /src/notifications/notification.dispatcher.js
+/**
+ * notifications/notification.dispatcher.js
+ * Punto de entrada único para disparar notificaciones.
+ * Best-effort: nunca propaga errores al dominio.
+ */
 "use strict";
 
 const { getAllTokens } = require("./token.repository");
@@ -6,54 +10,54 @@ const { resolveTemplate } = require("./notification.templates");
 const { sendPushNotification } = require("./notification.service");
 
 /**
- * Punto de entrada único para disparar notificaciones desde cualquier service.
+ * Dispara notificación a TODOS los tokens registrados.
  *
- * Uso:
- *   const { dispatch } = require('../notifications/notification.dispatcher');
- *   await dispatch(EVENTS.STORE_PRODUCT_CREATED, { productId: product._id });
- *
- * @param {string} eventName   - Constante de EVENTS
- * @param {object} payload     - Datos específicos del evento
+ * @param {string} eventName  - Constante de EVENTS
+ * @param {object} payload    - Datos específicos del evento
  */
 async function dispatch(eventName, payload = {}) {
   try {
     const { tokens } = await getAllTokens();
 
     if (!tokens.length) {
-      console.log(`[dispatcher] No hay tokens registrados para evento: ${eventName}`);
+      console.log(`[dispatcher] Sin tokens registrados para: "${eventName}"`);
       return;
     }
 
     const template = resolveTemplate(eventName, payload);
-
-    console.log(`[dispatcher] Disparando "${eventName}" → ${tokens.length} tokens`);
+    console.log(`[dispatcher] "${eventName}" → ${tokens.length} tokens`);
     await sendPushNotification(tokens, template);
   } catch (err) {
-    // NUNCA propagar: el evento de dominio no debe fallar por notificaciones
-    console.error(`[dispatcher] Error (best-effort) en evento "${eventName}":`, err.message);
+    console.error(
+      `[dispatcher] Error best-effort en "${eventName}":`,
+      err.message,
+    );
   }
 }
 
 /**
- * Variante para notificar SOLO a tokens específicos (útil para pruebas o notif. personalizadas).
+ * Dispara notificación a tokens específicos.
+ * Útil para notificaciones personalizadas o pruebas dirigidas.
  *
- * @param {string} eventName
+ * @param {string}   eventName
  * @param {string[]} tokens
- * @param {object} payload
+ * @param {object}   payload
  */
-async function dispatchToTokens(eventName, tokens, payload = {}) {
+async function dispatchToTokens(eventName, tokens = [], payload = {}) {
   try {
     if (!tokens.length) {
-      console.log(`[dispatcher] Sin tokens destino para: ${eventName}`);
+      console.log(`[dispatcher] Sin tokens destino para: "${eventName}"`);
       return;
     }
     const template = resolveTemplate(eventName, payload);
-    console.log(`[dispatcher] Disparando "${eventName}" → ${tokens.length} tokens específicos`);
+    console.log(
+      `[dispatcher] "${eventName}" → ${tokens.length} tokens específicos`,
+    );
     await sendPushNotification(tokens, template);
   } catch (err) {
     console.error(
-      `[dispatcher] Error (best-effort) en dispatchToTokens "${eventName}":`,
-      err.message
+      `[dispatcher] Error best-effort en dispatchToTokens "${eventName}":`,
+      err.message,
     );
   }
 }
