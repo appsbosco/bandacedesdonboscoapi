@@ -1,37 +1,99 @@
+/**
+ * events/typeDefs.js
+ * GraphQL schema actualizado con categorías, notificationMode y campos enriquecidos
+ */
 const { gql } = require("apollo-server");
 
 module.exports = gql`
+  # ─── Enums ──────────────────────────────────────────────────────────────────
+  enum EventCategory {
+    presentation
+    rehearsal
+    meeting
+    activity
+    logistics
+    other
+  }
+
+  enum NotificationMode {
+    NONE
+    DRY_RUN
+    LIVE
+  }
+
+  enum EventPriority {
+    low
+    normal
+    high
+  }
+
+  # ─── Types ──────────────────────────────────────────────────────────────────
+  type NotificationLog {
+    mode: NotificationMode!
+    dispatchedAt: String
+    audience: [String]
+    tokenCount: Int
+    successCount: Int
+    failureCount: Int
+    dryRunPayload: String
+    error: String
+  }
+
   type Event {
-    id: ID
-    title: String
-    place: String
-    date: String
-    time: String
-    arrival: String
-    departure: String
+    id: ID!
+    title: String!
     description: String
+    category: EventCategory!
     type: String
-  }
-
-  input EventInput {
-    place: String!
     date: String!
-    title: String
     time: String
-    arrival: String
     departure: String
-    description: String
-    type: String
+    arrival: String
+    place: String
+    notificationMode: NotificationMode!
+    audience: [String]
+    notificationLog: NotificationLog
+    priority: EventPriority
+    visibility: String
+    createdAt: String
+    updatedAt: String
   }
 
+  # ─── Inputs ─────────────────────────────────────────────────────────────────
+  input EventInput {
+    title: String!
+    description: String
+    category: EventCategory!
+    type: String
+    date: String!
+    time: String
+    departure: String
+    arrival: String
+    place: String
+    notificationMode: NotificationMode
+    audience: [String]
+    priority: EventPriority
+    visibility: String
+  }
+
+  input EventFilterInput {
+    category: EventCategory
+    type: String
+    dateFrom: String
+    dateTo: String
+  }
+
+  # ─── Queries ─────────────────────────────────────────────────────────────────
   extend type Query {
     getEvent(id: ID!): Event
-    getEvents: [Event]
+    getEvents(filter: EventFilterInput): [Event]
+    getEventsByDateRange(from: String!, to: String!): [Event]
   }
 
+  # ─── Mutations ───────────────────────────────────────────────────────────────
   extend type Mutation {
-    newEvent(input: EventInput): Event
-    updateEvent(id: ID!, input: EventInput): Event
+    newEvent(input: EventInput!): Event
+    updateEvent(id: ID!, input: EventInput!): Event
     deleteEvent(id: ID!): String
   }
 `;

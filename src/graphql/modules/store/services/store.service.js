@@ -53,7 +53,6 @@ async function createProduct(payload, ctx) {
     ...(closingDate ? { closingDate } : {}),
   });
 
-  // BUG FIX: antes llamaba sendNewProductNotification(ctx) en vez del id
   sendNewProductNotification(created._id.toString());
 
   return created;

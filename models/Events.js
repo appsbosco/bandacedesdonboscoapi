@@ -1,14 +1,84 @@
+/**
+ * models/Events.js
+ * Modelo de eventos actualizado con categoría, notificaciones y campos enriquecidos
+ */
 const mongoose = require("mongoose");
 
-const EventSchema = new mongoose.Schema({
-  title: { type: String, required: false, unique: false },
-  place: { type: String, required: false, unique: false },
-  date: { type: Date, required: false, unique: false },
-  time: { type: String, required: false, unique: false },
-  arrival: { type: String, required: false, unique: false },
-  departure: { type: String, required: false, unique: false },
-  description: { type: String, required: false, unique: false },
-  type: { type: String, required: false, unique: false },
-});
+// ─── Sub-schema: log de notificación ─────────────────────────────────────────
+const NotificationLogSchema = new mongoose.Schema(
+  {
+    mode: { type: String, enum: ["NONE", "DRY_RUN", "LIVE"], required: true },
+    dispatchedAt: { type: Date },
+    audience: [String],
+    tokenCount: { type: Number, default: 0 },
+    successCount: { type: Number, default: 0 },
+    failureCount: { type: Number, default: 0 },
+    dryRunPayload: { type: mongoose.Schema.Types.Mixed }, // payload guardado en DRY_RUN
+    error: { type: String },
+  },
+  { _id: false },
+);
 
-module.exports = Events = mongoose.model("events", EventSchema);
+// ─── Main schema ──────────────────────────────────────────────────────────────
+const EventSchema = new mongoose.Schema(
+  {
+    // ── Identity ────────────────────────────────────────────────────────────
+    title: { type: String, required: true, trim: true },
+    description: { type: String, trim: true, default: "" },
+
+    // ── Classification ───────────────────────────────────────────────────────
+    category: {
+      type: String,
+      enum: [
+        "presentation",
+        "rehearsal",
+        "meeting",
+        "activity",
+        "logistics",
+        "other",
+      ],
+      default: "other",
+      index: true,
+    },
+    // type = nombre de la agrupación (Banda de concierto avanzada, etc.)
+    type: { type: String, trim: true },
+
+    // ── Scheduling ──────────────────────────────────────────────────────────
+    date: { type: Date, required: true, index: true },
+    time: { type: String }, // "HH:mm" 24h
+    departure: { type: String }, // hora salida de CEDES "HH:mm"
+    arrival: { type: String }, // hora llegada aprox. a CEDES "HH:mm"
+
+    // ── Location ────────────────────────────────────────────────────────────
+    place: { type: String, trim: true },
+
+    // ── Notifications ────────────────────────────────────────────────────────
+    notificationMode: {
+      type: String,
+      enum: ["NONE", "DRY_RUN", "LIVE"],
+      default: "NONE",
+    },
+    audience: [String], // agrupaciones destino
+    notificationLog: NotificationLogSchema,
+
+    // ── Meta ─────────────────────────────────────────────────────────────────
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    priority: {
+      type: String,
+      enum: ["low", "normal", "high"],
+      default: "normal",
+    },
+    visibility: {
+      type: String,
+      enum: ["public", "internal"],
+      default: "public",
+    },
+  },
+  { timestamps: true },
+);
+
+// Índice compuesto para queries de dashboard (presentaciones futuras por fecha)
+EventSchema.index({ date: 1, category: 1 });
+
+module.exports = mongoose.model("Event", EventSchema);
