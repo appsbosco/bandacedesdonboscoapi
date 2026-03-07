@@ -26,6 +26,13 @@ module.exports = gql`
     GUEST
   }
 
+  enum Sex {
+    M
+    F
+    OTHER
+    UNKNOWN
+  }
+
   # ─── Types ──────────────────────────────────────────────────────────────────
 
   type Tour {
@@ -54,6 +61,7 @@ module.exports = gql`
     email: String
     phone: String
     birthDate: DateTime
+    sex: Sex!
     instrument: String
     grade: String
     # Datos migratorios
@@ -101,6 +109,7 @@ module.exports = gql`
     email: String
     phone: String
     birthDate: DateTime
+    sex: Sex
     instrument: String
     grade: String
     passportNumber: String
@@ -121,6 +130,7 @@ module.exports = gql`
     email: String
     phone: String
     birthDate: DateTime
+    sex: Sex
     instrument: String
     grade: String
     passportNumber: String
@@ -162,6 +172,7 @@ module.exports = gql`
     createTourParticipant(tourId: ID!, input: CreateTourParticipantInput!): TourParticipant!
     createTourParticipantsBatch(tourId: ID!, participants: [CreateTourParticipantInput!]!): TourParticipantBatchResult!
     updateTourParticipant(id: ID!, input: UpdateTourParticipantInput!): TourParticipant!
+    updateTourParticipantSex(participantId: ID!, sex: Sex!): TourParticipant!
     removeTourParticipant(id: ID!): String!
   }
 `;

@@ -322,6 +322,7 @@ async function updateTourParticipant(id, input, ctx) {
     "email",
     "phone",
     "birthDate",
+    "sex",
     "instrument",
     "grade",
     "passportNumber",
@@ -364,6 +365,26 @@ async function updateTourParticipant(id, input, ctx) {
   return updated;
 }
 
+async function updateTourParticipantSex(participantId, sex, ctx) {
+  requireAdmin(ctx);
+
+  if (!participantId) throw new Error("ID de participante requerido");
+
+  const VALID_SEX = ["M", "F", "OTHER", "UNKNOWN"];
+  if (!VALID_SEX.includes(sex)) throw new Error(`Sexo inválido: ${sex}`);
+
+  const updated = await populateParticipant(
+    TourParticipant.findByIdAndUpdate(
+      participantId,
+      { sex },
+      { new: true, runValidators: true },
+    ),
+  );
+
+  if (!updated) throw new Error("Participante no encontrado");
+  return updated;
+}
+
 async function removeTourParticipant(id, ctx) {
   requireAdmin(ctx);
 
@@ -391,5 +412,6 @@ module.exports = {
   createTourParticipant,
   createTourParticipantsBatch,
   updateTourParticipant,
+  updateTourParticipantSex,
   removeTourParticipant,
 };

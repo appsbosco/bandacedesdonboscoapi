@@ -54,6 +54,14 @@ const TourParticipantSchema = new Schema(
     visaExpiry: { type: Date },
     hasExitPermit: { type: Boolean, default: false },
 
+    // ── Sexo ──────────────────────────────────────────────────────────────────
+    sex: {
+      type: String,
+      enum: ["M", "F", "OTHER", "UNKNOWN"],
+      default: "UNKNOWN",
+      index: true,
+    },
+
     // ── Estado en la gira ─────────────────────────────────────────────────────
     status: {
       type: String,
