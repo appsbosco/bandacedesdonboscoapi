@@ -170,8 +170,7 @@ async function updateTourFlight(id, input, ctx) {
   if (input.origin !== undefined) allowed.origin = input.origin;
   if (input.destination !== undefined) allowed.destination = input.destination;
   if (input.direction !== undefined) allowed.direction = input.direction;
-  if (input.routeGroup !== undefined)
-    allowed.routeGroup = input.routeGroup || null;
+  if (input.itineraryId !== undefined) allowed.itineraryId = input.itineraryId || null;
   if (input.notes !== undefined) allowed.notes = input.notes;
 
   if (input.departureAt) {
@@ -326,11 +325,12 @@ async function assignPassengers(flightId, participantIds, ctx) {
 
     const existing = assignmentMap.get(pid);
     if (existing) {
-      // Permitir si es del mismo routeGroup
-      const existingGroupMatches =
-        targetGroup && existing.routeLabel === targetGroup;
+      // Permitir si ambos tienen el mismo routeGroup (vuelos del mismo itinerario).
+      // Esto cubre el caso multi-tramo: CONNECTING + OUTBOUND/INBOUND comparten routeGroup.
+      const existingGroup = existing.routeLabel === "sin ruta asignada" ? null : existing.routeLabel;
+      const sameRoute = targetGroup && existingGroup && targetGroup === existingGroup;
 
-      if (!existingGroupMatches) {
+      if (!sameRoute) {
         conflicts.push({
           participantId: pid,
           participantName: participantFullName(p),

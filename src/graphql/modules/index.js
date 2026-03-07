@@ -20,6 +20,7 @@ module.exports = [
   require("./tours"),
   require("./tourDocuments"),
   require("./tourRooms"),
+  require("./tourItineraries"),
   require("./tourFlights"),
   require("./tourPayments"),
   require("./tourImports"),

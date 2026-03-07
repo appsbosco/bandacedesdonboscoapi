@@ -30,7 +30,8 @@ module.exports = gql`
     departureAt: DateTime!
     arrivalAt: DateTime!
     direction: FlightDirection!
-    routeGroup: String
+    itineraryId: ID
+    itinerary: TourItinerary
     notes: String
     passengers: [TourFlightPassenger!]!
     passengerCount: Int!
@@ -51,7 +52,7 @@ module.exports = gql`
     departureAt: DateTime
     arrivalAt: DateTime
     direction: FlightDirection
-    routeGroup: String
+    itineraryId: ID
     notes: String
   }
 
@@ -69,16 +70,8 @@ module.exports = gql`
     updateTourFlight(id: ID!, input: TourFlightInput!): TourFlight!
     deleteTourFlight(id: ID!): String!
 
-    # Asignar un pasajero a un vuelo (verifica conflicto de routeGroup)
     assignPassenger(flightId: ID!, participantId: ID!): TourFlight!
-
-    # Asignar múltiples pasajeros a un vuelo de una vez
-    assignPassengers(
-      flightId: ID!
-      participantIds: [ID!]!
-    ): TourFlightBulkResult!
-
-    # Remover un pasajero de un vuelo
+    assignPassengers(flightId: ID!, participantIds: [ID!]!): TourFlightBulkResult!
     removePassenger(flightId: ID!, participantId: ID!): TourFlight!
   }
 

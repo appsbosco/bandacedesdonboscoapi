@@ -32,6 +32,16 @@ const TourFlightSchema = new mongoose.Schema(
       enum: ["OUTBOUND", "INBOUND", "CONNECTING"],
       required: true,
     },
+    // itineraryId: the roundtrip TourItinerary this flight belongs to.
+    // Direction (OUTBOUND/INBOUND/CONNECTING) lives on this flight, not the itinerary.
+    itineraryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TourItinerary",
+      default: null,
+      index: true,
+    },
+    // routeGroup / routeId: DEPRECATED — kept for legacy data migration only.
+    routeGroup: { type: String, trim: true, default: null },
     notes:      { type: String, trim: true },
     passengers: [PassengerSchema],
     createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -42,5 +52,7 @@ const TourFlightSchema = new mongoose.Schema(
 
 TourFlightSchema.index({ tour: 1, direction: 1 });
 TourFlightSchema.index({ tour: 1, departureAt: 1 });
+TourFlightSchema.index({ tour: 1, itineraryId: 1 });
+TourFlightSchema.index({ tour: 1, routeGroup: 1 });
 
 module.exports = mongoose.model("TourFlight", TourFlightSchema);

@@ -58,6 +58,15 @@ module.exports = {
     }
   },
 
+  updateTourParticipantSex: async (_, { participantId, sex }, ctx) => {
+    try {
+      return await tourService.updateTourParticipantSex(participantId, sex, ctx);
+    } catch (error) {
+      console.error("[mutation:updateTourParticipantSex]", error.message);
+      throw new Error(error.message || "No se pudo actualizar el sexo del participante");
+    }
+  },
+
   removeTourParticipant: async (_, { id }, ctx) => {
     try {
       return await tourService.removeTourParticipant(id, ctx);
