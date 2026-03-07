@@ -8,12 +8,6 @@ module.exports = gql`
     NOT_APPLICABLE
   }
 
-  enum InventoryOwnership {
-    PERSONAL
-    INSTITUTIONAL
-    BORROWED
-  }
-
   enum MaintenanceType {
     PREVENTIVE
     CORRECTIVE
@@ -26,17 +20,16 @@ module.exports = gql`
   type Inventory {
     id: ID
     user: User
-    # legacy fields
+    # legacy fields (do NOT rename)
     brand: String
     model: String
     numberId: String
     serie: String
-    condition: String
-    mainteinance: String
+    condition: String      # tenencia — this IS the ownership concept
+    mainteinance: String   # legacy free-text notes
     details: String
     # phase-1 additions
     instrumentType: String
-    ownership: InventoryOwnership
     hasInstrument: Boolean
     lastMaintenanceAt: String
     nextMaintenanceDueAt: String
@@ -59,16 +52,16 @@ module.exports = gql`
     createdAt: String
   }
 
-  # ── Facets for filter sidebar ──────────────────────────────────────────────
+  # ── Facets ─────────────────────────────────────────────────────────────────
   type InventoryFacetValue {
     value: String!
     count: Int!
   }
 
   type InventoryFacets {
-    byStatus:      [InventoryFacetValue!]!
-    byOwnership:   [InventoryFacetValue!]!
-    byInstrument:  [InventoryFacetValue!]!
+    byStatus:    [InventoryFacetValue!]!
+    byCondition: [InventoryFacetValue!]!   # tenencia — grouped by condition field
+    byInstrument: [InventoryFacetValue!]!
   }
 
   type InventoryStatsSummary {
@@ -88,6 +81,14 @@ module.exports = gql`
     facets: InventoryFacets!
   }
 
+  # ── Admin cleanup ──────────────────────────────────────────────────────────
+  type AdminCleanupInventoriesResult {
+    count: Int!
+    deleted: Int!
+    dryRun: Boolean!
+    message: String!
+  }
+
   # ── Inputs ─────────────────────────────────────────────────────────────────
   input InventoryInput {
     brand: String
@@ -97,9 +98,7 @@ module.exports = gql`
     condition: String
     mainteinance: String
     details: String
-    # phase-1
     instrumentType: String
-    ownership: InventoryOwnership
     hasInstrument: Boolean
     lastMaintenanceAt: String
     nextMaintenanceDueAt: String
@@ -108,17 +107,17 @@ module.exports = gql`
 
   input InventoryFilterInput {
     searchText: String
-    ownership:  InventoryOwnership
+    condition:  String          # tenencia filter — maps to Inventory.condition
     status:     InventoryStatus
     userId:     ID
   }
 
   input AddMaintenanceInput {
-    performedAt:  String!
-    type:         MaintenanceType
-    notes:        String
-    performedBy:  String
-    cost:         Float
+    performedAt: String!
+    type:        MaintenanceType
+    notes:       String
+    performedBy: String
+    cost:        Float
   }
 
   # ── Queries ────────────────────────────────────────────────────────────────
@@ -127,13 +126,8 @@ module.exports = gql`
     getInventories: [Inventory]
     getInventoryByUser(userId: ID): [Inventory]
 
-    # paginated — primary query for the new inventory page
     inventoriesPaginated(filter: InventoryFilterInput, pagination: PaginationInput): InventoriesPaginatedResult!
-
-    # stats summary for header cards
     inventoryStats: InventoryStatsSummary!
-
-    # maintenance history for a single record
     inventoryMaintenanceHistory(inventoryId: ID!): [InventoryMaintenance!]!
   }
 
@@ -143,7 +137,15 @@ module.exports = gql`
     updateInventory(id: ID!, input: InventoryInput): Inventory
     deleteInventory(id: ID!): String
 
+    # Assignment
+    assignInventoryToUser(inventoryId: ID!, userId: ID!): Inventory!
+    unassignInventory(inventoryId: ID!): String
+
+    # Maintenance
     addMaintenanceRecord(inventoryId: ID!, input: AddMaintenanceInput!): InventoryMaintenance!
     deleteMaintenanceRecord(id: ID!): String
+
+    # Admin cleanup (removes inventory records where user is null)
+    adminCleanupInventories(dryRun: Boolean): AdminCleanupInventoriesResult!
   }
 `;

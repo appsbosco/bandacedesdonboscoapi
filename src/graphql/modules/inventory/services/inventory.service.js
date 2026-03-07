@@ -1,9 +1,15 @@
 /**
- * inventory - Service
- * Lógica de negocio + DB (Mongoose)
+ * inventory.service.js
+ *
+ * Domain rules:
+ * - Inventory.condition = tenencia/ownership (legacy field, do NOT rename)
+ * - Inventory records with user=null are INVALID and must be cleaned up
+ * - A user may have at most ONE inventory record assigned
+ * - unassignInventory DELETES the record (null-user records are garbage)
  */
 const Inventory = require("../../../../../models/Inventory");
 const InventoryMaintenance = require("../../../../../models/InventoryMaintenance");
+const User = require("../../../../../models/User");
 
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
 
@@ -30,10 +36,10 @@ function getUserIdFromCtx(ctx) {
 
 function computeStatus(doc) {
   if (!doc.hasInstrument || !doc.nextMaintenanceDueAt) return "NOT_APPLICABLE";
-  const now   = Date.now();
-  const due   = new Date(doc.nextMaintenanceDueAt).getTime();
-  const days  = Math.floor((due - now) / 86_400_000);
-  if (days < 0)  return "OVERDUE";
+  const now  = Date.now();
+  const due  = new Date(doc.nextMaintenanceDueAt).getTime();
+  const days = Math.floor((due - now) / 86_400_000);
+  if (days < 0)   return "OVERDUE";
   if (days <= 30) return "DUE_SOON";
   return "ON_TIME";
 }
@@ -55,14 +61,14 @@ async function updateInventory(id, input, ctx) {
   const userId = getUserIdFromCtx(ctx);
   if (!userId) throw new Error("No autenticado");
   const exists = await Inventory.findById(id);
-  if (!exists) throw new Error("Este instrumento o inventario no existe");
+  if (!exists) throw new Error("Instrumento no encontrado");
   const { user: _u, ...safeInput } = input || {};
   const updated = await Inventory.findOneAndUpdate(
     { _id: id, user: userId },
     safeInput,
     { new: true, runValidators: true }
   );
-  if (!updated) throw new Error("Este instrumento o inventario no existe");
+  if (!updated) throw new Error("Instrumento no encontrado");
   return updated;
 }
 
@@ -72,15 +78,15 @@ async function deleteInventory(id, ctx) {
   const userId = getUserIdFromCtx(ctx);
   if (!userId) throw new Error("No autenticado");
   const deleted = await Inventory.findOneAndDelete({ _id: id, user: userId });
-  if (!deleted) throw new Error("Este instrumento o inventario no existe");
-  return "Instrumento o inventario eliminado correctamente";
+  if (!deleted) throw new Error("Instrumento no encontrado");
+  return "Instrumento eliminado correctamente";
 }
 
 async function getInventory(id, ctx) {
   requireAuth(ctx);
   if (!id) throw new Error("ID de inventario requerido");
   const inventory = await Inventory.findById(id);
-  if (!inventory) throw new Error("Este instrumento o inventario no existe");
+  if (!inventory) throw new Error("Instrumento no encontrado");
   return inventory;
 }
 
@@ -102,9 +108,9 @@ async function inventoriesPaginated(filter = {}, pagination = {}, ctx) {
   requireAdmin(ctx);
 
   const {
-    page = 1,
-    limit = 25,
-    sortBy = "createdAt",
+    page    = 1,
+    limit   = 25,
+    sortBy  = "createdAt",
     sortDir = "desc",
   } = pagination;
 
@@ -112,7 +118,7 @@ async function inventoriesPaginated(filter = {}, pagination = {}, ctx) {
   const safePage  = Math.max(Number(page) || 1, 1);
   const skip      = (safePage - 1) * safeLimit;
 
-  const allowedSort = ["createdAt", "brand", "instrumentType", "ownership", "nextMaintenanceDueAt"];
+  const allowedSort = ["createdAt", "brand", "instrumentType", "condition", "nextMaintenanceDueAt"];
   const sortField   = allowedSort.includes(sortBy) ? sortBy : "createdAt";
   const sort        = { [sortField]: sortDir === "asc" ? 1 : -1 };
 
@@ -133,20 +139,25 @@ async function inventoriesPaginated(filter = {}, pagination = {}, ctx) {
 }
 
 function _buildFilter(filter = {}) {
-  const { searchText, ownership, status, userId } = filter;
+  const { searchText, condition, status, userId } = filter;
   const mongoFilter = {};
 
-  if (userId) mongoFilter.user = userId;
-  if (ownership) mongoFilter.ownership = ownership;
+  if (userId)    mongoFilter.user = userId;
+  if (condition) mongoFilter.condition = condition; // tenencia — maps directly to condition field
 
   if (searchText) {
     const re = new RegExp(searchText.trim(), "i");
-    mongoFilter.$or = [{ brand: re }, { model: re }, { serie: re }, { numberId: re }, { instrumentType: re }];
+    mongoFilter.$or = [
+      { brand: re },
+      { model: re },
+      { serie: re },
+      { numberId: re },
+      { instrumentType: re },
+    ];
   }
 
-  // Status is computed but can be approximated on stored date fields
   if (status) {
-    const now = new Date();
+    const now  = new Date();
     const in30 = new Date(Date.now() + 30 * 86_400_000);
     switch (status) {
       case "NOT_APPLICABLE":
@@ -178,7 +189,7 @@ async function _computeFacets(baseFilter) {
   const now  = new Date();
   const in30 = new Date(Date.now() + 30 * 86_400_000);
 
-  const statusCountsPipeline = [
+  const statusPipeline = [
     { $match: baseFilter },
     {
       $addFields: {
@@ -199,11 +210,12 @@ async function _computeFacets(baseFilter) {
     { $sort: { count: -1 } },
   ];
 
-  const [statusAgg, ownershipAgg, instrAgg] = await Promise.all([
-    Inventory.aggregate(statusCountsPipeline),
+  const [statusAgg, conditionAgg, instrAgg] = await Promise.all([
+    Inventory.aggregate(statusPipeline),
+    // byCondition — groups by the condition (tenencia) field
     Inventory.aggregate([
       { $match: baseFilter },
-      { $group: { _id: "$ownership", count: { $sum: 1 } } },
+      { $group: { _id: "$condition", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
     Inventory.aggregate([
@@ -214,9 +226,9 @@ async function _computeFacets(baseFilter) {
   ]);
 
   return {
-    byStatus:     statusAgg.map((b) => ({ value: b._id || "NOT_APPLICABLE", count: b.count })),
-    byOwnership:  ownershipAgg.map((b) => ({ value: b._id || "PERSONAL", count: b.count })),
-    byInstrument: instrAgg.map((b) => ({ value: b._id || "Sin instrumento", count: b.count })),
+    byStatus:     statusAgg.map((b)    => ({ value: b._id || "NOT_APPLICABLE", count: b.count })),
+    byCondition:  conditionAgg.map((b) => ({ value: b._id || "Sin tenencia",   count: b.count })),
+    byInstrument: instrAgg.map((b)     => ({ value: b._id || "Sin instrumento", count: b.count })),
   };
 }
 
@@ -226,17 +238,81 @@ async function inventoryStats(ctx) {
   requireAdmin(ctx);
   const now  = new Date();
   const in30 = new Date(Date.now() + 30 * 86_400_000);
-  const notApplicableFilter = {
-    $or: [{ hasInstrument: false }, { nextMaintenanceDueAt: null }],
-  };
+  const naFilter = { $or: [{ hasInstrument: false }, { nextMaintenanceDueAt: null }] };
   const [total, overdue, dueSoon, notApplicable] = await Promise.all([
     Inventory.countDocuments({}),
     Inventory.countDocuments({ hasInstrument: { $ne: false }, nextMaintenanceDueAt: { $lt: now } }),
     Inventory.countDocuments({ hasInstrument: { $ne: false }, nextMaintenanceDueAt: { $gte: now, $lte: in30 } }),
-    Inventory.countDocuments(notApplicableFilter),
+    Inventory.countDocuments(naFilter),
   ]);
-  const onTime = total - overdue - dueSoon - notApplicable;
-  return { total, onTime: Math.max(0, onTime), dueSoon, overdue, notApplicable };
+  return { total, onTime: Math.max(0, total - overdue - dueSoon - notApplicable), dueSoon, overdue, notApplicable };
+}
+
+// ── Assignment ────────────────────────────────────────────────────────────────
+
+async function assignInventoryToUser(inventoryId, userId, ctx) {
+  requireAdmin(ctx);
+
+  const [inv, user] = await Promise.all([
+    Inventory.findById(inventoryId),
+    User.findById(userId),
+  ]);
+  if (!inv)  throw new Error("Instrumento no encontrado");
+  if (!user) throw new Error("Usuario no encontrado");
+
+  // Enforce 1-instrument-per-user rule
+  const existingForUser = await Inventory.findOne({ user: userId, _id: { $ne: inventoryId } });
+  if (existingForUser) {
+    const desc = [existingForUser.brand, existingForUser.model].filter(Boolean).join(" ") || "instrumento";
+    throw new Error(`Este usuario ya tiene asignado un instrumento: ${desc}. Desasígnelo primero.`);
+  }
+
+  return Inventory.findByIdAndUpdate(
+    inventoryId,
+    { user: userId },
+    { new: true }
+  ).populate("user", "-password -resetPasswordToken -resetPasswordExpires");
+}
+
+/**
+ * Unassigning = DELETING the record.
+ * Domain rule: Inventory records with user=null are invalid garbage.
+ * Therefore, removing a user assignment means the record no longer has a purpose
+ * and must be deleted. To reassign to a different user, use assignInventoryToUser.
+ */
+async function unassignInventory(inventoryId, ctx) {
+  requireAdmin(ctx);
+  const inv = await Inventory.findById(inventoryId);
+  if (!inv) throw new Error("Instrumento no encontrado");
+  await Inventory.findByIdAndDelete(inventoryId);
+  // Also remove orphan maintenance records
+  await InventoryMaintenance.deleteMany({ inventory: inventoryId });
+  return "Instrumento eliminado del inventario correctamente";
+}
+
+// ── Admin cleanup ─────────────────────────────────────────────────────────────
+
+async function adminCleanupInventories(dryRun = true, ctx) {
+  requireAdmin(ctx);
+  const nullUserFilter = { $or: [{ user: null }, { user: { $exists: false } }] };
+  const count = await Inventory.countDocuments(nullUserFilter);
+
+  if (dryRun) {
+    return { count, deleted: 0, dryRun: true, message: `${count} registro(s) inválido(s) encontrado(s) (usuario nulo).` };
+  }
+
+  const inventoryIds = await Inventory.find(nullUserFilter).distinct("_id");
+  const [result] = await Promise.all([
+    Inventory.deleteMany(nullUserFilter),
+    InventoryMaintenance.deleteMany({ inventory: { $in: inventoryIds } }),
+  ]);
+
+  return {
+    count,
+    deleted: result.deletedCount,
+    dryRun: false,
+    message: `${result.deletedCount} registro(s) inválido(s) eliminado(s).`,
+  };
 }
 
 // ── Maintenance records ───────────────────────────────────────────────────────
@@ -244,31 +320,25 @@ async function inventoryStats(ctx) {
 async function getMaintenanceHistory(inventoryId, ctx) {
   requireAuth(ctx);
   if (!inventoryId) throw new Error("inventoryId requerido");
-  return InventoryMaintenance.find({ inventory: inventoryId })
-    .sort({ performedAt: -1 })
-    .lean();
+  return InventoryMaintenance.find({ inventory: inventoryId }).sort({ performedAt: -1 }).lean();
 }
 
 async function addMaintenanceRecord(inventoryId, input, ctx) {
   requireAdmin(ctx);
-  if (!inventoryId) throw new Error("inventoryId requerido");
-
   const inv = await Inventory.findById(inventoryId);
-  if (!inv) throw new Error("Registro de inventario no encontrado");
+  if (!inv) throw new Error("Instrumento no encontrado");
 
-  const createdById = getUserIdFromCtx(ctx);
+  const createdById   = getUserIdFromCtx(ctx);
+  const performedDate = new Date(input.performedAt);
   const record = await InventoryMaintenance.create({
-    inventory: inventoryId,
+    inventory:   inventoryId,
     ...input,
-    performedAt: new Date(input.performedAt),
-    createdBy: createdById,
+    performedAt: performedDate,
+    createdBy:   createdById,
   });
 
-  // Update lastMaintenanceAt and auto-compute nextMaintenanceDueAt
-  const performedDate = new Date(input.performedAt);
-  const intervalDays  = inv.maintenanceIntervalDays || 180;
-  const nextDue       = new Date(performedDate.getTime() + intervalDays * 86_400_000);
-
+  const intervalDays = inv.maintenanceIntervalDays || 180;
+  const nextDue      = new Date(performedDate.getTime() + intervalDays * 86_400_000);
   await Inventory.findByIdAndUpdate(inventoryId, {
     lastMaintenanceAt:    performedDate,
     nextMaintenanceDueAt: nextDue,
@@ -279,7 +349,6 @@ async function addMaintenanceRecord(inventoryId, input, ctx) {
 
 async function deleteMaintenanceRecord(id, ctx) {
   requireAdmin(ctx);
-  if (!id) throw new Error("ID requerido");
   const deleted = await InventoryMaintenance.findByIdAndDelete(id);
   if (!deleted) throw new Error("Registro de mantenimiento no encontrado");
   return "Registro eliminado correctamente";
@@ -295,6 +364,9 @@ module.exports = {
   getInventoryByUser,
   inventoriesPaginated,
   inventoryStats,
+  assignInventoryToUser,
+  unassignInventory,
+  adminCleanupInventories,
   getMaintenanceHistory,
   addMaintenanceRecord,
   deleteMaintenanceRecord,
