@@ -73,11 +73,10 @@ module.exports = {
     "No se pudo obtener ventas del día",
   ),
 
-  expensesByDate: wrap(
-    (_, { businessDate }, ctx) =>
-      financeService.getExpensesByDate(businessDate, ctx),
-    "No se pudo obtener egresos del día",
-  ),
+  expensesByDate: wrap(async (_, { businessDate }, ctx) => {
+    const expenses = await financeService.getExpensesByDate(businessDate, ctx);
+    return Array.isArray(expenses) ? expenses : [];
+  }, "No se pudo obtener egresos del día"),
 
   // ── Inventario ────────────────────────────────────────────────────────────
   inventoryMovements: wrap(
@@ -96,23 +95,20 @@ module.exports = {
 
   // ── Banco ─────────────────────────────────────────────────────────────────
   bankEntries: wrap((_, { accountId, dateFrom, dateTo }, ctx) => {
-    const { BankEntry } = require("../../../models/BankEntry");
     // Delegamos directo al service via bankReport o creamos helper
-    return (
-      financeService.requireAuth(ctx) &&
-      require("../../../models/BankEntry")
-        .find({
-          accountId,
-          businessDate: {
-            $gte: require("../services/finance.service").normalizeBusinessDate
-              ? dateFrom
-              : dateFrom,
-            $lte: dateTo,
-          },
-          status: "ACTIVE",
-        })
-        .sort({ businessDate: 1, createdAt: 1 })
-    );
+    return financeService
+      .requireAuth(ctx)
+      .find({
+        accountId,
+        businessDate: {
+          $gte: require("../services/finance.service").normalizeBusinessDate
+            ? dateFrom
+            : dateFrom,
+          $lte: dateTo,
+        },
+        status: "ACTIVE",
+      })
+      .sort({ businessDate: 1, createdAt: 1 });
   }, "No se pudo listar movimientos bancarios"),
 
   bankReport: wrap(

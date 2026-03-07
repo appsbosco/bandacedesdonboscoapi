@@ -1,7 +1,3 @@
-/**
- * finance/resolvers/types.js — v2
- * Field-level resolvers: _id → id, fechas a String, computed fields.
- */
 const toId = (p) => String(p._id || p.id || "");
 const toStr = (v) => (v ? String(v) : null);
 
@@ -25,7 +21,6 @@ module.exports = {
   FinanceAccount: {
     ...sharedFields,
     cashBoxId: (p) => toStr(p.cashBoxId),
-    // currentBalance se calcula en el service cuando se pide en bankReport
     currentBalance: (p) => p.currentBalance ?? null,
   },
 
@@ -47,6 +42,8 @@ module.exports = {
     orderId: (p) => toStr(p.orderId),
     voidedAt: (p) => toStr(p.voidedAt),
     createdBy: (p) => toStr(p.createdBy),
+    // FIX: scope non-nullable — docs legacy sin scope inferir del cashSessionId
+    scope: (p) => p.scope || (p.cashSessionId ? "SESSION" : "EXTERNAL"),
   },
 
   SaleLineItem: {
@@ -62,9 +59,21 @@ module.exports = {
     inventoryItemId: (p) => toStr(p.inventoryItemId),
     voidedAt: (p) => toStr(p.voidedAt),
     createdBy: (p) => toStr(p.createdBy),
-    // Compatibilidad: si expenseType no está seteado, derivar de isAssetPurchase
+
+    // ── FIX: campos non-nullable que pueden faltar en docs legacy ──────────
+
+    // scope: MovementScope! — docs pre-v2 no tienen este campo
+    scope: (p) => p.scope || (p.cashSessionId ? "SESSION" : "EXTERNAL"),
+
+    // expenseType: ExpenseType! — docs pre-v2 no tienen este campo
     expenseType: (p) =>
       p.expenseType || (p.isAssetPurchase ? "ASSET_PURCHASE" : "REGULAR"),
+
+    // isAssetPurchase: Boolean! — puede ser null/undefined en docs legacy
+    isAssetPurchase: (p) => p.isAssetPurchase ?? false,
+
+    // status: ExpenseStatus! — fallback por si acaso
+    status: (p) => p.status || "ACTIVE",
   },
 
   Category: { ...sharedFields },
@@ -73,7 +82,6 @@ module.exports = {
   InventoryItem: {
     ...sharedFields,
     productId: (p) => toStr(p.productId),
-    // Si vienen precalculados (de getInventoryStock), se usan directo
     currentStock: (p) => p.currentStock ?? null,
     averageCost: (p) => p.averageCost ?? null,
   },

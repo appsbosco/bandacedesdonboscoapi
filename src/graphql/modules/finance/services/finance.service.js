@@ -32,7 +32,7 @@ const InventoryMovement = require("../../../../../models/InventoryMovement");
 
 function requireAuth(ctx) {
   const u = ctx && (ctx.user || ctx.me || ctx.currentUser);
-  // if (!u) throw new Error("No autenticado");
+  if (!u) throw new Error("No autenticado");
   return u;
 }
 
@@ -661,11 +661,14 @@ async function voidExpense(expenseId, reason, ctx) {
 
 async function getExpensesByDate(businessDate, ctx) {
   requireAuth(ctx);
-  return Expense.find({
-    businessDate: normalizeBusinessDate(businessDate),
-  }).sort({ createdAt: -1 });
-}
 
+  const bd = normalizeBusinessDate(businessDate);
+  const expenses = await Expense.find({ businessDate: bd }).sort({
+    createdAt: -1,
+  });
+
+  return Array.isArray(expenses) ? expenses : [];
+}
 // ─── Banco ────────────────────────────────────────────────────────────────────
 
 async function recordBankEntry(input, ctx) {

@@ -17,4 +17,10 @@ module.exports = [
   require("./travelForms"),
   require("./users"),
   require("./finance"),
+  require("./tours"),
+  require("./tourDocuments"),
+  require("./tourRooms"),
+  require("./tourFlights"),
+  require("./tourPayments"),
+  require("./tourImports"),
 ];

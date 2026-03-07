@@ -78,7 +78,7 @@ const ExpenseSchema = new mongoose.Schema(
     scope: {
       type: String,
       enum: ["SESSION", "EXTERNAL"],
-      required: true,
+      // required: true,
       default: "SESSION",
     },
   },

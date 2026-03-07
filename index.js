@@ -11,6 +11,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://bandacedesdonbosco.com",
   "https://www.bandacedesdonbosco.com",
   "http://localhost:3000",
+  "https://studio.apollographql.com",
 ]);
 
 const corsOptions = {
@@ -99,6 +100,9 @@ async function initOnce() {
       // CORS
       app.use(cors(corsOptions));
       app.options("*", cors(corsOptions));
+
+      app.use(express.json({ limit: "20mb" }));
+      app.use(express.urlencoded({ limit: "20mb", extended: true }));
 
       apollo = new ApolloServer({
         schema,
