@@ -45,4 +45,9 @@ const ParentSchema = new mongoose.Schema({
   resetPasswordExpires: Date,
 });
 
+// Indexes for paginated search
+ParentSchema.index({ firstSurName: 1, secondSurName: 1, name: 1 });
+ParentSchema.index({ children: 1 }); // fast $in lookup by child IDs
+// email has unique:true → auto-indexed by Mongo
+
 module.exports = mongoose.model("Parent", ParentSchema);

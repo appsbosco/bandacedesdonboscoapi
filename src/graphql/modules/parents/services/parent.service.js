@@ -179,11 +179,133 @@ async function removeChildFromParent(childId, ctx) {
   return await Parent.findById(parentId).populate("children");
 }
 
+/**
+ * parentsPaginated — server-side paginated parents list with child-aware search.
+ *
+ * If searchText is provided, uses a two-phase query:
+ *   1) Find User IDs of children whose name/surnames/carnet/email match.
+ *   2) Find Parents whose own fields match OR whose children array contains those IDs.
+ * This avoids $lookup aggregation and stays fast with proper indexes.
+ */
+async function parentsPaginated(filter = {}, pagination = {}, ctx) {
+  requireAuth(ctx);
+
+  const { searchText } = filter;
+  const {
+    page = 1,
+    limit = 25,
+    sortBy = "firstSurName",
+    sortDir = "asc",
+  } = pagination;
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 200);
+  const safePage  = Math.max(Number(page) || 1, 1);
+  const skip      = (safePage - 1) * safeLimit;
+
+  const sortField = ["firstSurName", "name", "email"].includes(sortBy) ? sortBy : "firstSurName";
+  const sort      = { [sortField]: sortDir === "desc" ? -1 : 1 };
+
+  let parentFilter = {};
+  let matchedChildIdSet = new Set();
+
+  if (searchText && searchText.trim()) {
+    const re = new RegExp(searchText.trim(), "i");
+
+    // Phase 1: find child User IDs that match the search text
+    const childMatches = await User.find({
+      $or: [
+        { name: re },
+        { firstSurName: re },
+        { secondSurName: re },
+        { carnet: re },
+        { email: re },
+      ],
+    })
+      .select("_id")
+      .lean();
+
+    const childMatchIds = childMatches.map((c) => c._id);
+    matchedChildIdSet   = new Set(childMatchIds.map((id) => id.toString()));
+
+    // Phase 2: parents where own fields match OR any child matches
+    const clauses = [
+      { name: re },
+      { firstSurName: re },
+      { secondSurName: re },
+      { email: re },
+      { phone: re },
+    ];
+    if (childMatchIds.length > 0) {
+      clauses.push({ children: { $in: childMatchIds } });
+    }
+    parentFilter = { $or: clauses };
+  }
+
+  const [rawParents, total] = await Promise.all([
+    Parent.find(parentFilter)
+      .select("-password -resetPasswordToken -resetPasswordExpires")
+      .sort(sort)
+      .skip(skip)
+      .limit(safeLimit)
+      .populate({
+        path: "children",
+        model: "User",
+        select: "name firstSurName secondSurName carnet email",
+      })
+      .lean(),
+    Parent.countDocuments(parentFilter),
+  ]);
+
+  // Enrich each parent with matchedBy / matchedChildIds for UI hint
+  const re = searchText && searchText.trim() ? new RegExp(searchText.trim(), "i") : null;
+
+  const items = rawParents.map((parent) => {
+    let matchedBy       = null;
+    let matchedChildIds = [];
+
+    if (re) {
+      const parentFieldsMatch = [
+        parent.name,
+        parent.firstSurName,
+        parent.secondSurName,
+        parent.email,
+        parent.phone,
+      ].some((f) => f && re.test(f));
+
+      const matchedKids = (parent.children || []).filter((c) => {
+        const cid = c._id ? c._id.toString() : String(c);
+        return matchedChildIdSet.has(cid);
+      });
+
+      matchedBy       = parentFieldsMatch ? "PARENT" : matchedKids.length > 0 ? "CHILD" : null;
+      matchedChildIds = matchedKids.map((c) => (c._id ? c._id.toString() : String(c)));
+    }
+
+    return {
+      ...parent,
+      id: parent._id.toString(),
+      children: (parent.children || []).map((c) => ({
+        id: c._id ? c._id.toString() : String(c),
+        name: c.name || "",
+        firstSurName: c.firstSurName || "",
+        secondSurName: c.secondSurName || "",
+        carnet: c.carnet || null,
+        email: c.email || null,
+      })),
+      matchedBy,
+      matchedChildIds,
+    };
+  });
+
+  return { items, total, page: safePage, limit: safeLimit };
+}
+
 module.exports = {
   requireAuth,
   createParent,
   getParent,
   getParents,
+  parentsPaginated,
   addChildToParent,
   removeChildFromParent,
 };

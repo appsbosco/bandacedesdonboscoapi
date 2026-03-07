@@ -149,10 +149,49 @@ module.exports = gql`
     childId: ID!
   }
 
+  # ── Paginated parents with child-aware search ─────────────────────────────
+
+  type ParentChildPreview {
+    id: ID!
+    name: String!
+    firstSurName: String!
+    secondSurName: String!
+    carnet: String
+    email: String
+  }
+
+  """ Parent record enriched with children preview and search-match info. """
+  type ParentWithChildren {
+    id: ID!
+    name: String!
+    firstSurName: String!
+    secondSurName: String!
+    email: String!
+    phone: String
+    role: String
+    avatar: String
+    children: [ParentChildPreview!]!
+    """ PARENT = search matched parent fields; CHILD = search matched a child """
+    matchedBy: String
+    matchedChildIds: [ID!]!
+  }
+
+  type ParentsPage {
+    items: [ParentWithChildren!]!
+    total: Int!
+    page: Int!
+    limit: Int!
+  }
+
+  input ParentsFilterInput {
+    searchText: String
+  }
+
   extend type Query {
     getParent: Parent
     getParents: [Parent]
     getParentDashboard(dateRange: DateRangeInput, childId: ID): ParentDashboard!
+    parentsPaginated(filter: ParentsFilterInput, pagination: PaginationInput): ParentsPage!
   }
 
   extend type Mutation {

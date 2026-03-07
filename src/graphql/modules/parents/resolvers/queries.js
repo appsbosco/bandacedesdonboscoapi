@@ -30,4 +30,13 @@ module.exports = {
       throw new Error(error.message || "Error fetching parents");
     }
   },
+
+  parentsPaginated: async (_, { filter, pagination }, ctx) => {
+    try {
+      return await parentService.parentsPaginated(filter || {}, pagination || {}, ctx);
+    } catch (error) {
+      console.error("[parentsPaginated]", error);
+      throw new Error(error.message || "Error fetching parents paginated");
+    }
+  },
 };

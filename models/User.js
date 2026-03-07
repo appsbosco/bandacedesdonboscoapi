@@ -29,5 +29,11 @@ const UserSchema = mongoose.Schema({
 });
 
 UserSchema.index({ firstSurName: 1, secondSurName: 1, name: 1 });
+UserSchema.index({ state: 1 });
+UserSchema.index({ role: 1 });
+UserSchema.index({ instrument: 1 });
+UserSchema.index({ bands: 1 });
+UserSchema.index({ carnet: 1 }); // used in parents child-aware search
+// email already unique — Mongo auto-creates an index for it
 
 module.exports = mongoose.model("User", UserSchema);
