@@ -3,14 +3,22 @@
  * Lógica de negocio + DB (Mongoose)
  */
 const Inventory = require("../../../../../models/Inventory");
+const InventoryMaintenance = require("../../../../../models/InventoryMaintenance");
+
+const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
 
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
-
   // NOTE: Activar cuando la autenticación esté fija en el contexto:
   // if (!currentUser) throw new Error("No autenticado");
-
   return currentUser;
+}
+
+function requireAdmin(ctx) {
+  const user = ctx?.user || ctx?.me || ctx?.currentUser;
+  if (!user) throw new Error("No autenticado");
+  if (!ADMIN_ROLES.has(user.role)) throw new Error("No autorizado");
+  return user;
 }
 
 function getUserIdFromCtx(ctx) {
@@ -18,90 +26,263 @@ function getUserIdFromCtx(ctx) {
   return (u && (u.id || u._id || u.userId)) || null;
 }
 
+// ── Status computation ────────────────────────────────────────────────────────
+
+function computeStatus(doc) {
+  if (!doc.hasInstrument || !doc.nextMaintenanceDueAt) return "NOT_APPLICABLE";
+  const now   = Date.now();
+  const due   = new Date(doc.nextMaintenanceDueAt).getTime();
+  const days  = Math.floor((due - now) / 86_400_000);
+  if (days < 0)  return "OVERDUE";
+  if (days <= 30) return "DUE_SOON";
+  return "ON_TIME";
+}
+
+// ── Legacy CRUD ───────────────────────────────────────────────────────────────
+
 async function createInventory(input, ctx) {
   requireAuth(ctx);
-
   if (!input) throw new Error("Datos de inventario requeridos");
-
   const userId = getUserIdFromCtx(ctx);
   if (!userId) throw new Error("No autenticado");
-
-  // Siempre asignar owner/user desde contexto (no confiar en input.user)
-  const created = await Inventory.create({
-    ...input,
-    user: userId,
-  });
-
-  return created;
+  return Inventory.create({ ...input, user: userId });
 }
 
 async function updateInventory(id, input, ctx) {
   requireAuth(ctx);
-
   if (!id) throw new Error("ID de inventario requerido");
   if (!input) throw new Error("Datos de actualización requeridos");
-
   const userId = getUserIdFromCtx(ctx);
   if (!userId) throw new Error("No autenticado");
-
   const exists = await Inventory.findById(id);
   if (!exists) throw new Error("Este instrumento o inventario no existe");
-
-  // Evitar que cambien el user por input
-  const { user, ...safeInput } = input || {};
-
+  const { user: _u, ...safeInput } = input || {};
   const updated = await Inventory.findOneAndUpdate(
-    { _id: id, user: userId }, // proteger ownership
+    { _id: id, user: userId },
     safeInput,
-    { new: true, runValidators: true },
+    { new: true, runValidators: true }
   );
-
-  // Si existe pero no pertenece al usuario, devolvemos mismo mensaje “no existe” (no filtra info)
   if (!updated) throw new Error("Este instrumento o inventario no existe");
-
   return updated;
 }
 
 async function deleteInventory(id, ctx) {
   requireAuth(ctx);
-
   if (!id) throw new Error("ID de inventario requerido");
-
   const userId = getUserIdFromCtx(ctx);
   if (!userId) throw new Error("No autenticado");
-
   const deleted = await Inventory.findOneAndDelete({ _id: id, user: userId });
   if (!deleted) throw new Error("Este instrumento o inventario no existe");
-
   return "Instrumento o inventario eliminado correctamente";
 }
 
 async function getInventory(id, ctx) {
   requireAuth(ctx);
-
   if (!id) throw new Error("ID de inventario requerido");
-
   const inventory = await Inventory.findById(id);
   if (!inventory) throw new Error("Este instrumento o inventario no existe");
-
   return inventory;
 }
 
 async function getInventories(ctx) {
   requireAuth(ctx);
-
-  const inventories = await Inventory.find({}).populate("user");
-  return inventories;
+  return Inventory.find({}).populate("user");
 }
 
 async function getInventoryByUser(ctx) {
   requireAuth(ctx);
-
   const userId = getUserIdFromCtx(ctx);
   if (!userId) throw new Error("No autenticado");
+  return Inventory.find({ user: String(userId) });
+}
 
-  const inventory = await Inventory.find({ user: String(userId) });
-  return inventory;
+// ── Paginated query ───────────────────────────────────────────────────────────
+
+async function inventoriesPaginated(filter = {}, pagination = {}, ctx) {
+  requireAdmin(ctx);
+
+  const {
+    page = 1,
+    limit = 25,
+    sortBy = "createdAt",
+    sortDir = "desc",
+  } = pagination;
+
+  const safeLimit = Math.min(Math.max(Number(limit) || 25, 1), 200);
+  const safePage  = Math.max(Number(page) || 1, 1);
+  const skip      = (safePage - 1) * safeLimit;
+
+  const allowedSort = ["createdAt", "brand", "instrumentType", "ownership", "nextMaintenanceDueAt"];
+  const sortField   = allowedSort.includes(sortBy) ? sortBy : "createdAt";
+  const sort        = { [sortField]: sortDir === "asc" ? 1 : -1 };
+
+  const mongoFilter = _buildFilter(filter);
+
+  const [items, total, facets] = await Promise.all([
+    Inventory.find(mongoFilter)
+      .sort(sort)
+      .skip(skip)
+      .limit(safeLimit)
+      .populate("user", "-password -resetPasswordToken -resetPasswordExpires")
+      .lean(),
+    Inventory.countDocuments(mongoFilter),
+    _computeFacets(mongoFilter),
+  ]);
+
+  return { items, total, page: safePage, limit: safeLimit, facets };
+}
+
+function _buildFilter(filter = {}) {
+  const { searchText, ownership, status, userId } = filter;
+  const mongoFilter = {};
+
+  if (userId) mongoFilter.user = userId;
+  if (ownership) mongoFilter.ownership = ownership;
+
+  if (searchText) {
+    const re = new RegExp(searchText.trim(), "i");
+    mongoFilter.$or = [{ brand: re }, { model: re }, { serie: re }, { numberId: re }, { instrumentType: re }];
+  }
+
+  // Status is computed but can be approximated on stored date fields
+  if (status) {
+    const now = new Date();
+    const in30 = new Date(Date.now() + 30 * 86_400_000);
+    switch (status) {
+      case "NOT_APPLICABLE":
+        mongoFilter.$or = [
+          { hasInstrument: false },
+          { nextMaintenanceDueAt: { $exists: false } },
+          { nextMaintenanceDueAt: null },
+        ];
+        break;
+      case "OVERDUE":
+        mongoFilter.hasInstrument = { $ne: false };
+        mongoFilter.nextMaintenanceDueAt = { $lt: now };
+        break;
+      case "DUE_SOON":
+        mongoFilter.hasInstrument = { $ne: false };
+        mongoFilter.nextMaintenanceDueAt = { $gte: now, $lte: in30 };
+        break;
+      case "ON_TIME":
+        mongoFilter.hasInstrument = { $ne: false };
+        mongoFilter.nextMaintenanceDueAt = { $gt: in30 };
+        break;
+    }
+  }
+
+  return mongoFilter;
+}
+
+async function _computeFacets(baseFilter) {
+  const now  = new Date();
+  const in30 = new Date(Date.now() + 30 * 86_400_000);
+
+  const statusCountsPipeline = [
+    { $match: baseFilter },
+    {
+      $addFields: {
+        _status: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$hasInstrument", false] }, then: "NOT_APPLICABLE" },
+              { case: { $eq: ["$nextMaintenanceDueAt", null] }, then: "NOT_APPLICABLE" },
+              { case: { $lt: ["$nextMaintenanceDueAt", now] }, then: "OVERDUE" },
+              { case: { $lte: ["$nextMaintenanceDueAt", in30] }, then: "DUE_SOON" },
+            ],
+            default: "ON_TIME",
+          },
+        },
+      },
+    },
+    { $group: { _id: "$_status", count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+  ];
+
+  const [statusAgg, ownershipAgg, instrAgg] = await Promise.all([
+    Inventory.aggregate(statusCountsPipeline),
+    Inventory.aggregate([
+      { $match: baseFilter },
+      { $group: { _id: "$ownership", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+    Inventory.aggregate([
+      { $match: baseFilter },
+      { $group: { _id: "$instrumentType", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+  ]);
+
+  return {
+    byStatus:     statusAgg.map((b) => ({ value: b._id || "NOT_APPLICABLE", count: b.count })),
+    byOwnership:  ownershipAgg.map((b) => ({ value: b._id || "PERSONAL", count: b.count })),
+    byInstrument: instrAgg.map((b) => ({ value: b._id || "Sin instrumento", count: b.count })),
+  };
+}
+
+// ── Stats summary ─────────────────────────────────────────────────────────────
+
+async function inventoryStats(ctx) {
+  requireAdmin(ctx);
+  const now  = new Date();
+  const in30 = new Date(Date.now() + 30 * 86_400_000);
+  const notApplicableFilter = {
+    $or: [{ hasInstrument: false }, { nextMaintenanceDueAt: null }],
+  };
+  const [total, overdue, dueSoon, notApplicable] = await Promise.all([
+    Inventory.countDocuments({}),
+    Inventory.countDocuments({ hasInstrument: { $ne: false }, nextMaintenanceDueAt: { $lt: now } }),
+    Inventory.countDocuments({ hasInstrument: { $ne: false }, nextMaintenanceDueAt: { $gte: now, $lte: in30 } }),
+    Inventory.countDocuments(notApplicableFilter),
+  ]);
+  const onTime = total - overdue - dueSoon - notApplicable;
+  return { total, onTime: Math.max(0, onTime), dueSoon, overdue, notApplicable };
+}
+
+// ── Maintenance records ───────────────────────────────────────────────────────
+
+async function getMaintenanceHistory(inventoryId, ctx) {
+  requireAuth(ctx);
+  if (!inventoryId) throw new Error("inventoryId requerido");
+  return InventoryMaintenance.find({ inventory: inventoryId })
+    .sort({ performedAt: -1 })
+    .lean();
+}
+
+async function addMaintenanceRecord(inventoryId, input, ctx) {
+  requireAdmin(ctx);
+  if (!inventoryId) throw new Error("inventoryId requerido");
+
+  const inv = await Inventory.findById(inventoryId);
+  if (!inv) throw new Error("Registro de inventario no encontrado");
+
+  const createdById = getUserIdFromCtx(ctx);
+  const record = await InventoryMaintenance.create({
+    inventory: inventoryId,
+    ...input,
+    performedAt: new Date(input.performedAt),
+    createdBy: createdById,
+  });
+
+  // Update lastMaintenanceAt and auto-compute nextMaintenanceDueAt
+  const performedDate = new Date(input.performedAt);
+  const intervalDays  = inv.maintenanceIntervalDays || 180;
+  const nextDue       = new Date(performedDate.getTime() + intervalDays * 86_400_000);
+
+  await Inventory.findByIdAndUpdate(inventoryId, {
+    lastMaintenanceAt:    performedDate,
+    nextMaintenanceDueAt: nextDue,
+  });
+
+  return record;
+}
+
+async function deleteMaintenanceRecord(id, ctx) {
+  requireAdmin(ctx);
+  if (!id) throw new Error("ID requerido");
+  const deleted = await InventoryMaintenance.findByIdAndDelete(id);
+  if (!deleted) throw new Error("Registro de mantenimiento no encontrado");
+  return "Registro eliminado correctamente";
 }
 
 module.exports = {
@@ -112,4 +293,10 @@ module.exports = {
   getInventory,
   getInventories,
   getInventoryByUser,
+  inventoriesPaginated,
+  inventoryStats,
+  getMaintenanceHistory,
+  addMaintenanceRecord,
+  deleteMaintenanceRecord,
+  computeStatus,
 };
