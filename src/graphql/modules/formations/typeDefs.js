@@ -46,10 +46,11 @@ module.exports = gql`
     sectionOrder: [String!]!
   }
 
-  """ Per-zone column override for Danza, Percusión, and Color Guard """
+  """ Per-zone layout override for Danza, Percusión, and Color Guard """
   type ZoneColumns {
     zone: String!
     columns: Int!
+    rows: Int
   }
 
   type ZoneMemberCount {
@@ -125,6 +126,7 @@ module.exports = gql`
   input ZoneColumnsInput {
     zone: String!
     columns: Int!
+    rows: Int
   }
 
   input FormationSlotInput {

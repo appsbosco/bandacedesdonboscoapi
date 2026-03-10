@@ -27,6 +27,7 @@ const ZoneColumnsSchema = new mongoose.Schema(
   {
     zone:    { type: String, required: true },
     columns: { type: Number, required: true, min: 1, default: 1 },
+    rows:    { type: Number, min: 1, default: null },
   },
   { _id: false }
 );
