@@ -25,4 +25,5 @@ module.exports = [
   require("./tourFlights"),
   require("./tourPayments"),
   require("./tourImports"),
+  require("./formations"),
 ];
