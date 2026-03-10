@@ -18,6 +18,14 @@ const { MARCHING_NAME } = require("../../../../utils/ensembleRegistry");
 
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
 
+// Roles that may update step-4 fields (slots, notes, zoneMemberCounts) only
+const FORMATION_EDITOR_ROLES = new Set([
+  "Admin",
+  "Director",
+  "Subdirector",
+  "Principal de sección",
+]);
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 function requireAuth(ctx) {
@@ -29,6 +37,12 @@ function requireAuth(ctx) {
 function requireAdmin(ctx) {
   const user = requireAuth(ctx);
   if (!ADMIN_ROLES.has(user.role)) throw new Error("No autorizado");
+  return user;
+}
+
+function requireFormationEditor(ctx) {
+  const user = requireAuth(ctx);
+  if (!FORMATION_EDITOR_ROLES.has(user.role)) throw new Error("No autorizado");
   return user;
 }
 
@@ -310,21 +324,28 @@ async function createFormation(input, ctx) {
 }
 
 async function updateFormation(id, input, ctx) {
-  requireAdmin(ctx);
+  const user = requireFormationEditor(ctx);
+  const isAdmin = ADMIN_ROLES.has(user.role);
+
   const formation = await Formation.findById(id);
   if (!formation) throw new Error("Formación no encontrada");
 
-  if (input.name !== undefined) formation.name = input.name;
-  if (input.notes !== undefined) formation.notes = input.notes;
-  if (input.columns !== undefined) formation.columns = input.columns;
-  if (input.excludedUserIds !== undefined)
-    formation.excludedUserIds = input.excludedUserIds;
-  if (input.zoneOrders !== undefined) formation.zoneOrders = input.zoneOrders;
-  if (input.zoneColumns !== undefined)
-    formation.zoneColumns = input.zoneColumns;
+  if (isAdmin) {
+    // Full update — admins can modify all structural fields
+    if (input.name !== undefined) formation.name = input.name;
+    if (input.columns !== undefined) formation.columns = input.columns;
+    if (input.excludedUserIds !== undefined)
+      formation.excludedUserIds = input.excludedUserIds;
+    if (input.zoneOrders !== undefined) formation.zoneOrders = input.zoneOrders;
+    if (input.zoneColumns !== undefined)
+      formation.zoneColumns = input.zoneColumns;
+    if (input.zoneMemberCounts !== undefined)
+      formation.zoneMemberCounts = input.zoneMemberCounts;
+  }
+
+  // Both admins and principals can persist step-4 changes
   if (input.slots !== undefined) formation.slots = input.slots;
-  if (input.zoneMemberCounts !== undefined)
-    formation.zoneMemberCounts = input.zoneMemberCounts;
+  if (input.notes !== undefined) formation.notes = input.notes;
 
   await formation.save();
   return Formation.findById(id)
