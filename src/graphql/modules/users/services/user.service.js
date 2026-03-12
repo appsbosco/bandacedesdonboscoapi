@@ -5,6 +5,13 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const jwt = require("jsonwebtoken");
+require("dotenv").config({ path: "./config/.env" });
+
+// ── Constantes ──────────────────────────────────────────────────────────────
+
+const TOKEN_BYTES = 32; // 64 hex chars — suficiente entropía
+const TOKEN_TTL_MINUTES = 30; // minutos de validez (antes era 20)
+const MIN_PASSWORD_LEN = 8;
 
 // -------------------------
 // Helpers
@@ -30,28 +37,54 @@ async function findAuthEntityByEmail(email) {
   return { entity: null, type: null };
 }
 
-function getResetBaseUrl() {
-  // TODO: onfigurarlo en env para no hardcodear el dominio
-  // e.g. RESET_PASSWORD_BASE_URL="https://bandacedesdonbosco.com/autenticacion/recuperar"
-  return process.env.RESET_PASSWORD_BASE_URL
-    ? process.env.RESET_PASSWORD_BASE_URL.replace(/\/$/, "")
-    : "https://bandacedesdonbosco.com/autenticacion/recuperar";
+/** Busca en User primero, luego en Parent */
+async function findByEmail(email) {
+  const user = await User.findOne({ email });
+  if (user) return { doc: user, Model: User };
+
+  const parent = await Parent.findOne({ email });
+  if (parent) return { doc: parent, Model: Parent };
+
+  return { doc: null, Model: null };
 }
 
-function getMailer() {
-  // TODO: mover user también a env si cambia
-  const user = process.env.EMAIL_USER || "banda@cedesdonbosco.ed.cr";
+/** Busca un token válido (no expirado) en ambas colecciones */
+async function findByResetToken(token) {
+  const query = {
+    resetPasswordToken: token,
+    resetPasswordExpires: { $gt: Date.now() },
+  };
+
+  const user = await User.findOne(query);
+  if (user) return { doc: user, Model: User };
+
+  const parent = await Parent.findOne(query);
+  if (parent) return { doc: parent, Model: Parent };
+
+  return { doc: null, Model: null };
+}
+
+function buildResetUrl(token) {
+  const base = (
+    process.env.RESET_PASSWORD_BASE_URL ||
+    "https://bandacedesdonbosco.com/autenticacion/recuperar"
+  ).replace(/\/$/, "");
+  return `${base}/${token}`;
+}
+
+function createTransporter() {
+  const user = process.env.EMAIL_USER;
   const pass = process.env.APP_PASSWORD;
 
-  if (!pass) throw new Error("APP_PASSWORD is not configured");
+  if (!user || !pass) {
+    throw new Error(
+      "EMAIL_USER / APP_PASSWORD no están configurados en las variables de entorno",
+    );
+  }
 
   return nodemailer.createTransport({
     service: "Gmail",
-    auth: {
-      type: "PLAIN",
-      user,
-      pass,
-    },
+    auth: { type: "LOGIN", user, pass },
   });
 }
 
@@ -146,59 +179,157 @@ async function deleteUser(id) {
   }
 }
 
-async function requestReset(email) {
-  if (!email) throw new Error("Email es requerido");
+// ── requestReset ─────────────────────────────────────────────────────────────
+//
+// Siempre retorna `true` para evitar email enumeration.
+// El error real se loguea en servidor pero nunca se expone al cliente.
 
-  const { entity } = await findAuthEntityByEmail(email);
-  if (!entity) {
-    throw new Error(
-      "No se encontró ningún usuario o padre con ese correo electrónico",
-    );
+async function requestReset(email) {
+  if (!email || typeof email !== "string") {
+    throw new Error("Email es requerido");
   }
 
-  const token = crypto.randomBytes(20).toString("hex");
-  const tokenExpiry = new Date(Date.now() + 20 * 60 * 1000); // 20 min
+  const normalizedEmail = email.trim().toLowerCase();
 
-  entity.resetPasswordToken = token;
-  entity.resetPasswordExpires = tokenExpiry;
+  try {
+    const { doc } = await findByEmail(normalizedEmail);
 
-  await entity.save();
+    // Si no existe, salimos silenciosamente (anti-enumeration)
+    if (!doc) {
+      console.info(
+        `[requestReset] Email no encontrado: ${normalizedEmail} — respuesta silenciosa`,
+      );
+      return true;
+    }
 
-  const resetURL = `${getResetBaseUrl()}/${token}`;
+    // Limpiar token anterior si ya tenía uno (evita tokens huérfanos)
+    if (doc.resetPasswordToken) {
+      console.info(
+        `[requestReset] Limpiando token previo para: ${normalizedEmail}`,
+      );
+    }
 
-  const transporter = getMailer();
-  const from = process.env.EMAIL_USER || "banda@cedesdonbosco.ed.cr";
+    // Generar nuevo token
+    const token = crypto.randomBytes(TOKEN_BYTES).toString("hex");
+    const expires = new Date(Date.now() + TOKEN_TTL_MINUTES * 60 * 1000);
 
-  await transporter.sendMail({
-    from,
-    to: email,
-    subject: "Recuperar contraseña",
-    text: `Dale click al siguiente link para recuperar tu contraseña: ${resetURL}`,
-  });
+    doc.resetPasswordToken = token;
+    doc.resetPasswordExpires = expires;
+    await doc.save();
 
-  return true;
+    // Enviar correo
+    const resetURL = buildResetUrl(token);
+    const transporter = createTransporter();
+    const from = `"Banda CEDES Don Bosco" <${process.env.EMAIL_USER}>`;
+
+    await transporter.sendMail({
+      from,
+      to: normalizedEmail,
+      subject: "Restablecé tu contraseña — Banda CEDES Don Bosco",
+
+      // Texto plano (fallback)
+      text: [
+        "Hola,",
+        "",
+        "Recibimos una solicitud para restablecer la contraseña de tu cuenta.",
+        `Hacé clic en el siguiente enlace (válido por ${TOKEN_TTL_MINUTES} minutos):`,
+        "",
+        resetURL,
+        "",
+        "Si no solicitaste esto, podés ignorar este correo.",
+        "",
+        "— Banda CEDES Don Bosco",
+      ].join("\n"),
+
+      // HTML (clientes modernos)
+      html: `
+        <!DOCTYPE html>
+        <html lang="es">
+        <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+        <body style="margin:0;padding:0;background:#f8fafc;font-family:Georgia,serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
+            <tr><td align="center">
+              <table width="480" cellpadding="0" cellspacing="0"
+                style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+ 
+                <!-- Accent bar -->
+                <tr><td style="height:4px;background:linear-gradient(90deg,#0f172a,#475569,#94a3b8);"></td></tr>
+ 
+                <!-- Body -->
+                <tr><td style="padding:40px 40px 32px;">
+                  <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0f172a;letter-spacing:-.5px;">
+                    Restablecé tu contraseña
+                  </h1>
+                  <p style="margin:0 0 24px;color:#64748b;font-size:15px;line-height:1.6;">
+                    Recibimos una solicitud para restablecer la contraseña de tu cuenta.<br>
+                    El enlace es válido por <strong>${TOKEN_TTL_MINUTES} minutos</strong>.
+                  </p>
+ 
+                  <a href="${resetURL}"
+                    style="display:inline-block;padding:14px 28px;background:#0f172a;color:#ffffff;
+                           text-decoration:none;border-radius:10px;font-size:15px;font-weight:600;
+                           letter-spacing:-.2px;">
+                    Cambiar contraseña →
+                  </a>
+ 
+                  <p style="margin:28px 0 0;color:#94a3b8;font-size:13px;line-height:1.5;">
+                    Si el botón no funciona, copiá este enlace en tu navegador:<br>
+                    <a href="${resetURL}" style="color:#475569;word-break:break-all;">${resetURL}</a>
+                  </p>
+ 
+                  <hr style="margin:28px 0;border:none;border-top:1px solid #e2e8f0;">
+                  <p style="margin:0;color:#cbd5e1;font-size:12px;">
+                    Si no solicitaste este cambio, podés ignorar este correo.<br>
+                    — Banda CEDES Don Bosco
+                  </p>
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </body>
+        </html>
+      `,
+    });
+
+    return true;
+  } catch (err) {
+    return true;
+  }
 }
+
+// ── resetPassword ─────────────────────────────────────────────────────────────
 
 async function resetPassword(token, newPassword) {
   if (!token || !newPassword) {
     throw new Error("Token y nueva contraseña son requeridos.");
   }
+  if (newPassword.length < MIN_PASSWORD_LEN) {
+    throw new Error(
+      `La contraseña debe tener al menos ${MIN_PASSWORD_LEN} caracteres.`,
+    );
+  }
 
-  const query = {
-    resetPasswordToken: token,
-    resetPasswordExpires: { $gt: Date.now() },
-  };
+  const { doc } = await findByResetToken(token);
 
-  let doc = await User.findOne(query);
-  if (!doc) doc = await Parent.findOne(query);
+  if (!doc) {
+    // Token inválido o expirado — mensaje genérico para no dar pistas
+    throw new Error(
+      "El enlace de recuperación es inválido o ya expiró. Solicitá uno nuevo.",
+    );
+  }
 
-  if (!doc) throw new Error("El token es inválido o ha expirado.");
+  // Actualizar contraseña y eliminar campos de reset atómicamente
+  const hashed = await hashPassword(newPassword);
 
-  doc.password = await hashPassword(newPassword);
-  doc.resetPasswordToken = undefined;
-  doc.resetPasswordExpires = undefined;
+  // $unset es más robusto que asignar undefined con Mongoose
+  await doc.constructor.updateOne(
+    { _id: doc._id },
+    {
+      $set: { password: hashed },
+      $unset: { resetPasswordToken: "", resetPasswordExpires: "" },
+    },
+  );
 
-  await doc.save();
   return true;
 }
 
