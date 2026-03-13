@@ -14,13 +14,18 @@ module.exports = gql`
     updatedAt: String!
   }
 
-  """ Counts for the two ensemble tabs — always eligible roles only. """
+  """
+  Counts for the ensemble tabs — always eligible roles only.
+  """
   type EnsembleCounts {
     membersTotal: Int!
     availableTotal: Int!
+    inOtherTotal: Int!
   }
 
-  """ Instrument distribution for eligible members of an ensemble. """
+  """
+  Instrument distribution for eligible members of an ensemble.
+  """
   type InstrumentStat {
     instrument: String!
     count: Int!
@@ -41,14 +46,24 @@ module.exports = gql`
     searchText: String
     state: String
     role: String
-    """ Multi-role OR filter — matches users with any of the given roles """
+    """
+    Multi-role OR filter — matches users with any of the given roles
+    """
     roles: [String!]
     instrument: String
     grade: String
-    """ OR filter: users in ANY of these ensemble keys """
+    """
+    OR filter: users in ANY of these ensemble keys
+    """
     ensembleKeys: [String!]
-    """ AND filter: users in ALL of these ensemble keys """
+    """
+    AND filter: users in ALL of these ensemble keys
+    """
     ensembleAllOf: [String!]
+    """
+    Filter by a specific ensemble name (for in_other band facet filter)
+    """
+    band: String
   }
 
   input PaginationInput {
@@ -80,24 +95,61 @@ module.exports = gql`
 
   extend type Query {
     ensembles(activeOnly: Boolean): [Ensemble!]!
-    usersPaginated(filter: UsersFilterInput, pagination: PaginationInput): UsersPage!
-    ensembleMembers(ensembleKey: String!, filter: UsersFilterInput, pagination: PaginationInput): UsersPage!
-    """ Users NOT in this ensemble — for the 'Disponibles' tab. """
-    ensembleAvailable(ensembleKey: String!, filter: UsersFilterInput, pagination: PaginationInput): UsersPage!
-    """ Fast member+available counts for header badges. """
+    usersPaginated(
+      filter: UsersFilterInput
+      pagination: PaginationInput
+    ): UsersPage!
+    ensembleMembers(
+      ensembleKey: String!
+      filter: UsersFilterInput
+      pagination: PaginationInput
+    ): UsersPage!
+    """
+    Users NOT in any ensemble — for the 'Disponibles' tab.
+    """
+    ensembleAvailable(
+      ensembleKey: String!
+      filter: UsersFilterInput
+      pagination: PaginationInput
+    ): UsersPage!
+    """
+    Users in at least one OTHER ensemble but not this one — for the 'En otras agrupaciones' tab.
+    """
+    ensembleInOther(
+      ensembleKey: String!
+      filter: UsersFilterInput
+      pagination: PaginationInput
+    ): UsersPage!
+    """
+    Fast member+available+inOther counts for header badges.
+    """
     ensembleCounts(ensembleKey: String!): EnsembleCounts!
-    """ Instrument distribution for eligible members of an ensemble. """
+    """
+    Instrument distribution for eligible members of an ensemble.
+    """
     ensembleInstrumentStats(ensembleKey: String!): [InstrumentStat!]!
   }
 
   extend type Mutation {
-    """ Replace all non-default ensembles for a user. MARCHING always kept. """
+    """
+    Replace all non-default ensembles for a user. MARCHING always kept.
+    """
     setUserEnsembles(userId: ID!, ensembleKeys: [String!]!): User!
 
-    """ Bulk add users to ensembles. """
-    addUserToEnsembles(userIds: [ID!]!, ensembleKeys: [String!]!): BulkEnsembleResult!
+    """
+    Bulk add users to ensembles.
+    """
+    addUserToEnsembles(
+      userIds: [ID!]!
+      ensembleKeys: [String!]!
+    ): BulkEnsembleResult!
 
-    """ Bulk remove users from ensembles. MARCHING is never removed. """
-    removeUserFromEnsembles(userIds: [ID!]!, ensembleKeys: [String!]!): BulkEnsembleResult!
+    """
+    Bulk remove users from ensembles. MARCHING is never removed.
+    """
+    removeUserFromEnsembles(
+      userIds: [ID!]!
+      ensembleKeys: [String!]!
+    ): BulkEnsembleResult!
   }
 `;
