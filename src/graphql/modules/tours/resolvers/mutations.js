@@ -75,4 +75,13 @@ module.exports = {
       throw new Error(error.message || "No se pudo remover el participante");
     }
   },
+
+  deleteTourParticipant: async (_, { id }, ctx) => {
+    try {
+      return await tourService.deleteTourParticipant(id, ctx);
+    } catch (error) {
+      console.error("[mutation:deleteTourParticipant]", error.message);
+      throw new Error(error.message || "No se pudo eliminar el participante");
+    }
+  },
 };

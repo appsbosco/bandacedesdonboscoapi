@@ -19,7 +19,8 @@ module.exports = {
         input.batchId,
         input.fileBase64,
         input.sheetName,
-        ctx
+        ctx,
+        input.mode || "INSERT",
       );
     } catch (error) {
       console.error("[mutation:confirmTourParticipantImport]", error.message);

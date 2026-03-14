@@ -27,6 +27,7 @@ module.exports = gql`
     identification: String
     email: String
     phone: String
+    birthDate: String
     instrument: String
     grade: String
     passportNumber: String
@@ -68,8 +69,10 @@ module.exports = gql`
     batchId: ID!
     tourId: ID!
     importedCount: Int!
+    updatedCount: Int
     duplicates: Int!
     errors: Int!
+    mode: String
     participants: [TourParticipant!]!
   }
 
@@ -80,12 +83,14 @@ module.exports = gql`
     fileBase64: String!
     fileName: String
     sheetName: String
+    mode: String
   }
 
   input TourImportConfirmInput {
     batchId: ID!
     fileBase64: String!
     sheetName: String
+    mode: String
   }
 
   # ─── Queries ─────────────────────────────────────────────────────────────────
@@ -98,8 +103,12 @@ module.exports = gql`
   # ─── Mutations ───────────────────────────────────────────────────────────────
 
   extend type Mutation {
-    previewTourParticipantImport(input: TourImportInput!): TourImportPreviewResult!
-    confirmTourParticipantImport(input: TourImportConfirmInput!): TourImportConfirmResult!
+    previewTourParticipantImport(
+      input: TourImportInput!
+    ): TourImportPreviewResult!
+    confirmTourParticipantImport(
+      input: TourImportConfirmInput!
+    ): TourImportConfirmResult!
     cancelTourImportBatch(batchId: ID!): String!
   }
 `;

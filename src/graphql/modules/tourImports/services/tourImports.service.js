@@ -1,10 +1,12 @@
 /**
  * tourImports/services/tourImports.service.js
  *
- * Importación de participantes de gira desde Excel.
- * Flujo de 2 pasos:
- *   1. previewTourParticipantImport → parsea Excel, valida, detecta duplicados, crea TourImportBatch en PREVIEW
- *   2. confirmTourParticipantImport → inserta TourParticipants, actualiza batch a CONFIRMED
+ * CHANGES:
+ * - confirmTourParticipantImportWithFile acepta mode: "INSERT" | "UPSERT"
+ *   - INSERT (default): salta duplicados (comportamiento original)
+ *   - UPSERT: actualiza participantes existentes con los datos del Excel
+ * - previewTourParticipantImport expone birthDate en la preview para que el
+ *   frontend pueda mostrarla y el admin verificar que se leyó bien
  */
 "use strict";
 
@@ -13,7 +15,7 @@ const TourParticipant = require("../../../../../models/TourParticipant");
 const TourImportBatch = require("../../../../../models/TourImportBatch");
 const { parseExcelBase64 } = require("../../../../utils/excelParser");
 
-// ─── Auth guards ─────────────────────────────────────────────────────────────
+// ─── Auth guards ──────────────────────────────────────────────────────────────
 
 function requireAuth(ctx) {
   const user = ctx?.user || ctx?.me || ctx?.currentUser;
@@ -38,7 +40,7 @@ const VALID_ROLES = new Set(["MUSICIAN", "STAFF", "DIRECTOR", "GUEST"]);
 const ROLE_MAP = {
   músico: "MUSICIAN",
   musico: "MUSICIAN",
-  "Músico/Danza/Color guard": "MUSICIAN",
+  "músico/danza/color guard": "MUSICIAN",
   "musico/danza/color guard": "MUSICIAN",
   musician: "MUSICIAN",
   música: "MUSICIAN",
@@ -77,8 +79,6 @@ function validateRow(row) {
   if (!row.identification || String(row.identification).trim() === "") {
     errors.push("Identificación requerida");
   }
-
-  // ← FIXED: normalize the role before validating
   if (row.role) {
     const normalized = normalizeRole(row.role);
     if (!normalized) {
@@ -87,12 +87,29 @@ function validateRow(row) {
       );
     }
   }
-
   if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
     errors.push("Email con formato inválido");
   }
   return errors;
 }
+
+/**
+ * Validación relajada para UPSERT.
+ * Solo requiere identificación — el resto de campos obligatorios
+ * (nombre, apellido) ya existen en el participante registrado en BD.
+ * La identificación es la clave para encontrar el registro existente.
+ */
+function validateRowForUpsert(row) {
+  const errors = [];
+  if (!row.identification || String(row.identification).trim() === "") {
+    errors.push("Identificación requerida");
+  }
+  if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) {
+    errors.push("Email con formato inválido");
+  }
+  return errors;
+}
+
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
 async function getTourImportBatch(id, ctx) {
@@ -123,8 +140,8 @@ async function getTourImportBatches(tourId, ctx) {
 
 /**
  * PASO 1: Previsualizar la importación.
- * Parsea el Excel, valida cada fila, detecta duplicados en la gira,
- * guarda un TourImportBatch en estado PREVIEW con los datos de la preview.
+ * Ahora incluye birthDate en la preview para que el admin pueda verificar
+ * que las fechas se leyeron correctamente antes de confirmar.
  */
 async function previewTourParticipantImport(input, ctx) {
   const admin = requireAdmin(ctx);
@@ -132,10 +149,12 @@ async function previewTourParticipantImport(input, ctx) {
   if (!input.tourId) throw new Error("ID de gira requerido");
   if (!input.fileBase64) throw new Error("Archivo Excel requerido (base64)");
 
+  const mode = input.mode || "INSERT";
+  const isUpsert = mode === "UPSERT";
+
   const tour = await Tour.findById(input.tourId);
   if (!tour) throw new Error("Gira no encontrada");
 
-  // Parsear Excel
   let parsed;
   try {
     parsed = parseExcelBase64(input.fileBase64, { sheetName: input.sheetName });
@@ -148,61 +167,94 @@ async function previewTourParticipantImport(input, ctx) {
     throw new Error("El archivo no contiene filas de datos");
   }
 
-  // Calcular fingerprints de todos los candidatos para detectar duplicados en BD
-  const candidateFingerprints = [];
-  for (const row of rows) {
-    if (row.firstName && row.firstSurname && row.identification) {
-      candidateFingerprints.push(
-        TourParticipant.buildFingerprint(
-          row.firstName,
-          row.firstSurname,
-          row.identification,
-        ),
-      );
+  // Para UPSERT: cargar TODOS los participantes del tour indexados por
+  // fingerprint E identification. Esto permite detectar "duplicados" (a actualizar)
+  // incluso cuando el fingerprint no coincide (ej. bug previo de segundo_nombre).
+  const existingSet = new Set();       // fingerprints
+  const existingIdSet = new Set();     // identificaciones (para UPSERT fallback)
+
+  if (isUpsert) {
+    const allExisting = await TourParticipant.find(
+      { tour: input.tourId },
+      { fingerprint: 1, identification: 1 },
+    ).lean();
+    for (const p of allExisting) {
+      if (p.fingerprint) existingSet.add(p.fingerprint);
+      if (p.identification) existingIdSet.add(String(p.identification).trim());
     }
+  } else {
+    // INSERT: solo cargar los que coinciden por fingerprint (comportamiento original)
+    const candidateFingerprints = [];
+    for (const row of rows) {
+      if (row.firstName && row.firstSurname && row.identification) {
+        candidateFingerprints.push(
+          TourParticipant.buildFingerprint(row.firstName, row.firstSurname, row.identification),
+        );
+      }
+    }
+    const existingParticipants = await TourParticipant.find(
+      { tour: input.tourId, fingerprint: { $in: candidateFingerprints } },
+      { fingerprint: 1 },
+    ).lean();
+    for (const p of existingParticipants) existingSet.add(p.fingerprint);
   }
 
-  const existingFPs = await TourParticipant.find(
-    { tour: input.tourId, fingerprint: { $in: candidateFingerprints } },
-    { fingerprint: 1 },
-  ).lean();
-  const existingSet = new Set(existingFPs.map((e) => e.fingerprint));
-
-  // Evaluar cada fila
   const previewRows = [];
   const rowErrors = [];
   let validRows = 0;
   let invalidRows = 0;
   let duplicateRows = 0;
-
-  // Para detectar duplicados dentro del mismo Excel
+  // In UPSERT mode: track by identification; in INSERT mode: track by fingerprint
   const seenInFile = new Set();
 
   for (const row of rows) {
     const rowIndex = row.__rowIndex;
-    const errors = validateRow(row);
+    const errors = isUpsert ? validateRowForUpsert(row) : validateRow(row);
 
     let isDuplicate = false;
     if (errors.length === 0) {
-      const fp = TourParticipant.buildFingerprint(
-        row.firstName,
-        row.firstSurname,
-        row.identification,
-      );
-      if (existingSet.has(fp) || seenInFile.has(fp)) {
-        isDuplicate = true;
-        errors.push("Participante ya existe en esta gira (duplicado)");
-        duplicateRows++;
+      if (isUpsert) {
+        // UPSERT: match by identification first (fingerprint may be stale from prior bug)
+        const idKey = row.identification ? String(row.identification).trim() : "";
+        const fp = (row.firstName && row.firstSurname && row.identification)
+          ? TourParticipant.buildFingerprint(row.firstName, row.firstSurname, row.identification)
+          : null;
+
+        if (seenInFile.has(idKey)) {
+          // True in-file duplicate — skip silently
+          isDuplicate = true;
+          duplicateRows++;
+        } else if ((idKey && existingIdSet.has(idKey)) || (fp && existingSet.has(fp))) {
+          // Exists in DB → will be updated
+          isDuplicate = true;
+          duplicateRows++;
+          if (idKey) seenInFile.add(idKey);
+        } else {
+          // New participant
+          if (idKey) seenInFile.add(idKey);
+        }
       } else {
-        seenInFile.add(fp);
+        // INSERT: match by fingerprint (original behavior)
+        if (row.firstName && row.firstSurname && row.identification) {
+          const fp = TourParticipant.buildFingerprint(
+            row.firstName,
+            row.firstSurname,
+            row.identification,
+          );
+          if (existingSet.has(fp) || seenInFile.has(fp)) {
+            isDuplicate = true;
+            errors.push("Participante ya existe en esta gira (duplicado)");
+            duplicateRows++;
+          } else {
+            seenInFile.add(fp);
+          }
+        }
       }
     }
 
-    const isValid = errors.length === 0;
+    const isValid = errors.length === 0 && !isDuplicate;
     if (isValid) validRows++;
     else if (!isDuplicate) invalidRows++;
-
-    console.log("Sample row[0]:", JSON.stringify(rows[0]));
 
     previewRows.push({
       rowIndex,
@@ -210,6 +262,7 @@ async function previewTourParticipantImport(input, ctx) {
       firstSurname: row.firstSurname || null,
       secondSurname: row.secondSurname || null,
       identification: row.identification || null,
+      birthDate: row.birthDate || null, // ← expuesto para verificación
       email: row.email || null,
       phone: row.phone || null,
       instrument: row.instrument || null,
@@ -226,8 +279,6 @@ async function previewTourParticipantImport(input, ctx) {
     }
   }
 
-  // Guardar batch en PREVIEW — almacenamos rowErrors para confirmación posterior
-  // Los datos completos de filas válidas se re-parsean en confirmación (no los guardamos en BD)
   const batch = await TourImportBatch.create({
     tour: input.tourId,
     fileName: input.fileName || null,
@@ -240,11 +291,6 @@ async function previewTourParticipantImport(input, ctx) {
     rowErrors,
     createdBy: admin._id || admin.id,
   });
-
-  // Adjuntar el fileBase64 al batch en memoria (no en BD) para que confirmación lo use
-  // Se guarda como campo temporal en el documento (no persistido)
-  batch._tempFileBase64 = input.fileBase64;
-  batch._tempSheetName = input.sheetName;
 
   return {
     batchId: batch._id.toString(),
@@ -260,52 +306,23 @@ async function previewTourParticipantImport(input, ctx) {
 
 /**
  * PASO 2: Confirmar la importación.
- * Re-parsea el Excel original... pero como no guardamos el archivo en BD,
- * el cliente debe re-enviarlo. En su lugar, confirmamos re-insertando desde
- * un batch ya en PREVIEW que tiene el fileBase64 en memoria.
  *
- * NOTA PRÁCTICA: El cliente tiene 2 opciones:
- *   a) Mantiene el base64 en el frontend y lo envía junto al batchId.
- *   b) Backend re-parse desde BD si guardó el archivo.
+ * mode: "INSERT" (default) — salta duplicados, inserta solo nuevos
+ * mode: "UPSERT" — actualiza participantes existentes con los campos del Excel
+ *                  que vengan con valor. No sobreescribe con null/vacío.
  *
- * En esta implementación: el cliente confirma con batchId solamente.
- * El batch guarda las filas válidas embebidas para poder confirmar sin re-enviar.
- * Para mantener la BD limpia, guardamos las filas válidas como JSON en un campo
- * temporal (no se expone via GraphQL).
- */
-async function confirmTourParticipantImport(batchId, ctx) {
-  const admin = requireAdmin(ctx);
-
-  if (!batchId) throw new Error("ID de batch requerido");
-
-  const batch = await TourImportBatch.findById(batchId);
-  if (!batch) throw new Error("Batch de importación no encontrado");
-  if (batch.status !== "PREVIEW") {
-    throw new Error(
-      `El batch ya fue ${batch.status === "CONFIRMED" ? "confirmado" : "cancelado"}`,
-    );
-  }
-
-  // El batch no tiene el fileBase64, así que no podemos re-parsear.
-  // Lanzamos error claro: el cliente debe usar confirmTourParticipantImportWithFile
-  // (o usar la mutación alternativa que incluye el file).
-  // Para esta implementación, el frontend debe enviar el base64 de nuevo.
-  throw new Error(
-    "Para confirmar, usa la mutación confirmTourParticipantImportWithFile enviando el archivo original",
-  );
-}
-
-/**
- * ALTERNATIVA: Confirmar enviando el archivo de nuevo.
- * El frontend envía: batchId + fileBase64 + sheetName.
+ * En UPSERT los "duplicados" no cuentan como error — se actualizan y se
+ * reportan en updatedCount.
  */
 async function confirmTourParticipantImportWithFile(
   batchId,
   fileBase64,
   sheetName,
   ctx,
+  mode = "INSERT",
 ) {
   const admin = requireAdmin(ctx);
+  const isUpsert = mode === "UPSERT";
 
   if (!batchId) throw new Error("ID de batch requerido");
   if (!fileBase64) throw new Error("Archivo Excel requerido");
@@ -320,7 +337,6 @@ async function confirmTourParticipantImportWithFile(
 
   const tourId = batch.tour._id || batch.tour;
 
-  // Re-parsear Excel
   let parsed;
   try {
     parsed = parseExcelBase64(fileBase64, { sheetName });
@@ -330,48 +346,115 @@ async function confirmTourParticipantImportWithFile(
 
   const { rows } = parsed;
 
-  // Calcular fingerprints existentes
+  // --- Fingerprint map (primary match) ---
   const candidateFingerprints = rows
     .filter((r) => r.firstName && r.firstSurname && r.identification)
-    .map((r) =>
-      TourParticipant.buildFingerprint(
-        r.firstName,
-        r.firstSurname,
-        r.identification,
-      ),
-    );
+    .map((r) => TourParticipant.buildFingerprint(r.firstName, r.firstSurname, r.identification));
 
-  const existingFPs = await TourParticipant.find(
+  const existingByFp = await TourParticipant.find(
     { tour: tourId, fingerprint: { $in: candidateFingerprints } },
-    { fingerprint: 1 },
+    { fingerprint: 1, _id: 1 },
   ).lean();
-  const existingSet = new Set(existingFPs.map((e) => e.fingerprint));
+
+  const existingMap = new Map(existingByFp.map((e) => [e.fingerprint, e._id]));
+
+  // --- Identification map (UPSERT fallback: catches stale fingerprints from prior bug) ---
+  const idMap = new Map(); // identification -> _id
+  if (isUpsert) {
+    const candidateIds = rows
+      .filter((r) => r.identification)
+      .map((r) => String(r.identification).trim());
+
+    const existingById = await TourParticipant.find(
+      { tour: tourId, identification: { $in: candidateIds } },
+      { identification: 1, _id: 1 },
+    ).lean();
+
+    for (const p of existingById) {
+      if (p.identification) idMap.set(String(p.identification).trim(), p._id);
+    }
+  }
 
   const adminId = admin._id || admin.id;
   const toInsert = [];
-  let duplicates = 0;
-  let errors = 0;
+  const toUpdate = [];
+  let duplicatesSkipped = 0;
+  let parseErrors = 0;
+  // UPSERT: dedupe by identification; INSERT: dedupe by fingerprint
   const seenInFile = new Set();
 
+  const OPTIONAL_FIELDS = [
+    "secondSurname",
+    "email",
+    "phone",
+    "birthDate",
+    "instrument",
+    "grade",
+    "passportNumber",
+    "passportExpiry",
+    "hasVisa",
+    "visaExpiry",
+    "hasExitPermit",
+    "notes",
+  ];
+
   for (const row of rows) {
-    const rowErrors = validateRow(row);
+    const rowErrors = isUpsert ? validateRowForUpsert(row) : validateRow(row);
     if (rowErrors.length > 0) {
-      errors++;
+      parseErrors++;
       continue;
     }
 
-    const fp = TourParticipant.buildFingerprint(
-      row.firstName,
-      row.firstSurname,
-      row.identification,
-    );
+    const idKey = row.identification ? String(row.identification).trim() : "";
+    const fp = (row.firstName && row.firstSurname && row.identification)
+      ? TourParticipant.buildFingerprint(row.firstName, row.firstSurname, row.identification)
+      : null;
 
-    if (existingSet.has(fp) || seenInFile.has(fp)) {
-      duplicates++;
+    // Deduplicate within this file
+    const dedupeKey = isUpsert ? idKey : fp;
+    if (!dedupeKey || seenInFile.has(dedupeKey)) {
+      duplicatesSkipped++;
       continue;
     }
-    seenInFile.add(fp);
+    seenInFile.add(dedupeKey);
 
+    // Resolve existing participant: fingerprint first, then identification fallback
+    const existingId =
+      (fp && existingMap.get(fp)) ||
+      (isUpsert && idKey && idMap.get(idKey)) ||
+      null;
+
+    if (existingId) {
+      if (isUpsert) {
+        const updateFields = {};
+        for (const f of OPTIONAL_FIELDS) {
+          const val = row[f];
+          if (f === "hasVisa" || f === "hasExitPermit") {
+            updateFields[f] = val === true || val === false ? val : false;
+          } else if (val !== undefined && val !== null && val !== "") {
+            updateFields[f] = val;
+          }
+        }
+        // Update name fields if present in Excel
+        if (row.firstName) updateFields.firstName = row.firstName;
+        if (row.firstSurname) updateFields.firstSurname = row.firstSurname;
+        if (row.secondSurname) updateFields.secondSurname = row.secondSurname;
+        const normalizedRole = normalizeRole(row.role);
+        if (normalizedRole) updateFields.role = normalizedRole;
+        // Re-compute fingerprint with corrected name data
+        if (row.firstName && row.firstSurname && row.identification) {
+          updateFields.fingerprint = TourParticipant.buildFingerprint(
+            row.firstName, row.firstSurname, row.identification,
+          );
+        }
+        toUpdate.push({ id: existingId, fields: updateFields });
+      } else {
+        duplicatesSkipped++;
+      }
+      continue;
+    }
+
+    // New participant → insert
     const doc = {
       tour: tourId,
       fingerprint: fp,
@@ -383,48 +466,47 @@ async function confirmTourParticipantImportWithFile(
       importRowIndex: row.__rowIndex,
     };
 
-    const optionals = [
-      "secondSurname",
-      "email",
-      "phone",
-      "birthDate",
-      "instrument",
-      "grade",
-      "passportNumber",
-      "passportExpiry",
-      "hasVisa",
-      "visaExpiry",
-      "hasExitPermit",
-      "notes",
-    ];
-    for (const f of optionals) {
-      if (row[f] !== undefined && row[f] !== null && row[f] !== "") {
-        doc[f] = row[f];
+    for (const f of OPTIONAL_FIELDS) {
+      const val = row[f];
+      if (f === "hasVisa" || f === "hasExitPermit") {
+        doc[f] = val === true ? true : false;
+      } else if (val !== undefined && val !== null && val !== "") {
+        doc[f] = val;
       }
     }
 
     const normalizedRole = normalizeRole(row.role);
-    if (normalizedRole) {
-      doc.role = normalizedRole;
-    }
+    if (normalizedRole) doc.role = normalizedRole;
 
     toInsert.push(doc);
   }
 
+  // Execute inserts
   let insertedIds = [];
   if (toInsert.length > 0) {
-    const inserted = await TourParticipant.insertMany(toInsert, {
-      ordered: false,
-    });
+    const inserted = await TourParticipant.insertMany(toInsert, { ordered: false });
     insertedIds = inserted.map((p) => p._id);
   }
 
-  // Actualizar batch
+  // Execute updates (UPSERT mode)
+  let updatedCount = 0;
+  if (toUpdate.length > 0 && isUpsert) {
+    const bulkOps = toUpdate.map(({ id, fields }) => ({
+      updateOne: {
+        filter: { _id: id },
+        update: { $set: { ...fields, updatedAt: new Date() } },
+      },
+    }));
+    const result = await TourParticipant.bulkWrite(bulkOps, { ordered: false });
+    updatedCount = result.modifiedCount || 0;
+  }
+
   await TourImportBatch.findByIdAndUpdate(batchId, {
     status: "CONFIRMED",
     importedCount: insertedIds.length,
     confirmedBy: adminId,
     confirmedAt: new Date(),
+    ...(isUpsert ? { updatedCount } : {}),
   });
 
   const participants =
@@ -438,10 +520,18 @@ async function confirmTourParticipantImportWithFile(
     batchId: batchId.toString(),
     tourId: tourId.toString(),
     importedCount: insertedIds.length,
-    duplicates,
-    errors,
+    updatedCount,
+    duplicates: duplicatesSkipped,
+    errors: parseErrors,
     participants,
+    mode,
   };
+}
+
+async function confirmTourParticipantImport(batchId, ctx) {
+  throw new Error(
+    "Para confirmar, usa la mutación confirmTourParticipantImport enviando el archivo original con fileBase64",
+  );
 }
 
 async function cancelTourImportBatch(batchId, ctx) {
@@ -457,8 +547,6 @@ async function cancelTourImportBatch(batchId, ctx) {
   await TourImportBatch.findByIdAndUpdate(batchId, { status: "CANCELLED" });
   return "Batch de importación cancelado correctamente";
 }
-
-// ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
   requireAuth,

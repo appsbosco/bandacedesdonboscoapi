@@ -89,6 +89,22 @@ module.exports = gql`
     participants: [TourParticipant!]!
   }
 
+  type DeleteTourParticipantCascade {
+    itineraryAssignments: Int!
+    routeAssignments: Int!
+    roomsModified: Int!
+    itinerariesModified: Int!
+    payments: Int!
+    installments: Int!
+    financialAccounts: Int!
+  }
+
+  type DeleteTourParticipantResult {
+    success: Boolean!
+    deletedId: ID!
+    cascadeResults: DeleteTourParticipantCascade!
+  }
+
   # ─── Inputs ─────────────────────────────────────────────────────────────────
 
   input TourInput {
@@ -174,5 +190,6 @@ module.exports = gql`
     updateTourParticipant(id: ID!, input: UpdateTourParticipantInput!): TourParticipant!
     updateTourParticipantSex(participantId: ID!, sex: Sex!): TourParticipant!
     removeTourParticipant(id: ID!): String!
+    deleteTourParticipant(id: ID!): DeleteTourParticipantResult!
   }
 `;

@@ -5,6 +5,13 @@
 
 const Tour = require("../../../../../models/Tour");
 const TourParticipant = require("../../../../../models/TourParticipant");
+const TourItineraryAssignment = require("../../../../../models/TourItineraryAssignment");
+const TourRouteAssignment = require("../../../../../models/TourRouteAssignment");
+const TourRoom = require("../../../../../models/TourRoom");
+const TourItinerary = require("../../../../../models/TourItinerary");
+const TourPayment = require("../../../../../models/TourPayment");
+const ParticipantFinancialAccount = require("../../../../../models/ParticipantFinancialAccount");
+const ParticipantInstallment = require("../../../../../models/ParticipantInstallment");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -397,6 +404,78 @@ async function removeTourParticipant(id, ctx) {
   return "Participante removido correctamente";
 }
 
+/**
+ * Elimina un participante y todas sus referencias en cascade:
+ * - TourItineraryAssignment (asignaciones de itinerario)
+ * - TourRouteAssignment (asignaciones de ruta)
+ * - TourRoom.occupants[] (sacar del arreglo de ocupantes)
+ * - TourItinerary.leaderIds[] (sacar de líderes de itinerario)
+ * - TourPayment (pagos de gira)
+ * - ParticipantFinancialAccount (cuenta financiera)
+ * - ParticipantInstallment (cuotas individuales)
+ * - TourParticipant (el documento principal)
+ */
+async function deleteTourParticipant(id, ctx) {
+  requireAdmin(ctx);
+
+  if (!id) throw new Error("ID de participante requerido");
+
+  const participant = await TourParticipant.findById(id);
+  if (!participant) throw new Error("Participante no encontrado");
+
+  // a. Itinerary assignments
+  const { deletedCount: itineraryAssignments } = await TourItineraryAssignment.deleteMany({
+    participant: id,
+  });
+
+  // b. Route assignments
+  const { deletedCount: routeAssignments } = await TourRouteAssignment.deleteMany({
+    participant: id,
+  });
+
+  // c. Remove from room occupants arrays
+  const { modifiedCount: roomsModified } = await TourRoom.updateMany(
+    { "occupants.participant": id },
+    { $pull: { occupants: { participant: id } } }
+  );
+
+  // d. Remove from itinerary leaderIds arrays
+  const { modifiedCount: itinerariesModified } = await TourItinerary.updateMany(
+    { leaderIds: id },
+    { $pull: { leaderIds: id } }
+  );
+
+  // e. Tour payments
+  const { deletedCount: payments } = await TourPayment.deleteMany({ participant: id });
+
+  // f. Financial installments
+  const { deletedCount: installments } = await ParticipantInstallment.deleteMany({
+    participant: id,
+  });
+
+  // g. Financial accounts
+  const { deletedCount: financialAccounts } = await ParticipantFinancialAccount.deleteMany({
+    participant: id,
+  });
+
+  // h. Delete the participant
+  await TourParticipant.findByIdAndDelete(id);
+
+  return {
+    success: true,
+    deletedId: id,
+    cascadeResults: {
+      itineraryAssignments,
+      routeAssignments,
+      roomsModified,
+      itinerariesModified,
+      payments,
+      installments,
+      financialAccounts,
+    },
+  };
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -414,4 +493,5 @@ module.exports = {
   updateTourParticipant,
   updateTourParticipantSex,
   removeTourParticipant,
+  deleteTourParticipant,
 };
