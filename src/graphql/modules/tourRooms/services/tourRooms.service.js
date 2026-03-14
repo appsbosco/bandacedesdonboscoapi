@@ -31,6 +31,7 @@ function requireAdmin(ctx) {
 function populateRoom(query) {
   return query
     .populate("occupants.participant")
+    .populate("responsible")
     .populate("createdBy", "name firstSurName")
     .populate("updatedBy", "name firstSurName");
 }
@@ -107,6 +108,7 @@ async function updateTourRoom(id, input, ctx) {
   if (input.capacity !== undefined) allowed.capacity = input.capacity;
   if (input.floor !== undefined) allowed.floor = input.floor;
   if (input.notes !== undefined) allowed.notes = input.notes;
+  if (input.responsibleId !== undefined) allowed.responsible = input.responsibleId || null;
   allowed.updatedBy = user._id || user.id;
 
   const updated = await populateRoom(
@@ -215,6 +217,40 @@ async function removeOccupant(roomId, participantId, ctx) {
   return updated;
 }
 
+async function setRoomResponsible(roomId, participantId, ctx) {
+  const admin = requireAdmin(ctx);
+
+  if (!roomId) throw new Error("ID de habitación requerido");
+
+  const room = await TourRoom.findById(roomId);
+  if (!room) throw new Error("Habitación no encontrada");
+
+  // participantId === null → clear responsible
+  if (participantId) {
+    const participant = await TourParticipant.findById(participantId);
+    if (!participant) throw new Error("Participante no encontrado");
+
+    // Must be an occupant of this room
+    const isOccupant = room.occupants.some(
+      (o) => o.participant.toString() === participantId.toString()
+    );
+    if (!isOccupant) {
+      throw new Error("El participante no es ocupante de esta habitación");
+    }
+  }
+
+  const updated = await populateRoom(
+    TourRoom.findByIdAndUpdate(
+      roomId,
+      { $set: { responsible: participantId || null, updatedBy: admin._id || admin.id } },
+      { new: true }
+    )
+  );
+
+  if (!updated) throw new Error("No se pudo actualizar el responsable");
+  return updated;
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -227,4 +263,5 @@ module.exports = {
   deleteTourRoom,
   assignOccupant,
   removeOccupant,
+  setRoomResponsible,
 };

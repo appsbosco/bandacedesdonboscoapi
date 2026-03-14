@@ -153,7 +153,6 @@ async function getSignedUpload(input, ctx) {
   if (!documentId) throw new Error("documentId requerido");
   if (!kind) throw new Error("kind requerido");
 
-  // Verificar que el documento existe y pertenece al usuario
   const doc = await Document.findOne({
     _id: documentId,
     owner: userId,
@@ -161,16 +160,14 @@ async function getSignedUpload(input, ctx) {
   });
   if (!doc) throw new Error("Documento no existe");
 
-  const kindLower = kind.toLowerCase();
-  const folder = `documents/${documentId}/${kindLower}`;
-  const publicId = `documents/${documentId}/${kindLower}/${Date.now()}`;
+  const folder = `documents/${documentId}/${kind.toLowerCase()}`;
+  const publicId = `${folder}/${Date.now()}`;
   const timestamp = Math.round(Date.now() / 1000);
 
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
   if (!apiSecret) throw new Error("Cloudinary no configurado");
 
-  // Generar signature: sha1 de params_to_sign + api_secret
-  const paramsToSign = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}`;
+  const paramsToSign = `public_id=${publicId}&timestamp=${timestamp}`;
   const signature = crypto
     .createHash("sha1")
     .update(paramsToSign + apiSecret)
@@ -194,6 +191,11 @@ async function addDocumentImage(input, ctx) {
   if (!documentId) throw new Error("documentId requerido");
 
   const imagePayload = image || rest;
+
+  if (imagePayload.mimeType === "image/pdf") {
+    imagePayload.mimeType = "application/pdf";
+  }
+
   if (!imagePayload || Object.keys(imagePayload).length === 0) {
     throw new Error("Datos de imagen requeridos");
   }
@@ -263,17 +265,23 @@ async function setDocumentStatus(documentId, status, ctx) {
 }
 
 async function deleteDocument(documentId, ctx) {
-  const { userId } = requireUserId(ctx);
+  const { user, userId } = requireUserId(ctx);
   if (!documentId) throw new Error("documentId requerido");
 
+  const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+
+  // Admin puede eliminar cualquier documento; usuario normal solo los suyos
+  const filter = isAdmin
+    ? { _id: documentId, isDeleted: { $ne: true } }
+    : { _id: documentId, owner: userId, isDeleted: { $ne: true } };
+
   const updated = await Document.findOneAndUpdate(
-    { _id: documentId, owner: userId, isDeleted: { $ne: true } },
+    filter,
     { $set: { isDeleted: true, deletedAt: new Date(), updatedBy: userId } },
     { new: true },
   );
   if (!updated) throw new Error("Documento no existe");
 
-  // TODO: encolar job de cleanup de assets Cloudinary
   return { success: true, message: "Documento eliminado correctamente" };
 }
 

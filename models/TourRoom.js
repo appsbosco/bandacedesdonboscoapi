@@ -30,9 +30,10 @@ const TourRoomSchema = new mongoose.Schema(
     capacity:  { type: Number, required: true, min: 1 },
     floor:     { type: String, trim: true },
     notes:     { type: String, trim: true },
-    occupants: [OccupantSchema],
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    occupants:   [OccupantSchema],
+    responsible: { type: mongoose.Schema.Types.ObjectId, ref: "TourParticipant", default: null },
+    createdBy:   { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    updatedBy:   { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true }
 );

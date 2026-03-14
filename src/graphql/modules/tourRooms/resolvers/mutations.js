@@ -48,4 +48,13 @@ module.exports = {
       throw new Error(error.message || "No se pudo remover el ocupante");
     }
   },
+
+  setRoomResponsible: async (_, { roomId, participantId }, ctx) => {
+    try {
+      return await tourRoomsService.setRoomResponsible(roomId, participantId, ctx);
+    } catch (error) {
+      console.error("[mutation:setRoomResponsible]", error.message);
+      throw new Error(error.message || "No se pudo actualizar el responsable");
+    }
+  },
 };

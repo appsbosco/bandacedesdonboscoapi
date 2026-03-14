@@ -33,6 +33,7 @@ module.exports = gql`
     occupants: [TourRoomOccupant!]!
     occupantCount: Int!
     isFull: Boolean!
+    responsible: TourParticipant
     createdBy: User
     updatedBy: User
     createdAt: DateTime!
@@ -66,5 +67,6 @@ module.exports = gql`
     deleteTourRoom(id: ID!): String!
     assignOccupant(roomId: ID!, participantId: ID!): TourRoom!
     removeOccupant(roomId: ID!, participantId: ID!): TourRoom!
+    setRoomResponsible(roomId: ID!, participantId: ID): TourRoom!
   }
 `;
