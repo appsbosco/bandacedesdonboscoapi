@@ -982,6 +982,92 @@ async function getParticipantsByFinancialStatus(tourId, status, ctx) {
   );
 }
 
+// ─── Self-service ─────────────────────────────────────────────────────────────
+
+const {
+  isPrivilegedTourViewer,
+  getLinkedTourParticipantOrThrow,
+  assertTourSelfServiceEnabled,
+  isParentActor,
+  getParentChildrenUserIds,
+  assertParentCanViewChild,
+} = require("../../../shared/tourAuth");
+
+/**
+ * Devuelve la cuenta financiera del participante vinculado al usuario autenticado.
+ * Usuarios no-privilegiados solo ven su propia cuenta.
+ * Requiere que selfServiceAccess.payments esté habilitado en la gira.
+ *
+ * NOTA: No usar .lean() — el field resolver TourPaymentPlan.installments
+ * llama a inst.toObject() que solo existe en documentos Mongoose.
+ */
+async function getMyTourPaymentAccount(tourId, ctx) {
+  const user = requireAuth(ctx);
+  if (!tourId) throw new Error("ID de gira requerido");
+
+  const userId = user._id || user.id;
+
+  // Verificar que el participante existe y está vinculado al usuario
+  const participant = await TourParticipant.findOne({
+    tour: tourId,
+    linkedUser: userId,
+  });
+
+  if (!participant) {
+    throw new Error(
+      "Tu perfil aún no ha sido vinculado como participante de esta gira. " +
+      "Contacta al administrador."
+    );
+  }
+
+  // Verificar self-service (solo si el usuario no es privilegiado)
+  if (!isPrivilegedTourViewer(user)) {
+    const tour = await Tour.findById(tourId);
+    if (!tour) throw new Error("Gira no encontrada");
+    assertTourSelfServiceEnabled({ tour, moduleKey: "payments", currentUser: user });
+  }
+
+  // No usar .lean() — los field resolvers de TourPaymentPlan usan inst.toObject()
+  const account = await ParticipantFinancialAccount.findOne({
+    participant: participant._id,
+    tour: tourId,
+  }).populate("paymentPlan");
+
+  return account || null;
+}
+
+/**
+ * Devuelve la cuenta financiera de un hijo específico del padre autenticado.
+ * Requiere que self-service esté habilitado y que el childUserId sea hijo del padre.
+ */
+async function getMyChildTourPaymentAccount(tourId, childUserId, ctx) {
+  requireAuth(ctx);
+  if (!isParentActor(ctx)) throw new Error("Esta consulta es exclusiva para padres de familia");
+  if (!tourId) throw new Error("ID de gira requerido");
+  if (!childUserId) throw new Error("ID de hijo requerido");
+
+  // Assert the child belongs to this parent
+  const childrenIds = await getParentChildrenUserIds(ctx);
+  assertParentCanViewChild({ childUserId, parentChildrenIds: childrenIds });
+
+  // Verify self-service is enabled (pass a dummy privileged=false user)
+  const tour = await Tour.findById(tourId);
+  if (!tour) throw new Error("Gira no encontrada");
+  assertTourSelfServiceEnabled({ tour, moduleKey: "payments", currentUser: { role: "Parent" } });
+
+  // Find participant linked to the child user
+  const participant = await TourParticipant.findOne({ tour: tourId, linkedUser: childUserId });
+  if (!participant) return null;
+
+  // No .lean() — field resolvers use inst.toObject()
+  const account = await ParticipantFinancialAccount.findOne({
+    participant: participant._id,
+    tour: tourId,
+  }).populate("paymentPlan");
+
+  return account || null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1026,4 +1112,8 @@ module.exports = {
   // Internal (exported for testing)
   refreshFinancialAccount,
   deriveFinancialStatus,
+
+  // Self-service
+  getMyTourPaymentAccount,
+  getMyChildTourPaymentAccount,
 };

@@ -39,4 +39,33 @@ module.exports = {
       throw new Error(error.message || "No se pudo obtener el participante");
     }
   },
+
+  // Self-service: participante vinculado al usuario autenticado
+  myTourParticipant: async (_, { tourId }, ctx) => {
+    try {
+      return await tourService.getMyTourParticipant(tourId, ctx);
+    } catch (error) {
+      console.error("[query:myTourParticipant]", error.message);
+      throw new Error(error.message || "No se pudo obtener tu participante vinculado");
+    }
+  },
+
+  // Parent self-service
+  myChildrenTourAccess: async (_, { tourId }, ctx) => {
+    try {
+      return await tourService.getMyChildrenTourAccess(tourId, ctx);
+    } catch (error) {
+      console.error("[query:myChildrenTourAccess]", error.message);
+      throw new Error(error.message || "No se pudo obtener el acceso de tus hijos a esta gira");
+    }
+  },
+
+  myChildTourParticipant: async (_, { tourId, childUserId }, ctx) => {
+    try {
+      return await tourService.getMyChildTourParticipant(tourId, childUserId, ctx);
+    } catch (error) {
+      console.error("[query:myChildTourParticipant]", error.message);
+      throw new Error(error.message || "No se pudo obtener el participante de tu hijo");
+    }
+  },
 };

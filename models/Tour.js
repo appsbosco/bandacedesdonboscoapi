@@ -16,6 +16,18 @@ const TourSchema = new mongoose.Schema(
     description: { type: String, trim: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+
+    // ── Self-service access por módulo (configurado por Admin) ────────────────
+    // Si enabled=false, ningún usuario no-privilegiado puede ver ningún módulo.
+    // Cada flag habilita acceso de solo lectura a ese módulo para usuarios vinculados.
+    selfServiceAccess: {
+      enabled:   { type: Boolean, default: false },
+      documents: { type: Boolean, default: true  },
+      payments:  { type: Boolean, default: true  },
+      rooms:     { type: Boolean, default: false },
+      itinerary: { type: Boolean, default: false },
+      flights:   { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );

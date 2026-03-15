@@ -84,4 +84,14 @@ module.exports = {
       throw new Error(error.message || "No se pudo eliminar el participante");
     }
   },
+
+  // Admin-only: configuración de self-service
+  updateTourSelfServiceAccess: async (_, { tourId, input }, ctx) => {
+    try {
+      return await tourService.updateTourSelfServiceAccess(tourId, input, ctx);
+    } catch (error) {
+      console.error("[mutation:updateTourSelfServiceAccess]", error.message);
+      throw new Error(error.message || "No se pudo actualizar la configuración self-service");
+    }
+  },
 };

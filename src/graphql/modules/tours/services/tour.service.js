@@ -12,6 +12,13 @@ const TourItinerary = require("../../../../../models/TourItinerary");
 const TourPayment = require("../../../../../models/TourPayment");
 const ParticipantFinancialAccount = require("../../../../../models/ParticipantFinancialAccount");
 const ParticipantInstallment = require("../../../../../models/ParticipantInstallment");
+const {
+  isPrivilegedTourViewer,
+  getLinkedTourParticipantOrThrow,
+  isParentActor,
+  getParentChildrenUserIds,
+  assertParentCanViewChild,
+} = require("../../../shared/tourAuth");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -168,7 +175,8 @@ async function deleteTour(id, ctx) {
 // ─── Participantes ────────────────────────────────────────────────────────────
 
 async function getTourParticipants(tourId, filters, ctx) {
-  requireAuth(ctx);
+  // Lista completa de participantes: solo acceso admin
+  requireAdmin(ctx);
   if (!tourId) throw new Error("ID de gira requerido");
 
   const tour = await Tour.findById(tourId);
@@ -476,6 +484,94 @@ async function deleteTourParticipant(id, ctx) {
   };
 }
 
+// ─── Self-service ─────────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el TourParticipant vinculado al usuario autenticado para una gira.
+ * Usado por usuarios no-privilegiados para ver sus propios datos (documentos, etc.)
+ */
+async function getMyTourParticipant(tourId, ctx) {
+  const user = requireAuth(ctx);
+  if (!tourId) throw new Error("ID de gira requerido");
+
+  const userId = user._id || user.id;
+  return getLinkedTourParticipantOrThrow({ userId, tourId });
+}
+
+// ─── Parent self-service ──────────────────────────────────────────────────────
+
+/**
+ * Returns all TourParticipants in the tour whose linkedUser is one of
+ * the authenticated parent's children.
+ */
+async function getMyChildrenTourAccess(tourId, ctx) {
+  requireAuth(ctx);
+  if (!isParentActor(ctx)) throw new Error("Esta consulta es exclusiva para padres de familia");
+  if (!tourId) throw new Error("ID de gira requerido");
+
+  const childrenIds = await getParentChildrenUserIds(ctx);
+  if (childrenIds.length === 0) return [];
+
+  return populateParticipant(
+    TourParticipant.find({ tour: tourId, linkedUser: { $in: childrenIds } })
+  );
+}
+
+/**
+ * Returns the TourParticipant for a specific child of the authenticated parent.
+ */
+async function getMyChildTourParticipant(tourId, childUserId, ctx) {
+  requireAuth(ctx);
+  if (!isParentActor(ctx)) throw new Error("Esta consulta es exclusiva para padres de familia");
+  if (!tourId) throw new Error("ID de gira requerido");
+  if (!childUserId) throw new Error("ID de hijo requerido");
+
+  const childrenIds = await getParentChildrenUserIds(ctx);
+  assertParentCanViewChild({ childUserId, parentChildrenIds: childrenIds });
+
+  const participant = await populateParticipant(
+    TourParticipant.findOne({ tour: tourId, linkedUser: childUserId })
+  );
+
+  if (!participant) return null;
+  return participant;
+}
+
+// ─── Self-service access config (Admin only) ──────────────────────────────────
+
+/**
+ * Actualiza la configuración de self-service de una gira.
+ * Solo Admin puede modificarla.
+ */
+async function updateTourSelfServiceAccess(tourId, input, ctx) {
+  const admin = requireAdmin(ctx);
+  if (!tourId) throw new Error("ID de gira requerido");
+  if (!input) throw new Error("Datos de configuración requeridos");
+
+  const tour = await Tour.findById(tourId);
+  if (!tour) throw new Error("Gira no encontrada");
+
+  // Actualizar solo los campos que llegan en el input
+  const allowed = ["enabled", "documents", "payments", "rooms", "itinerary", "flights"];
+  const update = {};
+  for (const key of allowed) {
+    if (input[key] !== undefined) {
+      update[`selfServiceAccess.${key}`] = input[key];
+    }
+  }
+  update.updatedBy = admin._id || admin.id;
+
+  const updated = await Tour.findByIdAndUpdate(tourId, update, {
+    new: true,
+    runValidators: true,
+  })
+    .populate("createdBy", "name firstSurName")
+    .populate("updatedBy", "name firstSurName");
+
+  if (!updated) throw new Error("No se pudo actualizar la configuración");
+  return serializeTour(updated);
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -494,4 +590,10 @@ module.exports = {
   updateTourParticipantSex,
   removeTourParticipant,
   deleteTourParticipant,
+  // Self-service
+  getMyTourParticipant,
+  updateTourSelfServiceAccess,
+  // Parent self-service
+  getMyChildrenTourAccess,
+  getMyChildTourParticipant,
 };

@@ -35,6 +35,16 @@ module.exports = gql`
 
   # ─── Types ──────────────────────────────────────────────────────────────────
 
+  # Configuración de acceso self-service por módulo (gestionada por Admin)
+  type TourSelfServiceAccess {
+    enabled:   Boolean!
+    documents: Boolean!
+    payments:  Boolean!
+    rooms:     Boolean!
+    itinerary: Boolean!
+    flights:   Boolean!
+  }
+
   type Tour {
     id: ID!
     name: String!
@@ -44,6 +54,7 @@ module.exports = gql`
     endDate: DateTime!
     status: TourStatus!
     description: String
+    selfServiceAccess: TourSelfServiceAccess!
     createdBy: User
     updatedBy: User
     createdAt: DateTime!
@@ -169,13 +180,31 @@ module.exports = gql`
     role: TourParticipantRole
   }
 
+  input TourSelfServiceAccessInput {
+    enabled:   Boolean
+    documents: Boolean
+    payments:  Boolean
+    rooms:     Boolean
+    itinerary: Boolean
+    flights:   Boolean
+  }
+
   # ─── Queries ─────────────────────────────────────────────────────────────────
 
   extend type Query {
     getTour(id: ID!): Tour
     getTours(filter: TourFilterInput): [Tour!]!
+    # Admin-only: lista completa de participantes
     getTourParticipants(tourId: ID!, filter: TourParticipantFilterInput): [TourParticipant!]!
     getTourParticipant(id: ID!): TourParticipant
+
+    # Self-service: devuelve el participante vinculado al usuario autenticado
+    myTourParticipant(tourId: ID!): TourParticipant
+
+    # Parent self-service: participantes de los hijos del padre autenticado en una gira
+    myChildrenTourAccess(tourId: ID!): [TourParticipant!]!
+    # Parent self-service: participante de un hijo específico
+    myChildTourParticipant(tourId: ID!, childUserId: ID!): TourParticipant
   }
 
   # ─── Mutations ───────────────────────────────────────────────────────────────
@@ -184,6 +213,9 @@ module.exports = gql`
     createTour(input: TourInput!): Tour!
     updateTour(id: ID!, input: TourInput!): Tour!
     deleteTour(id: ID!): String!
+
+    # Admin-only: configura el acceso self-service por gira
+    updateTourSelfServiceAccess(tourId: ID!, input: TourSelfServiceAccessInput!): Tour!
 
     createTourParticipant(tourId: ID!, input: CreateTourParticipantInput!): TourParticipant!
     createTourParticipantsBatch(tourId: ID!, participants: [CreateTourParticipantInput!]!): TourParticipantBatchResult!

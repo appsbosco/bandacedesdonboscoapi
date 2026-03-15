@@ -94,6 +94,13 @@ const TourParticipantSchema = new Schema(
 
 TourParticipantSchema.index({ tour: 1, fingerprint: 1 }, { unique: true });
 TourParticipantSchema.index({ tour: 1, status: 1 });
+TourParticipantSchema.index(
+  { tour: 1, linkedUser: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { linkedUser: { $type: "objectId" } },
+  },
+);
 
 TourParticipantSchema.pre("validate", function (next) {
   if (

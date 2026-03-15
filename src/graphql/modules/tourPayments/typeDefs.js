@@ -339,6 +339,12 @@ module.exports = gql`
       tourId: ID!
       status: FinancialStatus
     ): [ParticipantFinancialAccount!]!
+
+    # Self-service: cuenta financiera del participante vinculado al usuario autenticado
+    myTourPaymentAccount(tourId: ID!): ParticipantFinancialAccount
+
+    # Parent self-service: cuenta financiera de un hijo específico
+    myChildTourPaymentAccount(tourId: ID!, childUserId: ID!): ParticipantFinancialAccount
   }
 
   # ─── Mutations ───────────────────────────────────────────────────────────────

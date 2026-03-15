@@ -119,4 +119,24 @@ module.exports = {
       );
     }
   },
+
+  // Self-service: cuenta financiera del usuario autenticado
+  myTourPaymentAccount: async (_, { tourId }, ctx) => {
+    try {
+      return await svc.getMyTourPaymentAccount(tourId, ctx);
+    } catch (err) {
+      console.error("[query:myTourPaymentAccount]", err.message);
+      throw new Error(err.message || "No se pudo obtener tu cuenta financiera");
+    }
+  },
+
+  // Parent self-service: cuenta financiera de un hijo
+  myChildTourPaymentAccount: async (_, { tourId, childUserId }, ctx) => {
+    try {
+      return await svc.getMyChildTourPaymentAccount(tourId, childUserId, ctx);
+    } catch (err) {
+      console.error("[query:myChildTourPaymentAccount]", err.message);
+      throw new Error(err.message || "No se pudo obtener la cuenta financiera de tu hijo");
+    }
+  },
 };
