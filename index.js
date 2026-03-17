@@ -11,6 +11,12 @@ const ALLOWED_ORIGINS = new Set([
   "https://bandacedesdonbosco.com",
   "https://www.bandacedesdonbosco.com",
   "http://localhost:3000",
+  "http://localhost:5173",
+
+  // Tu red local para probar desde el celular
+  "http://192.168.1.202:3000",
+  "http://192.168.1.202:5173",
+
   "https://studio.apollographql.com",
 ]);
 
@@ -59,6 +65,34 @@ function extractToken(req) {
   return auth.startsWith("Bearer ") ? auth.slice(7) : auth;
 }
 
+function isAllowedPdfSource(urlString) {
+  try {
+    const parsed = new URL(urlString);
+    return parsed.protocol === "https:" && parsed.hostname === "res.cloudinary.com";
+  } catch (error) {
+    return false;
+  }
+}
+
+function buildCloudinaryPdfCandidates({ url, publicId }) {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const candidates = [];
+
+  if (url && isAllowedPdfSource(url)) {
+    candidates.push(url);
+    if (!url.endsWith(".pdf")) {
+      candidates.push(`${url}.pdf`);
+    }
+  }
+
+  if (cloudName && publicId) {
+    const normalizedPublicId = publicId.endsWith(".pdf") ? publicId : `${publicId}.pdf`;
+    candidates.push(`https://res.cloudinary.com/${cloudName}/raw/upload/${normalizedPublicId}`);
+  }
+
+  return [...new Set(candidates)];
+}
+
 // =====================================
 // Serverless-safe: init una sola vez
 // =====================================
@@ -67,7 +101,7 @@ let apollo;
 let ready = false;
 let initPromise = null;
 
-// Lazy-loaded modules (para que OPTIONS responda aunque algo falle en imports)
+// Lazy-loaded modules
 let schema;
 let resolvers;
 let typeDefs;
@@ -81,9 +115,6 @@ async function initOnce() {
 
   initPromise = (async () => {
     try {
-      // ============================
-      // Lazy imports (IMPORTANT)
-      // ============================
       schema = require("./src/graphql/schema");
       resolvers = require("./src/graphql/resolvers");
       typeDefs = require("./src/graphql/base/typeDefs");
@@ -97,12 +128,56 @@ async function initOnce() {
 
       app = express();
 
-      // CORS
       app.use(cors(corsOptions));
       app.options("*", cors(corsOptions));
 
       app.use(express.json({ limit: "20mb" }));
       app.use(express.urlencoded({ limit: "20mb", extended: true }));
+
+      app.get("/api/pdf-preview", async (req, res) => {
+        const fileUrl = req.query.url;
+        const publicId = req.query.publicId;
+
+        if (
+          (!fileUrl || typeof fileUrl !== "string") &&
+          (!publicId || typeof publicId !== "string")
+        ) {
+          return res.status(400).json({ error: "url o publicId requerido" });
+        }
+
+        try {
+          const candidates = buildCloudinaryPdfCandidates({
+            url: typeof fileUrl === "string" ? fileUrl : null,
+            publicId: typeof publicId === "string" ? publicId : null,
+          });
+
+          if (!candidates.length) {
+            return res.status(400).json({ error: "url no permitida" });
+          }
+
+          for (const candidate of candidates) {
+            const upstream = await fetch(candidate);
+
+            if (!upstream.ok) {
+              continue;
+            }
+
+            const contentType = upstream.headers.get("content-type") || "application/pdf";
+            const arrayBuffer = await upstream.arrayBuffer();
+
+            res.setHeader("Content-Type", contentType);
+            res.setHeader("Content-Disposition", "inline");
+            res.setHeader("Cache-Control", "private, max-age=300");
+
+            return res.status(200).send(Buffer.from(arrayBuffer));
+          }
+
+          return res.status(502).json({ error: "No se pudo obtener el PDF" });
+        } catch (error) {
+          console.error("PDF preview proxy error:", error);
+          return res.status(502).json({ error: "No se pudo cargar el PDF" });
+        }
+      });
 
       apollo = new ApolloServer({
         schema,
@@ -182,7 +257,6 @@ async function initOnce() {
       ready = true;
     } catch (err) {
       console.error("initOnce failed:", err);
-      // Importante: reset para permitir reintento en próxima request
       initPromise = null;
       throw err;
     }
@@ -195,10 +269,8 @@ async function initOnce() {
 // Export handler para Vercel + local dev
 // ======================================================
 const handler = async (req, res) => {
-  // Poner headers CORS SIEMPRE (incluso si algo falla)
   setCorsHeaders(req, res);
 
-  // Responder preflight rápido aunque falle init
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
@@ -219,8 +291,11 @@ if (require.main === module) {
   const port = process.env.PORT || 4000;
   initOnce()
     .then(() => {
-      app.listen(port, () => {
+      app.listen(port, "0.0.0.0", () => {
         console.log(`Server running on http://localhost:${port}/api/graphql`);
+        console.log(
+          `Server running on http://192.168.1.202:${port}/api/graphql`,
+        );
       });
     })
     .catch((err) => console.error(err));

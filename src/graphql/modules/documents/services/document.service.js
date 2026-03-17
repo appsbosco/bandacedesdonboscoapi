@@ -149,7 +149,7 @@ async function getSignedUpload(input, ctx) {
   const { userId } = requireUserId(ctx);
   if (!input) throw new Error("Datos requeridos");
 
-  const { documentId, kind } = input;
+  const { documentId, kind, mimeType } = input;
   if (!documentId) throw new Error("documentId requerido");
   if (!kind) throw new Error("kind requerido");
 
@@ -159,10 +159,14 @@ async function getSignedUpload(input, ctx) {
     isDeleted: { $ne: true },
   });
   if (!doc) throw new Error("Documento no existe");
+  if (mimeType === "application/pdf" || mimeType === "image/pdf") {
+    throw new Error("Los archivos PDF no estan permitidos");
+  }
 
   const folder = `documents/${documentId}/${kind.toLowerCase()}`;
-  const publicId = `${folder}/${Date.now()}`;
   const timestamp = Math.round(Date.now() / 1000);
+  const resourceType = "image";
+  const publicId = `${folder}/${Date.now()}`;
 
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
   if (!apiSecret) throw new Error("Cloudinary no configurado");
@@ -180,6 +184,7 @@ async function getSignedUpload(input, ctx) {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME,
     folder,
     publicId,
+    resourceType,
   };
 }
 
@@ -194,6 +199,9 @@ async function addDocumentImage(input, ctx) {
 
   if (imagePayload.mimeType === "image/pdf") {
     imagePayload.mimeType = "application/pdf";
+  }
+  if (imagePayload.mimeType === "application/pdf") {
+    throw new Error("Los archivos PDF no estan permitidos");
   }
 
   if (!imagePayload || Object.keys(imagePayload).length === 0) {

@@ -141,6 +141,7 @@ module.exports = gql`
     cloudName: String!
     folder: String!
     publicId: String!
+    resourceType: String!
   }
 
   input AllDocumentsFiltersInput {
@@ -161,6 +162,7 @@ module.exports = gql`
   input GetSignedUploadInput {
     documentId: ID!
     kind: ImageKind!
+    mimeType: String
   }
 
   input CaptureMetaInput {
