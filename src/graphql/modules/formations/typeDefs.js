@@ -38,6 +38,7 @@ module.exports = gql`
     section: String
     userId: ID
     displayName: String
+    avatar: String
     locked: Boolean!
   }
 
@@ -98,12 +99,14 @@ module.exports = gql`
     """ name + firstSurName only """
     name: String!
     instrument: String
+    avatar: String
   }
 
   type UnmappedUser {
     userId: ID!
     name: String!
     instrument: String
+    avatar: String
   }
 
   type UsersBySectionResult {
@@ -136,6 +139,7 @@ module.exports = gql`
     section: String
     userId: ID
     displayName: String
+    avatar: String
     locked: Boolean
   }
 

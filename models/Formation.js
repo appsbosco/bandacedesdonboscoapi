@@ -24,6 +24,7 @@ const FormationSlotSchema = new mongoose.Schema(
     section:     { type: String, default: null }, // for color-coding only
     userId:      { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     displayName: { type: String, default: null },
+    avatar:      { type: String, default: null },
     locked:      { type: Boolean, default: false },
   },
   { _id: false }

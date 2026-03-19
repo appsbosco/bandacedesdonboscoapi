@@ -264,7 +264,7 @@ async function getUsersBySection(
   if (excludedObjectIds.length) userQuery._id = { $nin: excludedObjectIds };
 
   const users = await User.find(userQuery)
-    .select("name firstSurName instrument")
+    .select("name firstSurName instrument avatar")
     .sort({ firstSurName: 1, name: 1 })
     .lean();
 
@@ -289,6 +289,7 @@ async function getUsersBySection(
       userId: user._id.toString(),
       name: displayName,
       instrument: user.instrument || null,
+      avatar: user.avatar || null,
     };
 
     if (!section) {
