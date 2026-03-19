@@ -256,13 +256,18 @@ async function upsertDocumentExtractedData(input, ctx) {
 }
 
 async function setDocumentStatus(documentId, status, ctx) {
-  const { userId } = requireUserId(ctx);
+  const { user, userId } = requireUserId(ctx);
   if (!documentId) throw new Error("documentId requerido");
   if (!status) throw new Error("status requerido");
 
+  const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+  const filter = isAdmin
+    ? { _id: documentId, isDeleted: { $ne: true } }
+    : { _id: documentId, owner: userId, isDeleted: { $ne: true } };
+
   const updated = await baseDocumentPopulate(
     Document.findOneAndUpdate(
-      { _id: documentId, owner: userId },
+      filter,
       { $set: { status, updatedBy: userId } },
       { new: true, runValidators: true },
     ),
