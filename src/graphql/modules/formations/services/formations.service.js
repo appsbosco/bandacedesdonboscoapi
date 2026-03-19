@@ -15,6 +15,7 @@ const Formation = require("../../../../../models/Formation");
 const FormationTemplate = require("../../../../../models/FormationTemplate");
 const User = require("../../../../../models/User");
 const { MARCHING_NAME } = require("../../../../utils/ensembleRegistry");
+const { error } = require("../../../shared/errors");
 
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
 
@@ -330,6 +331,16 @@ async function updateFormation(id, input, ctx) {
 
   const formation = await Formation.findById(id);
   if (!formation) throw new Error("Formación no encontrada");
+
+  if (input.expectedUpdatedAt != null) {
+    const currentUpdatedAt = formation.updatedAt?.toISOString?.();
+    if (currentUpdatedAt !== input.expectedUpdatedAt) {
+      throw error(
+        "CONFLICT",
+        "Otro usuario guardó cambios mientras usted estaba editando. Se recomienda recargar para evitar perder su trabajo.",
+      );
+    }
+  }
 
   if (isAdmin) {
     // Full update — admins can modify all structural fields

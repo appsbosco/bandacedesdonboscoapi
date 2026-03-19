@@ -167,6 +167,7 @@ module.exports = gql`
     name: String
     notes: String
     columns: Int
+    expectedUpdatedAt: String
     excludedUserIds: [ID!]
     zoneOrders: [ZoneOrderInput!]
     zoneColumns: [ZoneColumnsInput!]

@@ -1,3 +1,4 @@
+const { GraphQLError } = require("graphql");
 const svc = require("../services/formations.service");
 
 module.exports = {
@@ -8,7 +9,10 @@ module.exports = {
 
   updateFormation: async (_, { id, input }, ctx) => {
     try { return await svc.updateFormation(id, input, ctx); }
-    catch (e) { throw new Error(e.message || "No se pudo actualizar la formación"); }
+    catch (e) {
+      if (e instanceof GraphQLError) throw e;
+      throw new Error(e.message || "No se pudo actualizar la formación");
+    }
   },
 
   deleteFormation: async (_, { id }, ctx) => {
