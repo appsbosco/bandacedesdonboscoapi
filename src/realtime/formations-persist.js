@@ -5,6 +5,7 @@ const FORMATION_EDITOR_ROLES = new Set([
   "Director",
   "Subdirector",
   "Principal de sección",
+  "Asistente de sección",
 ]);
 
 async function persistFormationSlotsHandler(req, res) {
