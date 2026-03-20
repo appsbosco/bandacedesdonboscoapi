@@ -36,4 +36,31 @@ module.exports = {
       throw new Error(error.message || "No se pudo listar hoteles");
     }
   },
+  getEventRoster: async (_, { eventId, filter }, ctx) => {
+    try {
+      return await presentationsService.getEventRoster(
+        eventId,
+        filter || {},
+        ctx,
+      );
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  getEventBusSummary: async (_, { eventId }, ctx) => {
+    try {
+      return await presentationsService.getEventBusSummary(eventId, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
+  getEventAttendanceSummary: async (_, { eventId }, ctx) => {
+    try {
+      return await presentationsService.getEventAttendanceSummary(eventId, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
 };

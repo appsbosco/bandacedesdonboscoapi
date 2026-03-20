@@ -470,35 +470,26 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
   const sessionIds = sessions.map((s) => s._id);
   const totalSessions = sessions.length;
 
-  // Si no hay sesiones en el rango, devolver stats en cero
   if (totalSessions === 0) {
     return {
       userId,
       user,
       totalSessions: 0,
-
-      // Conteos directos por estado
       present: 0,
       late: 0,
-      absentUnjustified: 0, // compatibilidad (total injustificadas computadas)
-      absentJustified: 0, // compatibilidad (total justificadas computadas)
+      absentUnjustified: 0,
+      absentJustified: 0,
       unjustifiedWithdrawals: 0,
       justifiedWithdrawals: 0,
       missingAsUnjustified: 0,
-
-      // Totales agregados útiles
       unjustifiedCount: 0,
       justifiedCount: 0,
-
-      // Métricas
-      equivalentAbsences: 0, // injustificadas + justificadas/2
-      attendanceCredits: 0, // present + late + justified/2
-      attendancePercentage: 0, // % ponderado
-      strictAttendancePercentage: 0, // % estricto (solo presentes+tardes)
-
-      // Alertas rápidas
+      equivalentAbsences: 0,
+      attendanceCredits: 0,
+      attendancePercentage: 0,
+      strictAttendancePercentage: 0,
       hasThreeUnjustified: false,
-      exceedsLimit: false, // mantiene compatibilidad con tu lógica anterior (>6 equivalentes)
+      exceedsLimit: false,
     };
   }
 
@@ -543,7 +534,6 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
         counters.justifiedWithdrawals++;
         break;
       default:
-        // Si aparece un estado no esperado, no rompe el cálculo
         break;
     }
   });
@@ -563,18 +553,25 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
   const justifiedCount =
     counters.absentJustifiedOnly + counters.justifiedWithdrawals;
 
-  // 6) Reglas solicitadas
-  // 2 justificadas = 1 ausencia
-  const equivalentAbsences = unjustifiedCount + justifiedCount / 2;
+  // 6) Nuevas reglas
+  // - Ausencia justificada = 0.5 ausencia equivalente
+  // - Retiro justificado = 0.25 ausencia equivalente
+  const equivalentAbsences =
+    unjustifiedCount +
+    counters.absentJustifiedOnly * 0.5 +
+    counters.justifiedWithdrawals * 0.25;
 
-  // Créditos de asistencia (porcentaje ponderado)
+  // Créditos de asistencia
   // PRESENT = 1
   // LATE = 1
-  // JUSTIFICADAS (ausencia/retiro) = 0.5
+  // ABSENT_JUSTIFIED = 0.5
+  // JUSTIFIED_WITHDRAWAL = 0.75
   const attendanceCredits =
-    counters.present + counters.late + justifiedCount / 2;
+    counters.present +
+    counters.late +
+    counters.absentJustifiedOnly * 0.5 +
+    counters.justifiedWithdrawals * 0.75;
 
-  // % Ponderado
   const attendancePercentage = (attendanceCredits / totalSessions) * 100;
 
   const strictAttendancePercentage =
@@ -582,26 +579,20 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
 
   // 7) Alertas rápidas
   const hasThreeUnjustified = unjustifiedCount >= 3;
-
-  // Mantengo tu bandera anterior para compatibilidad
   const exceedsLimit = equivalentAbsences > 6;
 
-  // 8) Retorno (compatibilidad + campos nuevos útiles)
   return {
     userId,
     user,
     totalSessions,
 
-    // Conteos visibles
     present: counters.present,
     late: counters.late,
 
-    // Compatibilidad con tu contrato anterior:
-    // ahora incluyen también retiros + missing según la nueva lógica
+    // Compatibilidad
     absentUnjustified: unjustifiedCount,
     absentJustified: justifiedCount,
 
-    // Nuevos campos más detallados (útiles para reportes)
     unjustifiedWithdrawals: counters.unjustifiedWithdrawals,
     justifiedWithdrawals: counters.justifiedWithdrawals,
     missingAsUnjustified,
@@ -611,11 +602,7 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
 
     equivalentAbsences: parseFloat(equivalentAbsences.toFixed(2)),
     attendanceCredits: parseFloat(attendanceCredits.toFixed(2)),
-
-    // Este ya queda con lógica ponderada (recomendada)
     attendancePercentage: parseFloat(attendancePercentage.toFixed(2)),
-
-    // Opcional: comparar contra método estricto
     strictAttendancePercentage: parseFloat(
       strictAttendancePercentage.toFixed(2),
     ),
