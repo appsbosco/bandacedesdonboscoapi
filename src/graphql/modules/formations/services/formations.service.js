@@ -332,18 +332,18 @@ async function updateFormation(id, input, ctx) {
   const formation = await Formation.findById(id);
   if (!formation) throw new Error("Formación no encontrada");
 
+  // expectedUpdatedAt solo aplica a cambios estructurales, no a slots
   if (input.expectedUpdatedAt != null) {
     const currentUpdatedAt = formation.updatedAt?.toISOString?.();
     if (currentUpdatedAt !== input.expectedUpdatedAt) {
       throw error(
         "CONFLICT",
-        "Otro usuario guardó cambios mientras usted estaba editando. Se recomienda recargar para evitar perder su trabajo.",
+        "Otro usuario guardó cambios mientras usted estaba editando. Se recomienda recargar.",
       );
     }
   }
 
   if (isAdmin) {
-    // Full update — admins can modify all structural fields
     if (input.name !== undefined) formation.name = input.name;
     if (input.columns !== undefined) formation.columns = input.columns;
     if (input.excludedUserIds !== undefined)
@@ -355,8 +355,7 @@ async function updateFormation(id, input, ctx) {
       formation.zoneMemberCounts = input.zoneMemberCounts;
   }
 
-  // Both admins and principals can persist step-4 changes
-  if (input.slots !== undefined) formation.slots = input.slots;
+  // notes sí puede actualizarse por editores via GraphQL (no es estado realtime)
   if (input.notes !== undefined) formation.notes = input.notes;
 
   await formation.save();

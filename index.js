@@ -3,6 +3,20 @@ const { ApolloServer } = require("apollo-server-express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+const {
+  ApolloServerPluginLandingPageLocalDefault,
+} = require("apollo-server-core");
+const { liveblocksAuthHandler } = require("./src/realtime/liveblocks-auth");
+const {
+  persistFormationSlotsHandler,
+} = require("./src/realtime/formations-persist");
+const {
+  liveblocksWebhookHandler,
+} = require("./src/realtime/liveblocks-webhook");
+const { Liveblocks } = require("@liveblocks/node");
+const liveblocksAdmin = new Liveblocks({
+  secret: process.env.LIVEBLOCKS_SECRET_KEY,
+});
 
 // ============================
 // CORS: whitelist
@@ -12,6 +26,7 @@ const ALLOWED_ORIGINS = new Set([
   "https://www.bandacedesdonbosco.com",
   "http://localhost:3000",
   "http://localhost:5173",
+  "http://localhost:4000",
 
   // Tu red local para probar desde el celular
   "http://192.168.1.202:3000",
@@ -48,7 +63,10 @@ function setCorsHeaders(req, res) {
 
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
+    res.setHeader(
+      "Vary",
+      "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+    );
   }
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
@@ -57,8 +75,11 @@ function setCorsHeaders(req, res) {
     corsOptions.allowedHeaders.join(", "),
   );
   res.setHeader("Access-Control-Max-Age", "86400");
-}
 
+  if (req.headers["access-control-request-private-network"] === "true") {
+    res.setHeader("Access-Control-Allow-Private-Network", "true");
+  }
+}
 function extractToken(req) {
   const auth = req.headers.authorization || req.headers.Authorization || "";
   if (!auth) return null;
@@ -68,7 +89,9 @@ function extractToken(req) {
 function isAllowedPdfSource(urlString) {
   try {
     const parsed = new URL(urlString);
-    return parsed.protocol === "https:" && parsed.hostname === "res.cloudinary.com";
+    return (
+      parsed.protocol === "https:" && parsed.hostname === "res.cloudinary.com"
+    );
   } catch (error) {
     return false;
   }
@@ -86,8 +109,12 @@ function buildCloudinaryPdfCandidates({ url, publicId }) {
   }
 
   if (cloudName && publicId) {
-    const normalizedPublicId = publicId.endsWith(".pdf") ? publicId : `${publicId}.pdf`;
-    candidates.push(`https://res.cloudinary.com/${cloudName}/raw/upload/${normalizedPublicId}`);
+    const normalizedPublicId = publicId.endsWith(".pdf")
+      ? publicId
+      : `${publicId}.pdf`;
+    candidates.push(
+      `https://res.cloudinary.com/${cloudName}/raw/upload/${normalizedPublicId}`,
+    );
   }
 
   return [...new Set(candidates)];
@@ -128,6 +155,39 @@ async function initOnce() {
 
       app = express();
 
+      // Middleware para hidratar req.user en rutas REST (mismo patrón que Apollo context)
+      const authMiddleware = async (req, res, next) => {
+        const token = extractToken(req); // extractToken ya está definida arriba
+        if (!token) return next();
+
+        try {
+          const payload = jwt.verify(token, process.env.JWT_SECRET);
+          const userId = payload.id || payload._id || payload.sub;
+
+          if (userId) {
+            const dbUser = await User.findById(userId)
+              .select("_id email role name section instrument")
+              .lean();
+
+            if (dbUser) {
+              req.user = {
+                id: String(dbUser._id),
+                _id: String(dbUser._id),
+                email: dbUser.email,
+                role: dbUser.role || "Usuario",
+                name: dbUser.name,
+                section: dbUser.section || null,
+              };
+            }
+          }
+        } catch (e) {
+          // Token inválido o expirado — continúa sin req.user
+          // El handler correspondiente devolverá 401
+        }
+
+        next();
+      };
+
       app.use(cors(corsOptions));
       app.options("*", cors(corsOptions));
 
@@ -162,7 +222,8 @@ async function initOnce() {
               continue;
             }
 
-            const contentType = upstream.headers.get("content-type") || "application/pdf";
+            const contentType =
+              upstream.headers.get("content-type") || "application/pdf";
             const arrayBuffer = await upstream.arrayBuffer();
 
             res.setHeader("Content-Type", contentType);
@@ -178,6 +239,46 @@ async function initOnce() {
           return res.status(502).json({ error: "No se pudo cargar el PDF" });
         }
       });
+
+      // ── Rutas realtime ─────────────────────────────────────────────────────────
+
+      // POST /api/liveblocks-auth
+      // El cliente React llama esto para obtener el token de la room
+      app.post("/api/liveblocks-auth", authMiddleware, liveblocksAuthHandler);
+
+      // POST /api/formations/:id/persist
+      // El cliente llama esto con debounce para guardar slots a Mongo
+      app.post(
+        "/api/formations/:id/persist",
+        authMiddleware,
+        persistFormationSlotsHandler,
+      );
+
+      app.delete(
+        "/api/liveblocks-room/:formationId",
+        authMiddleware,
+        async (req, res) => {
+          if (req.user?.role !== "Admin")
+            return res.status(403).json({ error: "No autorizado" });
+          try {
+            await liveblocksAdmin.deleteRoom(
+              `formation-${req.params.formationId}`,
+            );
+            return res.json({
+              ok: true,
+              deleted: `formation-${req.params.formationId}`,
+            });
+          } catch (e) {
+            // Si la room no existe, igual está ok
+            return res.json({ ok: true, note: e.message });
+          }
+        },
+      );
+
+      // POST /api/liveblocks-webhook
+      // Liveblocks llama esto cuando el storage de una room cambia (safety net)
+      // No lleva authMiddleware porque el "auth" es la firma del webhook
+      app.post("/api/liveblocks-webhook", liveblocksWebhookHandler);
 
       apollo = new ApolloServer({
         schema,
@@ -249,6 +350,11 @@ async function initOnce() {
             return ctx;
           }
         },
+        plugins: [
+          ApolloServerPluginLandingPageLocalDefault({
+            embed: true,
+          }),
+        ],
       });
 
       await apollo.start();
