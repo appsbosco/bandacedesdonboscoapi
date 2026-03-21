@@ -59,6 +59,7 @@ const ZoneColumnsSchema = new mongoose.Schema(
     zone:    { type: String, required: true },
     columns: { type: Number, required: true, min: 1, default: 1 },
     rows:    { type: Number, min: 1, default: null },
+    pattern: { type: String, trim: true, default: null },
   },
   { _id: false }
 );
@@ -89,6 +90,7 @@ const FormationSchema = new mongoose.Schema(
     zoneMemberCounts:   [ZoneMemberCountSchema],
     notes:              { type: String, trim: true },
     createdBy:          { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    configUpdatedAt:    { type: Date, default: Date.now },
   },
   { timestamps: true }
 );

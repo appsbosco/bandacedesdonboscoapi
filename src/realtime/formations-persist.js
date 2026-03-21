@@ -39,7 +39,7 @@ async function persistFormationSlotsHandler(req, res) {
     const result = await Formation.findByIdAndUpdate(
       id,
       { $set: { slots: validSlots } },
-      { new: false, runValidators: false },
+      { new: false, runValidators: false, timestamps: false },
     );
 
     if (!result) {
