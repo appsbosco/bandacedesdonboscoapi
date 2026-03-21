@@ -50,7 +50,7 @@ async function liveblocksWebhookHandler(req, res) {
       await Formation.findByIdAndUpdate(
         formationId,
         { $set: { slots } },
-        { runValidators: false },
+        { runValidators: false, timestamps: false },
       );
 
       console.log("[webhook] storageUpdated persistido", {

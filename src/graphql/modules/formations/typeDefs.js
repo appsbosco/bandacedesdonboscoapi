@@ -52,6 +52,7 @@ module.exports = gql`
     zone: String!
     columns: Int!
     rows: Int
+    pattern: String
   }
 
   type ZoneMemberCount {
@@ -130,6 +131,7 @@ module.exports = gql`
     zone: String!
     columns: Int!
     rows: Int
+    pattern: String
   }
 
   input FormationSlotInput {
