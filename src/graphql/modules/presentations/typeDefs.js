@@ -167,6 +167,10 @@ module.exports = gql`
 
     # Nuevo
     initializeEventRoster(eventId: ID!): [EventRosterEntry!]!
+    clearGroupBus(
+      eventId: ID!
+      assignmentGroup: String!
+    ): [EventRosterEntry!]!
     assignBusToGroup(
       eventId: ID!
       assignmentGroup: String!

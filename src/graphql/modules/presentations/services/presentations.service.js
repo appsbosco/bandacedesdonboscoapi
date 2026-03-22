@@ -454,6 +454,27 @@ async function getEventBusSummary(eventId, ctx) {
  * Si splitRemainder=true y hay más personas que el cupo disponible,
  * el excedente va al siguiente bus disponible.
  */
+async function clearGroupBus(eventId, assignmentGroup, ctx) {
+  requireAdmin(ctx);
+
+  if (!eventId || !assignmentGroup) {
+    throw new Error("eventId y assignmentGroup son requeridos");
+  }
+
+  await EventRoster.updateMany(
+    { event: eventId, assignmentGroup },
+    {
+      $set: {
+        busNumber: null,
+        plannedBusNumbers: [],
+        transportPlan: null,
+      },
+    }
+  );
+
+  return getEventRoster(eventId, { assignmentGroup }, ctx);
+}
+
 async function assignBusToGroup(
   eventId,
   assignmentGroup,
@@ -797,6 +818,7 @@ module.exports = {
   initializeEventRoster,
   getEventRoster,
   getEventBusSummary,
+  clearGroupBus,
   assignBusToGroup,
   moveUsersToBus,
   setExclusion,

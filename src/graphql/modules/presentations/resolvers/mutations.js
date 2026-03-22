@@ -70,6 +70,14 @@ module.exports = {
     }
   },
 
+  clearGroupBus: async (_, { eventId, assignmentGroup }, ctx) => {
+    try {
+      return await presentationsService.clearGroupBus(eventId, assignmentGroup, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
   assignBusToGroup: async (
     _,
     { eventId, assignmentGroup, busNumber, options },
