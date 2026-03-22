@@ -39,6 +39,11 @@ module.exports = gql`
     error: String
   }
 
+  type BusCapacity {
+    busNumber: Int!
+    capacity: Int!
+  }
+
   type Event {
     id: ID!
     title: String!
@@ -53,6 +58,8 @@ module.exports = gql`
     notificationMode: NotificationMode!
     audience: [String]
     notificationLog: NotificationLog
+    busCapacities: [BusCapacity!]!
+    transportPaymentEnabled: Boolean!
     priority: EventPriority
     visibility: String
     createdAt: String
@@ -60,6 +67,11 @@ module.exports = gql`
   }
 
   # ─── Inputs ─────────────────────────────────────────────────────────────────
+  input BusCapacityInput {
+    busNumber: Int!
+    capacity: Int!
+  }
+
   input EventInput {
     id: ID
     title: String!
@@ -73,6 +85,8 @@ module.exports = gql`
     place: String
     notificationMode: NotificationMode
     audience: [String]
+    busCapacities: [BusCapacityInput!]
+    transportPaymentEnabled: Boolean
     priority: EventPriority
     visibility: String
   }

@@ -57,6 +57,9 @@ module.exports = gql`
     attendanceStatus: RosterAttendanceStatus!
     attendanceMarkedBy: User
     attendanceMarkedAt: String
+    transportPaid: Boolean!
+    transportPaidBy: User
+    transportPaidAt: String
     isStaff: Boolean!
     createdAt: String!
     updatedAt: String!
@@ -189,5 +192,10 @@ module.exports = gql`
       eventId: ID!
       entries: [BulkAttendanceEntryInput!]!
     ): [EventRosterEntry!]!
+    setTransportPayment(
+      eventId: ID!
+      userId: ID!
+      paid: Boolean!
+    ): EventRosterEntry!
   }
 `;

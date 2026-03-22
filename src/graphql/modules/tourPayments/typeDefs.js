@@ -73,6 +73,7 @@ module.exports = gql`
     tour: Tour!
     participant: TourParticipant!
     paymentPlan: TourPaymentPlan
+    installments: [ParticipantInstallment!]!
 
     currency: String!
 

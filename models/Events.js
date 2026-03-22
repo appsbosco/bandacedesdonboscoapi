@@ -19,6 +19,14 @@ const NotificationLogSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const BusCapacitySchema = new mongoose.Schema(
+  {
+    busNumber: { type: Number, required: true, min: 1, max: 6 },
+    capacity: { type: Number, required: true, min: 1 },
+  },
+  { _id: false },
+);
+
 // ─── Main schema ──────────────────────────────────────────────────────────────
 const EventSchema = new mongoose.Schema(
   {
@@ -60,6 +68,14 @@ const EventSchema = new mongoose.Schema(
     },
     audience: [String], // agrupaciones destino
     notificationLog: NotificationLogSchema,
+    busCapacities: {
+      type: [BusCapacitySchema],
+      default: [],
+    },
+    transportPaymentEnabled: {
+      type: Boolean,
+      default: false,
+    },
 
     // ── Meta ─────────────────────────────────────────────────────────────────
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

@@ -65,6 +65,15 @@ const eventRosterSchema = new mongoose.Schema(
     },
     attendanceMarkedAt: { type: Date, default: null },
 
+    // --- Pago de transporte ---
+    transportPaid: { type: Boolean, default: false },
+    transportPaidBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    transportPaidAt: { type: Date, default: null },
+
     // --- Flags ---
     isStaff: { type: Boolean, default: false },
 

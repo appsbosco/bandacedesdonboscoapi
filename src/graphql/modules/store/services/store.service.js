@@ -27,6 +27,18 @@ function populateOrder(q) {
     .populate({ path: "products.productId", model: "Product" });
 }
 
+function hasResolvedUser(order) {
+  if (!order) return false;
+
+  const user = order.userId;
+  if (!user) return false;
+
+  if (typeof user === "string") return true;
+  if (typeof user === "object" && (user._id || user.id)) return true;
+
+  return false;
+}
+
 // ─── Notifications ───────────────────────────────────────────────────────────
 
 async function sendNewProductNotification(productId) {
@@ -201,20 +213,22 @@ async function getProducts(ctx) {
 
 async function getOrders(ctx) {
   requireAuth(ctx);
-  return populateOrder(Order.find({}));
+  const orders = await populateOrder(Order.find({}));
+  return orders.filter(hasResolvedUser);
 }
 
 async function getOrdersByUserId(userId, ctx) {
   requireAuth(ctx);
   const query = userId ? { userId } : {};
-  return populateOrder(Order.find(query));
+  const orders = await populateOrder(Order.find(query));
+  return orders.filter(hasResolvedUser);
 }
 
 async function getOrderById(id, ctx) {
   requireAuth(ctx);
   if (!id) throw new Error("ID de orden requerido");
   const order = await populateOrder(Order.findById(id));
-  if (!order) throw new Error("Orden no existe");
+  if (!order || !hasResolvedUser(order)) throw new Error("Orden no existe");
   return order;
 }
 

@@ -6,6 +6,8 @@
  */
 "use strict";
 
+const ParticipantInstallment = require("../../../../../models/ParticipantInstallment");
+
 const toISO = (val) => {
   if (!val) return null;
   return val instanceof Date ? val.toISOString() : String(val);
@@ -36,6 +38,16 @@ module.exports = {
     id: (a) => a._id?.toString() ?? a.id,
     createdAt: (a) => toISO(a.createdAt),
     updatedAt: (a) => toISO(a.updatedAt),
+    installments: async (a) => {
+      const participantId = a.participant?._id ?? a.participant;
+      const tourId = a.tour?._id ?? a.tour;
+      if (!participantId || !tourId) return [];
+
+      return ParticipantInstallment.find({
+        participant: participantId,
+        tour: tourId,
+      }).sort({ order: 1 });
+    },
     adjustments: (a) =>
       (a.adjustments || []).map((adj) => ({
         ...adj,

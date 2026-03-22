@@ -138,4 +138,17 @@ module.exports = {
       throw new Error(error.message);
     }
   },
+
+  setTransportPayment: async (_, { eventId, userId, paid }, ctx) => {
+    try {
+      return await presentationsService.setTransportPayment(
+        eventId,
+        userId,
+        paid,
+        ctx,
+      );
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
 };

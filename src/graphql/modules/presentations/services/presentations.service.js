@@ -5,6 +5,13 @@ const Hotel = require("../../../../../models/Hotel");
 const User = require("../../../../../models/User");
 
 const STAFF_ROLES = new Set(["Staff", "Dirección Logística"]);
+const TRANSPORT_PAYMENT_ROLES = new Set([
+  "Admin",
+  "Director",
+  "Subdirector",
+  "Staff",
+  "Dirección Logística",
+]);
 const INSTRUMENT_TO_SECTION_MAP = {
   flauta: "FLAUTAS",
   flute: "FLAUTAS",
@@ -97,6 +104,14 @@ function requireAdmin(ctx) {
   return user;
 }
 
+function requireTransportPaymentAccess(ctx) {
+  const user = requireAuth(ctx);
+  if (!user || !TRANSPORT_PAYMENT_ROLES.has(user.role)) {
+    throw new Error("No autorizado para registrar pagos de transporte");
+  }
+  return user;
+}
+
 function uniqueBusNumbers(values = []) {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a - b);
 }
@@ -111,6 +126,32 @@ function getPlannedBusNumbers(entry) {
 
 function getActiveTransportEntries(roster = []) {
   return roster.filter((entry) => !entry.excludedFromEvent && !entry.excludedFromTransport);
+}
+
+async function removeOrphanEventRosterEntries(eventId) {
+  if (!eventId) return 0;
+
+  const rosterEntries = await EventRoster.find({ event: eventId }).select("_id user").lean();
+  if (rosterEntries.length === 0) return 0;
+
+  const referencedUserIds = rosterEntries.map((entry) => String(entry.user || "")).filter(Boolean);
+
+  if (referencedUserIds.length === 0) {
+    const result = await EventRoster.deleteMany({ event: eventId });
+    return result.deletedCount || 0;
+  }
+
+  const existingUsers = await User.find({ _id: { $in: referencedUserIds } }).select("_id").lean();
+  const existingUserIds = new Set(existingUsers.map((user) => String(user._id)));
+
+  const orphanEntryIds = rosterEntries
+    .filter((entry) => !existingUserIds.has(String(entry.user || "")))
+    .map((entry) => entry._id);
+
+  if (orphanEntryIds.length === 0) return 0;
+
+  const result = await EventRoster.deleteMany({ _id: { $in: orphanEntryIds } });
+  return result.deletedCount || 0;
 }
 
 function buildPlannedBusSummary(roster = []) {
@@ -262,6 +303,8 @@ async function initializeEventRoster(eventId, ctx) {
     currentUserRole: currentUser?.role || null,
   });
 
+  const removedOrphansBeforeInit = await removeOrphanEventRosterEntries(eventId);
+
   const allUsers = await User.find({}).select("_id state instrument role");
   const users = allUsers;
 
@@ -308,6 +351,7 @@ async function initializeEventRoster(eventId, ctx) {
           excludedFromEvent: false,
           excludedFromTransport: false,
           attendanceStatus: "PENDING",
+          transportPaid: false,
           createdBy: currentUser?._id || null,
         },
       },
@@ -323,6 +367,7 @@ async function initializeEventRoster(eventId, ctx) {
     eventId,
     activeUsersFound: users.length,
     totalRoster,
+    removedOrphansBeforeInit,
   });
 
   return getEventRoster(eventId, {}, ctx);
@@ -334,6 +379,8 @@ async function initializeEventRoster(eventId, ctx) {
 async function getEventRoster(eventId, filter = {}, ctx) {
   const currentUser = requireAuth(ctx);
   if (!eventId) throw new Error("eventId requerido");
+
+  const removedOrphans = await removeOrphanEventRosterEntries(eventId);
 
   const query = { event: eventId };
   if (filter.busNumber !== undefined) query.busNumber = filter.busNumber;
@@ -347,6 +394,7 @@ async function getEventRoster(eventId, filter = {}, ctx) {
     filter,
     currentUserId: currentUser?._id || null,
     currentUserRole: currentUser?.role || null,
+    removedOrphans,
     query,
   });
 
@@ -354,6 +402,7 @@ async function getEventRoster(eventId, filter = {}, ctx) {
     .populate("user")
     .populate("hotel")
     .populate("attendanceMarkedBy")
+    .populate("transportPaidBy")
     .sort({ assignmentGroup: 1, busNumber: 1 });
 
   console.log("[presentations.getEventRoster] result", {
@@ -637,6 +686,31 @@ async function bulkMarkAttendance(eventId, entries, ctx) {
   return getEventRoster(eventId, {}, ctx);
 }
 
+async function setTransportPayment(eventId, userId, paid, ctx) {
+  const currentUser = requireTransportPaymentAccess(ctx);
+  if (!eventId || !userId) {
+    throw new Error("eventId y userId son requeridos");
+  }
+
+  const updated = await EventRoster.findOneAndUpdate(
+    { event: eventId, user: userId, excludedFromEvent: false, excludedFromTransport: false },
+    {
+      $set: {
+        transportPaid: Boolean(paid),
+        transportPaidBy: paid ? currentUser._id : null,
+        transportPaidAt: paid ? new Date() : null,
+      },
+    },
+    { new: true },
+  )
+    .populate("user")
+    .populate("attendanceMarkedBy")
+    .populate("transportPaidBy");
+
+  if (!updated) throw new Error("Registro no encontrado o excluido del transporte");
+  return updated;
+}
+
 /**
  * Resumen de asistencia de un evento.
  */
@@ -728,6 +802,7 @@ module.exports = {
   setExclusion,
   markAttendance,
   bulkMarkAttendance,
+  setTransportPayment,
   getEventAttendanceSummary,
 
   // Hotel
