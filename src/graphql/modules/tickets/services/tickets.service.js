@@ -1,44 +1,52 @@
+"use strict";
+
+// =============================================================================
 // tickets/services/tickets.service.js
+// =============================================================================
+
 const { Ticket } = require("../../../../../models/Tickets");
 const { EventTicket } = require("../../../../../models/EventTicket");
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
 const QRCode = require("qrcode");
+const XLSX = require("xlsx");
 
-// Templates (opcional; fallback si no existen o si su export no calza)
-let assignedTicketTemplate = null;
-let purchasedTicketTemplate = null;
-let courtesyTicketTemplate = null;
+// ---------------------------------------------------------------------------
+// Email templates — carga defensiva con fallback a null
+// ---------------------------------------------------------------------------
+function tryRequire(path) {
+  try {
+    return require(path);
+  } catch {
+    return null;
+  }
+}
 
-try {
-  assignedTicketTemplate = require("../emailTemplates/assignedTicket");
-} catch (e) {
-  assignedTicketTemplate = null;
-}
-try {
-  purchasedTicketTemplate = require("../emailTemplates/purchasedTicket");
-} catch (e) {
-  purchasedTicketTemplate = null;
-}
-try {
-  courtesyTicketTemplate = require("../emailTemplates/courtesyTicket");
-} catch (e) {
-  courtesyTicketTemplate = null;
-}
+const assignedTicketTemplate = tryRequire("../emailTemplates/assignedTicket");
+const purchasedTicketTemplate = tryRequire("../emailTemplates/purchasedTicket");
+const courtesyTicketTemplate = tryRequire("../emailTemplates/courtesyTicket");
+
+// =============================================================================
+// HELPERS — AUTH
+// =============================================================================
 
 function getCurrentUserFromCtx(ctx) {
   return ctx?.user || ctx?.me || ctx?.currentUser || null;
 }
 
-// Helper “soft” para auth: preparado para activarlo
+/**
+ * Hard-fail auth guard.
+ * Activalo quitando el comentario cuando ctx.user esté garantizado.
+ */
 function requireAuth(ctx) {
   const me = getCurrentUserFromCtx(ctx);
-
-  // TODO: activá esto cuando tengas auth fijo en ctx
   // if (!me) throw new Error("Unauthorized");
-
   return me;
 }
+
+// =============================================================================
+// HELPERS — VALIDACIÓN NUMÉRICA
+// =============================================================================
 
 function assertPositiveInt(value, fieldName) {
   const n = Number(value);
@@ -55,36 +63,41 @@ function safeNumber(value, fieldName) {
   return n;
 }
 
-function buildQrPayload({ ticketId, userId, eventId, type }) {
+// =============================================================================
+// HELPERS — QR
+// =============================================================================
+
+/**
+ * Construye el payload JSON que va dentro del QR.
+ * Solo incluye ticketId — es suficiente para validar y evita exponer datos extra.
+ * eventId se agrega para validación cross-evento en el escáner.
+ */
+function buildQrPayload({ ticketId, eventId }) {
   return JSON.stringify({
     ticketId: ticketId ? ticketId.toString() : null,
-    userId: userId ? userId.toString() : null,
     eventId: eventId ? eventId.toString() : null,
-    type: type || null,
+    v: 1, // versión del schema de payload
   });
 }
 
 async function buildQrDataUrl(qrPayload) {
-  return QRCode.toDataURL(qrPayload);
+  return QRCode.toDataURL(qrPayload, {
+    errorCorrectionLevel: "H", // mayor resiliencia ante daño físico
+    margin: 2,
+  });
 }
+
+// =============================================================================
+// HELPERS — EMAIL
+// =============================================================================
 
 function normalizeTemplateResult(templateModule, data) {
   if (!templateModule) return null;
-
-  // function(data) => string|object
   if (typeof templateModule === "function") return templateModule(data);
-
-  // { build(data) }
-  if (templateModule && typeof templateModule.build === "function") {
+  if (typeof templateModule.build === "function")
     return templateModule.build(data);
-  }
-
-  // { default(data) }
-  if (templateModule && typeof templateModule.default === "function") {
+  if (typeof templateModule.default === "function")
     return templateModule.default(data);
-  }
-
-  // string u object directo
   return templateModule;
 }
 
@@ -103,7 +116,6 @@ function buildEmailFromTemplateOrFallback(
       subject: result.subject || fallbackSubject,
       text: result.text || fallbackText,
       html: result.html || fallbackHtml,
-      // passthrough opcional
       context: result.context,
       attachments: result.attachments,
     };
@@ -113,7 +125,6 @@ function buildEmailFromTemplateOrFallback(
 }
 
 function getEmailSender(ctx) {
-  // Intentos típicos (sin inventar estructura; solo fallback)
   return (
     ctx?.sendEmail ||
     ctx?.services?.email?.sendEmail ||
@@ -125,9 +136,11 @@ function getEmailSender(ctx) {
 
 async function sendEmail(ctx, emailInput) {
   const sender = getEmailSender(ctx);
+
   if (!sender) {
-    // No lo hacemos fatal para no “romper” si todavía no lo cableaste.
-    // Si querés hacerlo hard-fail, cambiá por throw new Error(...)
+    console.warn(
+      "[tickets.service] Email service not available in ctx — email skipped",
+    );
     return {
       ok: false,
       skipped: true,
@@ -135,30 +148,269 @@ async function sendEmail(ctx, emailInput) {
     };
   }
 
-  // Resolver-style vs service-style
-  if (sender.length >= 2) {
-    // (_, { input }, ctx)
-    return sender(null, { input: emailInput }, ctx);
+  // Soporta resolver-style (_, { input }, ctx) y service-style (input)
+  return sender.length >= 2
+    ? sender(null, { input: emailInput }, ctx)
+    : sender(emailInput);
+}
+
+/**
+ * Construye el attachment de QR estándar.
+ */
+function buildQrAttachment(qrCodeDataUrl, filename = "ticket.png") {
+  if (!qrCodeDataUrl) return [];
+  return [
+    {
+      filename,
+      content: String(qrCodeDataUrl).split(",")[1],
+      encoding: "base64",
+      cid: "qrCode",
+    },
+  ];
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function normalizeHeader(value) {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function decodeBase64File(fileBase64) {
+  const payload = String(fileBase64 || "").includes(",")
+    ? String(fileBase64).split(",").pop()
+    : String(fileBase64 || "");
+  return Buffer.from(payload, "base64");
+}
+
+const IMPORT_HEADER_MAP = {
+  numero: "ticketNumber",
+  numero_de_entrada: "ticketNumber",
+  numero_entrada: "ticketNumber",
+  numero_ticket: "ticketNumber",
+  n_entrada: "ticketNumber",
+  n_ticket: "ticketNumber",
+  entrada: "ticketNumber",
+  ticket: "ticketNumber",
+  ticket_number: "ticketNumber",
+  nombre: "buyerName",
+  nombre_completo: "buyerName",
+  comprador: "buyerName",
+  cliente: "buyerName",
+  buyer_name: "buyerName",
+  correo: "buyerEmail",
+  correo_electronico: "buyerEmail",
+  email: "buyerEmail",
+  buyer_email: "buyerEmail",
+  estado: "paymentStatus",
+  estado_de_pago: "paymentStatus",
+  pago: "paymentStatus",
+  pagado: "paymentStatus",
+  payment_status: "paymentStatus",
+};
+
+const PAID_VALUES = new Set([
+  "paid",
+  "pagada",
+  "pagado",
+  "pago",
+  "cancelada_pagada",
+  "si",
+  "sí",
+  "true",
+  "1",
+]);
+
+const ASSIGNED_VALUES = new Set([
+  "assigned",
+  "asignada",
+  "asignado",
+  "pendiente",
+  "pending",
+  "reservada",
+  "reservado",
+  "false",
+  "0",
+  "no",
+]);
+
+function normalizePaymentStatus(value) {
+  const raw = normalizeText(value);
+  if (!raw) return null;
+  if (PAID_VALUES.has(raw)) return "paid";
+  if (ASSIGNED_VALUES.has(raw)) return "assigned";
+  return null;
+}
+
+function buildImportKey({ buyerName, buyerEmail }) {
+  const email = normalizeText(buyerEmail);
+  const name = normalizeText(buyerName);
+  return email ? `email:${email}` : `name:${name}`;
+}
+
+async function generateNextImportedTicketNumbers(eventId, quantity) {
+  const qty = assertPositiveInt(quantity, "ticketQuantity");
+  const importedTickets = await Ticket.find(
+    { eventId, source: "excel_import" },
+    { externalTicketNumbers: 1 },
+  ).lean();
+
+  let maxNumber = 0;
+  importedTickets.forEach((ticket) => {
+    (ticket.externalTicketNumbers || []).forEach((value) => {
+      const numeric = parseInt(String(value).replace(/\D/g, ""), 10);
+      if (Number.isFinite(numeric) && numeric > maxNumber) {
+        maxNumber = numeric;
+      }
+    });
+  });
+
+  return Array.from({ length: qty }, (_, index) => String(maxNumber + index + 1));
+}
+
+function parseImportedTicketRows(fileBase64, sheetName) {
+  const workbook = XLSX.read(decodeBase64File(fileBase64), { type: "buffer" });
+  const selectedSheetName = sheetName && workbook.Sheets[sheetName]
+    ? sheetName
+    : workbook.SheetNames[0];
+
+  if (!selectedSheetName) {
+    throw new Error("El archivo Excel no contiene hojas");
   }
 
-  // service style: (input)
-  return sender(emailInput);
+  const sheet = workbook.Sheets[selectedSheetName];
+  const matrix = XLSX.utils.sheet_to_json(sheet, {
+    header: 1,
+    blankrows: false,
+    raw: false,
+    defval: "",
+  });
+
+  if (!matrix.length) {
+    throw new Error("El archivo Excel no contiene filas");
+  }
+
+  const [headerRow, ...dataRows] = matrix;
+  const mappedHeaders = headerRow.map((header) => IMPORT_HEADER_MAP[normalizeHeader(header)] || null);
+
+  const rows = [];
+  for (let index = 0; index < dataRows.length; index += 1) {
+    const row = dataRows[index];
+    const out = { __rowIndex: index + 2 };
+
+    mappedHeaders.forEach((mappedKey, cellIndex) => {
+      if (!mappedKey) return;
+      out[mappedKey] = String(row[cellIndex] || "").trim();
+    });
+
+    if (Object.values(out).every((value) => value === "" || value === out.__rowIndex)) continue;
+    rows.push(out);
+  }
+
+  return { sheetName: selectedSheetName, rows };
 }
+
+function buildImportedTicketEmail(ticket, event, qrCodeDataUrl) {
+  const recipientName = ticket.buyerName || "Asistente";
+  const emailData = {
+    ticket,
+    event,
+    buyerName: recipientName,
+    buyerEmail: ticket.buyerEmail,
+    ticketQuantity: ticket.ticketQuantity,
+    raffleNumbers: ticket.raffleNumbers || [],
+    qrCode: qrCodeDataUrl,
+    qrCodeDataUrl,
+    date: new Date().toLocaleDateString("es-CR"),
+  };
+
+  const built = buildEmailFromTemplateOrFallback(
+    {
+      template: purchasedTicketTemplate,
+      fallbackSubject: "Entradas confirmadas",
+      fallbackText: "Tus entradas ya están listas para ingresar.",
+      fallbackHtml: `<p>Tus entradas para ${event.name} ya están listas. Cantidad: ${ticket.ticketQuantity}</p>`,
+    },
+    emailData,
+  );
+
+  return {
+    to: ticket.buyerEmail,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    context: built.context || {
+      ticketNumber: ticket._id.toString(),
+      eventDescription: event.description,
+      ticketQuantity: ticket.ticketQuantity,
+      raffleNumbers: (ticket.raffleNumbers || []).join(", "),
+      recipientName,
+      orderNumber: ticket._id.toString(),
+      orderDate: emailData.date,
+      QR_CODE_URL: qrCodeDataUrl,
+    },
+    attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
+  };
+}
+
+async function maybeSendImportedPaidTicketEmail({ ticket, event, wasPaid, ctx }) {
+  const shouldSend =
+    ticket?.source === "excel_import" &&
+    ticket?.paid &&
+    !wasPaid &&
+    ticket?.buyerEmail;
+
+  if (!shouldSend) return false;
+
+  await sendEmail(ctx, buildImportedTicketEmail(ticket, event, ticket.qrCode));
+  ticket.paymentEmailSentAt = new Date();
+  ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
+  await ticket.save();
+  return true;
+}
+
+async function resendImportedTicketEmailById(ticketId, ctx) {
+  const ticket = await Ticket.findById(ticketId);
+  if (!ticket) throw new Error("Ticket not found");
+  if (ticket.source !== "excel_import") {
+    throw new Error("Solo aplica a tickets importados");
+  }
+  if (!ticket.buyerEmail) {
+    throw new Error("El ticket no tiene correo destino");
+  }
+
+  const event = await EventTicket.findById(ticket.eventId);
+  if (!event) throw new Error("Event not found");
+
+  await sendEmail(ctx, buildImportedTicketEmail(ticket, event, ticket.qrCode));
+  ticket.paymentEmailSentAt = new Date();
+  ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
+  await ticket.save();
+
+  return true;
+}
+
+// =============================================================================
+// HELPERS — CAPACIDAD Y NÚMEROS DE RIFA
+// =============================================================================
 
 async function ensureEventCapacity(event, additionalTickets) {
   if (!event) throw new Error("Event not found");
 
-  const limit = event.ticketLimit;
-  const current = event.totalTickets;
+  const limit = Number(event.ticketLimit);
+  const current = Number(event.totalTickets);
 
-  // Solo valida si existen y son numéricos
-  if (
-    Number.isFinite(Number(limit)) &&
-    Number(limit) > 0 &&
-    Number.isFinite(Number(current))
-  ) {
-    if (Number(current) + Number(additionalTickets) > Number(limit)) {
-      throw new Error("Ticket limit exceeded for this event");
+  if (Number.isFinite(limit) && limit > 0 && Number.isFinite(current)) {
+    if (current + Number(additionalTickets) > limit) {
+      throw new Error(
+        `Ticket limit exceeded for this event (${current}/${limit}, requesting ${additionalTickets})`,
+      );
     }
   }
 }
@@ -166,7 +418,6 @@ async function ensureEventCapacity(event, additionalTickets) {
 async function generateRaffleNumbers(eventId, quantity) {
   const qty = assertPositiveInt(quantity, "ticketQuantity");
 
-  // Carga números existentes para evitar duplicados (scope: eventId)
   const existingTickets = await Ticket.find(
     { eventId, raffleNumbers: { $exists: true, $ne: [] } },
     { raffleNumbers: 1 },
@@ -181,17 +432,16 @@ async function generateRaffleNumbers(eventId, quantity) {
 
   const result = [];
   let attempts = 0;
-  const maxAttempts = 20000;
+  const maxAttempts = 20_000;
 
   while (result.length < qty) {
-    attempts += 1;
-    if (attempts > maxAttempts)
-      throw new Error("Unable to generate unique raffle numbers");
-
-    // 6 dígitos
-    const num = String(Math.floor(100000 + Math.random() * 900000));
+    if (++attempts > maxAttempts) {
+      throw new Error(
+        "Unable to generate unique raffle numbers — pool exhausted",
+      );
+    }
+    const num = String(Math.floor(100_000 + Math.random() * 900_000));
     if (used.has(num)) continue;
-
     used.add(num);
     result.push(num);
   }
@@ -199,8 +449,10 @@ async function generateRaffleNumbers(eventId, quantity) {
   return result;
 }
 
-async function incrementEventTotalTickets(eventId, incBy) {
-  const n = assertPositiveInt(incBy, "ticketQuantity");
+async function adjustEventTotalTickets(eventId, delta) {
+  const n = Number(delta);
+  if (!Number.isInteger(n) || n === 0) return;
+
   await EventTicket.findByIdAndUpdate(
     eventId,
     { $inc: { totalTickets: n } },
@@ -208,39 +460,96 @@ async function incrementEventTotalTickets(eventId, incBy) {
   );
 }
 
+async function incrementEventTotalTickets(eventId, incBy) {
+  const n = assertPositiveInt(incBy, "ticketQuantity");
+  await adjustEventTotalTickets(eventId, n);
+}
+
+// =============================================================================
+// HELPERS — ESTADO DEL TICKET
+// =============================================================================
+
+/**
+ * Recalcula el status derivado a partir de los campos de pago y escaneo.
+ * No persiste — el llamador decide cuándo guardar.
+ *
+ * Reglas:
+ *   cancelled         → irreversible, no se toca
+ *   !paid && !courtesy → pending_payment
+ *   scans === 0        → paid
+ *   scans < qty        → partially_used
+ *   scans >= qty       → fully_used
+ */
+function recalculateStatus(ticket) {
+  if (ticket.status === "cancelled") return ticket.status;
+
+  const isPaid = ticket.paid || ticket.type === "courtesy";
+  if (!isPaid) return "pending_payment";
+
+  const scans = ticket.scans || 0;
+  const qty = ticket.ticketQuantity || 1;
+
+  if (scans === 0) return "paid";
+  if (scans < qty) return "partially_used";
+  return "fully_used";
+}
+
+// =============================================================================
+// HELPERS — VALIDACIÓN QR
+// =============================================================================
+
+function buildValidationResult(result, ticket, message) {
+  return {
+    result, // "ok" | "unpaid" | "duplicate" | "invalid" | "blocked"
+    canEnter: result === "ok",
+    message,
+    ticket: ticket || null,
+  };
+}
+
+// =============================================================================
+// SERVICE
+// =============================================================================
+
 module.exports = {
   requireAuth,
 
-  // ===========
+  // ===========================================================================
   // QUERIES
-  // ===========
-  async getTickets({ eventId } = {}, ctx) {
+  // ===========================================================================
+
+  /**
+   * Devuelve tickets, opcionalmente filtrados por evento y/o status.
+   */
+  async getTickets({ eventId, status } = {}, ctx) {
     try {
-      // requireAuth(ctx); // activalo si aplica
+      const query = {};
+      if (eventId) query.eventId = eventId;
+      if (status) query.status = status;
 
-      const query = eventId ? { eventId } : {};
-      const tickets = await Ticket.find(query).populate({
-        path: "userId",
-        select: "name firstSurName secondSurName email",
-      });
-
-      return tickets;
+      return await Ticket.find(query)
+        .populate({
+          path: "userId",
+          select: "name firstSurName secondSurName email",
+        })
+        .sort({ createdAt: -1 });
     } catch (err) {
       throw new Error(err?.message || "Failed to fetch tickets");
     }
   },
 
+  /**
+   * Devuelve todos los números de rifa de un evento con su titular y estado de pago.
+   */
   async getTicketsNumbers({ eventId } = {}, ctx) {
     try {
-      // requireAuth(ctx); // activalo si aplica
-
       const query = eventId ? { eventId } : {};
       const tickets = await Ticket.find(query).populate({
         path: "userId",
         select: "name firstSurName secondSurName email",
       });
 
-      const allRaffleNumbers = tickets.flatMap((ticket) =>
+      return tickets.flatMap((ticket) =>
         (ticket.raffleNumbers || []).map((number) => ({
           number,
           buyerName:
@@ -250,32 +559,103 @@ module.exports = {
           paid: ticket.paid,
         })),
       );
-
-      return allRaffleNumbers;
     } catch (err) {
-      throw new Error(err?.message || "Failed to fetch tickets");
+      throw new Error(err?.message || "Failed to fetch raffle numbers");
     }
   },
 
+  /**
+   * Lista todos los eventos de tickets.
+   */
   async getEventsT(_, ctx) {
     try {
-      // requireAuth(ctx); // activalo si aplica
-      return EventTicket.find();
+      return EventTicket.find().sort({ date: 1 });
     } catch (err) {
       throw new Error(err?.message || "Failed to fetch events");
     }
   },
 
-  // ===========
-  // MUTATIONS
-  // ===========
+  /**
+   * Estadísticas en tiempo real de un evento (para panel de escaneo).
+   */
+  async getEventStats({ eventId }, ctx) {
+    try {
+      if (!eventId) throw new Error("eventId is required");
+
+      const event = await EventTicket.findById(eventId);
+      if (!event) throw new Error("Event not found");
+
+      const [issued, paid, pending, used, partiallyUsed, cancelled] =
+        await Promise.all([
+          Ticket.countDocuments({ eventId }),
+          Ticket.countDocuments({ eventId, status: "paid" }),
+          Ticket.countDocuments({ eventId, status: "pending_payment" }),
+          Ticket.countDocuments({ eventId, status: "fully_used" }),
+          Ticket.countDocuments({ eventId, status: "partially_used" }),
+          Ticket.countDocuments({ eventId, status: "cancelled" }),
+        ]);
+
+      // checkins = checked_in + partially_used + fully_used
+      const checkedIn = await Ticket.countDocuments({
+        eventId,
+        status: "checked_in",
+      });
+
+      return {
+        eventId: event._id,
+        eventName: event.name,
+        capacity: event.ticketLimit,
+        totalIssued: issued,
+        totalPaid: paid,
+        totalPending: pending,
+        totalCheckedIn: checkedIn + partiallyUsed + used,
+        totalPartially: partiallyUsed,
+        totalUsed: used,
+        totalCancelled: cancelled,
+        remaining: Math.max(0, event.ticketLimit - event.totalTickets),
+      };
+    } catch (err) {
+      throw new Error(err?.message || "Failed to fetch event stats");
+    }
+  },
+
+  /**
+   * Búsqueda de tickets por nombre, email o número de rifa.
+   * Útil cuando alguien no tiene el QR a mano.
+   */
+  async searchTickets({ eventId, query: q }, ctx) {
+    try {
+      if (!eventId) throw new Error("eventId is required");
+      if (!q || q.trim().length < 2)
+        throw new Error("Query must be at least 2 characters");
+
+      const regex = new RegExp(q.trim(), "i");
+
+      return await Ticket.find({
+        eventId,
+        $or: [
+          { buyerName: regex },
+          { buyerEmail: regex },
+          { raffleNumbers: q.trim() },
+        ],
+      }).populate({
+        path: "userId",
+        select: "name firstSurName secondSurName email",
+      });
+    } catch (err) {
+      throw new Error(err?.message || "Failed to search tickets");
+    }
+  },
+
+  // ===========================================================================
+  // MUTATIONS — EVENTOS
+  // ===========================================================================
+
   async createEvent(
     { name, date, description, ticketLimit, raffleEnabled, price },
     ctx,
   ) {
     try {
-      // requireAuth(ctx); // activalo si aplica (admin)
-
       const event = new EventTicket({
         name,
         date,
@@ -284,7 +664,6 @@ module.exports = {
         raffleEnabled,
         price,
       });
-
       await event.save();
       return event;
     } catch (err) {
@@ -292,10 +671,16 @@ module.exports = {
     }
   },
 
+  // ===========================================================================
+  // MUTATIONS — EMISIÓN DE TICKETS
+  // ===========================================================================
+
+  /**
+   * Asigna tickets a un único usuario registrado.
+   * Notifica al usuario y, si existe, a su padre/madre/tutor.
+   */
   async assignTickets({ input }, ctx) {
     try {
-      // requireAuth(ctx); // activalo si aplica (admin/staff)
-
       if (!input) throw new Error("Input is required");
 
       const { userId, eventId, type, ticketQuantity } = input;
@@ -305,44 +690,41 @@ module.exports = {
       if (!eventId) throw new Error("eventId is required");
       if (!type) throw new Error("type is required");
 
-      const event = await EventTicket.findById(eventId);
+      const [event, user] = await Promise.all([
+        EventTicket.findById(eventId),
+        User.findById(userId),
+      ]);
+
       if (!event) throw new Error("Event not found");
+      if (!user) throw new Error("User not found");
 
       await ensureEventCapacity(event, qty);
-
-      const user = await User.findById(userId);
-      if (!user) throw new Error("User not found");
 
       const raffleNumbers = event.raffleEnabled
         ? await generateRaffleNumbers(eventId, qty)
         : [];
 
-      // 1) Crear ticket (sin qr), obtener _id real
       const ticket = new Ticket({
         userId,
+        buyerName: `${user.name} ${user.firstSurName}`.trim(),
+        buyerEmail: user.email,
         eventId,
         type,
         ticketQuantity: qty,
+        status: type === "courtesy" ? "paid" : "pending_payment",
+        paid: type === "courtesy",
         qrCode: "",
         raffleNumbers,
       });
 
       await ticket.save();
 
-      // 2) Generar QR con ticketId real
-      const qrPayload = buildQrPayload({
-        ticketId: ticket._id,
-        userId,
-        eventId,
-        type,
-      });
+      const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
       const qrCodeDataUrl = await buildQrDataUrl(qrPayload);
-
       ticket.qrCode = qrCodeDataUrl;
       await ticket.save();
 
       const parent = await Parent.findOne({ children: userId });
-
       const baseEmailData = {
         ticket,
         event,
@@ -350,59 +732,56 @@ module.exports = {
         raffleNumbers,
         ticketQuantity: qty,
         qrCode: qrCodeDataUrl,
+        qrCodeDataUrl,
         qrPayload,
-        date: new Date().toLocaleDateString(),
+        date: new Date().toLocaleDateString("es-CR"),
       };
 
-      // Usuario
       const userEmailBuilt = buildEmailFromTemplateOrFallback(
         {
           template: assignedTicketTemplate,
           fallbackSubject: "Entradas asignadas",
           fallbackText: "Aquí están tus entradas.",
-          fallbackHtml: `<p>Entradas asignadas. Ticket: ${ticket._id.toString()}</p>`,
+          fallbackHtml: `<p>Entradas asignadas. Ticket: ${ticket._id}</p>`,
         },
-        baseEmailData,
+        { ...baseEmailData, recipient: { name: user.name, type: "user" } },
       );
 
-      const userEmailInput = {
-        to: user.email,
-        subject: userEmailBuilt.subject,
-        text: userEmailBuilt.text,
-        html: userEmailBuilt.html,
-        context: userEmailBuilt.context || {
-          ticketNumber: ticket._id.toString(),
-          eventDescription: event.description,
-          ticketQuantity: qty,
-          raffleNumbers: raffleNumbers.join(", "),
-          recipientName: user.name,
-          recipientAddress: user.address,
-          orderNumber: ticket._id.toString(),
-          orderDate: baseEmailData.date,
-          QR_CODE_URL: qrCodeDataUrl,
-        },
-        attachments: userEmailBuilt.attachments || [
-          {
-            filename: "ticket.png",
-            content: qrCodeDataUrl.split(",")[1],
-            encoding: "base64",
-            cid: "qrCode",
-          },
-        ],
+      const baseContext = {
+        ticketNumber: ticket._id.toString(),
+        eventDescription: event.description,
+        ticketQuantity: qty,
+        raffleNumbers: raffleNumbers.join(", "),
+        recipientName: user.name,
+        orderNumber: ticket._id.toString(),
+        orderDate: baseEmailData.date,
+        QR_CODE_URL: qrCodeDataUrl,
       };
 
-      const emailPromises = [sendEmail(ctx, userEmailInput)];
+      const emailPromises = [
+        sendEmail(ctx, {
+          to: user.email,
+          subject: userEmailBuilt.subject,
+          text: userEmailBuilt.text,
+          html: userEmailBuilt.html,
+          context: userEmailBuilt.context || baseContext,
+          attachments:
+            userEmailBuilt.attachments || buildQrAttachment(qrCodeDataUrl),
+        }),
+      ];
 
-      // Parent (si existe)
       if (parent?.email) {
         const parentEmailBuilt = buildEmailFromTemplateOrFallback(
           {
             template: assignedTicketTemplate,
             fallbackSubject: "Entradas asignadas a su hijo/a",
             fallbackText: "Aquí están las entradas asignadas a su hijo/a.",
-            fallbackHtml: `<p>Entradas asignadas a su hijo/a. Ticket: ${ticket._id.toString()}</p>`,
+            fallbackHtml: `<p>Entradas asignadas a su hijo/a. Ticket: ${ticket._id}</p>`,
           },
-          baseEmailData,
+          {
+            ...baseEmailData,
+            recipient: { name: parent.name, type: "parent" },
+          },
         );
 
         emailPromises.push(
@@ -411,15 +790,14 @@ module.exports = {
             subject: parentEmailBuilt.subject,
             text: parentEmailBuilt.text,
             html: parentEmailBuilt.html,
-            context: parentEmailBuilt.context || userEmailInput.context,
+            context: parentEmailBuilt.context || baseContext,
             attachments:
-              parentEmailBuilt.attachments || userEmailInput.attachments,
+              parentEmailBuilt.attachments || buildQrAttachment(qrCodeDataUrl),
           }),
         );
       }
 
       await Promise.all(emailPromises);
-
       await incrementEventTotalTickets(eventId, qty);
 
       return ticket;
@@ -428,6 +806,140 @@ module.exports = {
     }
   },
 
+  /**
+   * Asignación masiva — acepta múltiples destinatarios en una sola operación.
+   * Cada destinatario puede ser usuario registrado (userId) o externo (name + email).
+   * Los fallos individuales no abortan el lote — se reportan en `failed`.
+   */
+  async assignTicketsBulk({ input }, ctx) {
+    try {
+      const { eventId, type, recipients } = input || {};
+
+      if (!eventId) throw new Error("eventId is required");
+      if (!type) throw new Error("type is required");
+      if (!recipients?.length)
+        throw new Error("At least one recipient is required");
+
+      const event = await EventTicket.findById(eventId);
+      if (!event) throw new Error("Event not found");
+
+      const totalQty = recipients.reduce(
+        (sum, r) => sum + assertPositiveInt(r.quantity || 1, "quantity"),
+        0,
+      );
+      await ensureEventCapacity(event, totalQty);
+
+      const results = await Promise.allSettled(
+        recipients.map(async (recipient) => {
+          const qty = assertPositiveInt(recipient.quantity || 1, "quantity");
+          const isRegistered = !!recipient.userId;
+
+          let user = null;
+          if (isRegistered) {
+            user = await User.findById(recipient.userId);
+            if (!user) throw new Error(`User ${recipient.userId} not found`);
+          }
+
+          const name = user
+            ? `${user.name} ${user.firstSurName}`.trim()
+            : recipient.name;
+          const email = user?.email || recipient.email;
+
+          if (!name)
+            throw new Error(
+              "Recipient name is required for unregistered users",
+            );
+          if (!email)
+            throw new Error(
+              "Recipient email is required for unregistered users",
+            );
+
+          const raffleNumbers = event.raffleEnabled
+            ? await generateRaffleNumbers(eventId, qty)
+            : [];
+
+          const ticket = new Ticket({
+            userId: recipient.userId || null,
+            buyerName: name,
+            buyerEmail: email,
+            eventId,
+            type,
+            ticketQuantity: qty,
+            status: type === "courtesy" ? "paid" : "pending_payment",
+            paid: type === "courtesy",
+            qrCode: "",
+            raffleNumbers,
+          });
+
+          await ticket.save();
+
+          const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
+          const qrCodeDataUrl = await buildQrDataUrl(qrPayload);
+          ticket.qrCode = qrCodeDataUrl;
+          await ticket.save();
+
+          const templateToUse =
+            type === "courtesy"
+              ? courtesyTicketTemplate
+              : assignedTicketTemplate;
+
+          const built = buildEmailFromTemplateOrFallback(
+            {
+              template: templateToUse,
+              fallbackSubject:
+                type === "courtesy"
+                  ? "Entrada de cortesía"
+                  : "Entradas asignadas",
+              fallbackText: "Aquí están tus entradas.",
+              fallbackHtml: `<p>Ticket: ${ticket._id}</p>`,
+            },
+            {
+              ticket,
+              event,
+              user,
+              buyerName: name,
+              buyerEmail: email,
+              raffleNumbers,
+              ticketQuantity: qty,
+              qrCode: qrCodeDataUrl,
+              qrCodeDataUrl,
+              date: new Date().toLocaleDateString("es-CR"),
+              recipient: { name, type: "user" },
+            },
+          );
+
+          await sendEmail(ctx, {
+            to: email,
+            subject: built.subject,
+            text: built.text,
+            html: built.html,
+            context: built.context,
+            attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
+          });
+
+          return ticket;
+        }),
+      );
+
+      await incrementEventTotalTickets(eventId, totalQty);
+
+      const succeeded = results
+        .filter((r) => r.status === "fulfilled")
+        .map((r) => r.value);
+
+      const failed = results
+        .filter((r) => r.status === "rejected")
+        .map((r) => r.reason?.message || "Unknown error");
+
+      return { succeeded, failed, total: recipients.length };
+    } catch (err) {
+      throw new Error(err?.message || "Error in bulk ticket assignment");
+    }
+  },
+
+  /**
+   * Registra la compra de tickets por una persona externa (sin cuenta en el sistema).
+   */
   async purchaseTicket(
     { eventId, buyerName, buyerEmail, ticketQuantity },
     ctx,
@@ -453,20 +965,16 @@ module.exports = {
         ticketQuantity: qty,
         buyerName,
         buyerEmail,
+        status: "pending_payment",
+        paid: false,
         qrCode: "",
         raffleNumbers,
       });
 
       await ticket.save();
 
-      const qrPayload = buildQrPayload({
-        ticketId: ticket._id,
-        eventId,
-        type: "purchased",
-      });
+      const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
       const qrCodeDataUrl = await buildQrDataUrl(qrPayload);
-
-      // FIX: guardar el DataURL (no el payload)
       ticket.qrCode = qrCodeDataUrl;
       await ticket.save();
 
@@ -478,16 +986,17 @@ module.exports = {
         raffleNumbers,
         ticketQuantity: qty,
         qrCode: qrCodeDataUrl,
+        qrCodeDataUrl,
         qrPayload,
-        date: new Date().toLocaleDateString(),
+        date: new Date().toLocaleDateString("es-CR"),
       };
 
       const built = buildEmailFromTemplateOrFallback(
         {
           template: purchasedTicketTemplate,
-          fallbackSubject: "Entradas asignadas",
+          fallbackSubject: "Entradas registradas",
           fallbackText: "Aquí están tus entradas.",
-          fallbackHtml: `<p>Compra registrada. Ticket: ${ticket._id.toString()}</p>`,
+          fallbackHtml: `<p>Compra registrada. Ticket: ${ticket._id}</p>`,
         },
         baseEmailData,
       );
@@ -503,19 +1012,11 @@ module.exports = {
           ticketQuantity: qty,
           raffleNumbers: raffleNumbers.join(", "),
           recipientName: buyerName,
-          recipientAddress: buyerEmail,
           orderNumber: ticket._id.toString(),
           orderDate: baseEmailData.date,
           QR_CODE_URL: qrCodeDataUrl,
         },
-        attachments: built.attachments || [
-          {
-            filename: "ticket.png",
-            content: qrCodeDataUrl.split(",")[1],
-            encoding: "base64",
-            cid: "qrCode",
-          },
-        ],
+        attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
       });
 
       await incrementEventTotalTickets(eventId, qty);
@@ -526,6 +1027,9 @@ module.exports = {
     }
   },
 
+  /**
+   * Emite una entrada de cortesía (paid = true desde el momento de creación).
+   */
   async sendCourtesyTicket(
     { eventId, buyerName, buyerEmail, ticketQuantity },
     ctx,
@@ -547,20 +1051,15 @@ module.exports = {
         ticketQuantity: qty,
         buyerName,
         buyerEmail,
-        qrCode: "",
+        status: "paid", // cortesía = siempre pagado
         paid: true,
+        qrCode: "",
       });
 
       await ticket.save();
 
-      const qrPayload = buildQrPayload({
-        ticketId: ticket._id,
-        eventId,
-        type: "courtesy",
-      });
+      const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
       const qrCodeDataUrl = await buildQrDataUrl(qrPayload);
-
-      // FIX: guardar el DataURL (no el payload)
       ticket.qrCode = qrCodeDataUrl;
       await ticket.save();
 
@@ -571,8 +1070,9 @@ module.exports = {
         buyerEmail,
         ticketQuantity: qty,
         qrCode: qrCodeDataUrl,
+        qrCodeDataUrl,
         qrPayload,
-        date: new Date().toLocaleDateString(),
+        date: new Date().toLocaleDateString("es-CR"),
       };
 
       const built = buildEmailFromTemplateOrFallback(
@@ -580,7 +1080,7 @@ module.exports = {
           template: courtesyTicketTemplate,
           fallbackSubject: "Entrada de cortesía",
           fallbackText: "Gracias por acompañarnos. Aquí está tu entrada.",
-          fallbackHtml: `<p>Cortesía. Ticket: ${ticket._id.toString()}</p>`,
+          fallbackHtml: `<p>Cortesía. Ticket: ${ticket._id}</p>`,
         },
         baseEmailData,
       );
@@ -590,17 +1090,12 @@ module.exports = {
         subject: built.subject,
         text: built.text,
         html: built.html,
-        attachments: built.attachments || [
-          {
-            filename: "entrada-cortesia.png",
-            content: qrCodeDataUrl.split(",")[1],
-            encoding: "base64",
-            cid: "qrCode",
-          },
-        ],
+        context: built.context,
+        attachments:
+          built.attachments ||
+          buildQrAttachment(qrCodeDataUrl, "entrada-cortesia.png"),
       });
 
-      // FIX: inc por qty (antes era 1)
       await incrementEventTotalTickets(eventId, qty);
 
       return ticket;
@@ -609,38 +1104,507 @@ module.exports = {
     }
   },
 
+  /**
+   * Importa un Excel de tickets externos agrupando por persona/correo.
+   * No toca la lógica manual existente. Cada persona queda en un único ticket
+   * agregado con ticketQuantity = cantidad de filas encontradas en el Excel.
+   *
+   * Reglas de email:
+   * - Si el grupo queda parcialmente pagado, no se envía correo.
+   * - Si el grupo queda totalmente pagado, se envía un único correo con el QR.
+   * - Si ya se había enviado correo pero la cantidad pagada cambió, se reenvía
+   *   una sola vez para la nueva cantidad.
+   */
+  async importTicketsFromExcel({ input }, ctx) {
+    try {
+      const { eventId, fileBase64, sheetName } = input || {};
+      if (!eventId) throw new Error("eventId is required");
+      if (!fileBase64) throw new Error("fileBase64 is required");
+
+      const event = await EventTicket.findById(eventId);
+      if (!event) throw new Error("Event not found");
+
+      const { rows } = parseImportedTicketRows(fileBase64, sheetName);
+      if (!rows.length) throw new Error("El archivo no contiene filas de datos");
+
+      const grouped = new Map();
+      const failedRows = [];
+
+      rows.forEach((row) => {
+        const rowLabel = `Fila ${row.__rowIndex}`;
+        const buyerName = String(row.buyerName || "").trim();
+        const buyerEmail = String(row.buyerEmail || "").trim().toLowerCase();
+        const ticketNumber = String(row.ticketNumber || "").trim();
+        const normalizedStatus = normalizePaymentStatus(row.paymentStatus);
+
+        if (!buyerName) {
+          failedRows.push(`${rowLabel}: falta nombre`);
+          return;
+        }
+        if (!buyerEmail) {
+          failedRows.push(`${rowLabel}: falta correo`);
+          return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyerEmail)) {
+          failedRows.push(`${rowLabel}: correo inválido`);
+          return;
+        }
+        if (!ticketNumber) {
+          failedRows.push(`${rowLabel}: falta número de entrada`);
+          return;
+        }
+        if (!normalizedStatus) {
+          failedRows.push(
+            `${rowLabel}: estado inválido "${row.paymentStatus || ""}" (use asignada/pagada)`,
+          );
+          return;
+        }
+
+        const importKey = buildImportKey({ buyerName, buyerEmail });
+        if (!grouped.has(importKey)) {
+          grouped.set(importKey, {
+            importKey,
+            buyerName,
+            buyerEmail,
+            ticketNumbers: new Set(),
+            paidCount: 0,
+            totalCount: 0,
+          });
+        }
+
+        const entry = grouped.get(importKey);
+        entry.buyerName = buyerName || entry.buyerName;
+        entry.buyerEmail = buyerEmail || entry.buyerEmail;
+        entry.ticketNumbers.add(ticketNumber);
+        entry.totalCount += 1;
+        if (normalizedStatus === "paid") entry.paidCount += 1;
+      });
+
+      const groupedEntries = [...grouped.values()];
+      const currentImportedTickets = await Ticket.find({
+        eventId,
+        source: "excel_import",
+      });
+      const existingByKey = new Map(
+        currentImportedTickets.map((ticket) => [ticket.importKey, ticket]),
+      );
+      const existingByExternalNumber = new Map();
+      currentImportedTickets.forEach((ticket) => {
+        (ticket.externalTicketNumbers || []).forEach((number) => {
+          existingByExternalNumber.set(String(number), ticket);
+        });
+      });
+
+      let createdTickets = 0;
+      let updatedTickets = 0;
+      let emailsSent = 0;
+      let fullyPaidRecipients = 0;
+      let partialRecipients = 0;
+      let pendingRecipients = 0;
+      let totalDelta = 0;
+
+      for (const entry of groupedEntries) {
+        const externalTicketNumbers = [...entry.ticketNumbers];
+        const totalCount = externalTicketNumbers.length;
+        const paidCount = Math.min(entry.paidCount, totalCount);
+        const totalDue = totalCount * safeNumber(event.price, "event.price");
+        const amountPaid = paidCount * safeNumber(event.price, "event.price");
+        const fullyPaid = totalCount > 0 && paidCount === totalCount;
+
+        if (paidCount === 0) pendingRecipients += 1;
+        else if (fullyPaid) fullyPaidRecipients += 1;
+        else partialRecipients += 1;
+
+        let ticket = existingByKey.get(entry.importKey) || null;
+        if (!ticket) {
+          ticket =
+            externalTicketNumbers
+              .map((number) => existingByExternalNumber.get(String(number)))
+              .find(Boolean) || null;
+        }
+        const previousQuantity = ticket?.ticketQuantity || 0;
+
+        if (ticket?.status === "cancelled") {
+          failedRows.push(
+            `Ticket importado cancelado para ${entry.buyerEmail}; no se actualizó`,
+          );
+          continue;
+        }
+
+        if (!ticket) {
+          ticket = new Ticket({
+            eventId,
+            type: "assigned",
+            source: "excel_import",
+            importKey: entry.importKey,
+            buyerName: entry.buyerName,
+            buyerEmail: entry.buyerEmail,
+            ticketQuantity: totalCount,
+            amountPaid,
+            paid: fullyPaid,
+            status: fullyPaid ? "paid" : "pending_payment",
+            qrCode: "",
+            externalTicketNumbers,
+          });
+
+          await ticket.save();
+
+          const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
+          ticket.qrCode = await buildQrDataUrl(qrPayload);
+          ticket.status = recalculateStatus(ticket);
+          await ticket.save();
+
+          existingByKey.set(entry.importKey, ticket);
+          createdTickets += 1;
+        } else {
+          ticket.buyerName = entry.buyerName;
+          ticket.buyerEmail = entry.buyerEmail;
+          ticket.importKey = entry.importKey;
+          ticket.ticketQuantity = totalCount;
+          ticket.amountPaid = Math.min(amountPaid, totalDue);
+          ticket.paid = fullyPaid;
+          ticket.externalTicketNumbers = externalTicketNumbers;
+          if (!ticket.qrCode) {
+            const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
+            ticket.qrCode = await buildQrDataUrl(qrPayload);
+          }
+          ticket.status = recalculateStatus(ticket);
+          await ticket.save();
+          existingByKey.set(entry.importKey, ticket);
+          updatedTickets += 1;
+        }
+
+        totalDelta += totalCount - previousQuantity;
+
+      }
+
+      await adjustEventTotalTickets(eventId, totalDelta);
+
+      return {
+        totalRows: rows.length,
+        groupedRecipients: groupedEntries.length,
+        createdTickets,
+        updatedTickets,
+        emailsSent,
+        fullyPaidRecipients,
+        partialRecipients,
+        pendingRecipients,
+        invalidRows: failedRows.length,
+        failedRows,
+      };
+    } catch (err) {
+      throw new Error(err?.message || "Error importing tickets from Excel");
+    }
+  },
+
+  async addImportedTicketRecipient({ input }, ctx) {
+    try {
+      const {
+        eventId,
+        buyerName,
+        buyerEmail,
+        ticketQuantity,
+        paymentStatus,
+      } = input || {};
+
+      if (!eventId) throw new Error("eventId is required");
+      if (!buyerName) throw new Error("buyerName is required");
+      if (!buyerEmail) throw new Error("buyerEmail is required");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(buyerEmail).trim().toLowerCase())) {
+        throw new Error("buyerEmail is invalid");
+      }
+
+      const normalizedStatus = normalizePaymentStatus(paymentStatus);
+      if (!normalizedStatus) {
+        throw new Error('paymentStatus must be "asignada" or "pagada"');
+      }
+
+      const qty = assertPositiveInt(ticketQuantity, "ticketQuantity");
+      const event = await EventTicket.findById(eventId);
+      if (!event) throw new Error("Event not found");
+
+      const importKey = buildImportKey({ buyerName, buyerEmail });
+      const existing =
+        (await Ticket.findOne({ eventId, source: "excel_import", importKey })) || null;
+
+      const nextNumbers = await generateNextImportedTicketNumbers(eventId, qty);
+      let ticket = existing;
+      if (!ticket) {
+        ticket = new Ticket({
+          eventId,
+          type: "assigned",
+          source: "excel_import",
+          importKey,
+          buyerName: String(buyerName).trim(),
+          buyerEmail: String(buyerEmail).trim().toLowerCase(),
+          ticketQuantity: qty,
+          amountPaid: normalizedStatus === "paid" ? qty * safeNumber(event.price, "event.price") : 0,
+          paid: normalizedStatus === "paid",
+          status: normalizedStatus === "paid" ? "paid" : "pending_payment",
+          qrCode: "",
+          externalTicketNumbers: nextNumbers,
+        });
+        await ticket.save();
+        const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
+        ticket.qrCode = await buildQrDataUrl(qrPayload);
+        ticket.status = recalculateStatus(ticket);
+        await ticket.save();
+        await incrementEventTotalTickets(eventId, qty);
+      } else {
+        ticket.buyerName = String(buyerName).trim();
+        ticket.buyerEmail = String(buyerEmail).trim().toLowerCase();
+        ticket.importKey = importKey;
+        ticket.ticketQuantity += qty;
+        ticket.externalTicketNumbers = [
+          ...(ticket.externalTicketNumbers || []),
+          ...nextNumbers,
+        ];
+        if (normalizedStatus === "paid") {
+          ticket.amountPaid += qty * safeNumber(event.price, "event.price");
+        }
+        const totalDue = ticket.ticketQuantity * safeNumber(event.price, "event.price");
+        ticket.paid = Number(ticket.amountPaid) >= totalDue;
+        ticket.status = recalculateStatus(ticket);
+        if (!ticket.qrCode) {
+          const qrPayload = buildQrPayload({ ticketId: ticket._id, eventId });
+          ticket.qrCode = await buildQrDataUrl(qrPayload);
+        }
+        await ticket.save();
+        await incrementEventTotalTickets(eventId, qty);
+      }
+
+      return ticket;
+    } catch (err) {
+      throw new Error(err?.message || "Error adding imported ticket recipient");
+    }
+  },
+
+  async resendImportedTicketEmail({ ticketId }, ctx) {
+    try {
+      return await resendImportedTicketEmailById(ticketId, ctx);
+    } catch (err) {
+      throw new Error(err?.message || "Error resending imported ticket email");
+    }
+  },
+
+  // ===========================================================================
+  // MUTATIONS — PAGO
+  // ===========================================================================
+
+  /**
+   * Registra un abono parcial o total en el ticket.
+   * Recalcula `paid` y `status` de forma atómica.
+   */
   async updatePaymentStatus({ ticketId, amountPaid }, ctx) {
     try {
-      // requireAuth(ctx); // activalo si aplica (admin/staff)
-
       if (!ticketId) throw new Error("ticketId is required");
+
       const inc = safeNumber(amountPaid, "amountPaid");
       if (inc <= 0) throw new Error("amountPaid must be greater than 0");
 
-      // Atomic $inc + validación
+      const existingTicket = await Ticket.findById(ticketId);
+      if (!existingTicket) throw new Error("Ticket not found");
+      const wasPaid = Boolean(existingTicket.paid);
+
       const ticket = await Ticket.findByIdAndUpdate(
         ticketId,
         { $inc: { amountPaid: inc } },
         { new: true, runValidators: true },
       );
 
-      if (!ticket) throw new Error("Ticket not found");
-
       const event = await EventTicket.findById(ticket.eventId);
       if (!event) throw new Error("Event not found");
 
       const price = safeNumber(event.price, "event.price");
       const totalDue = Number(ticket.ticketQuantity) * price;
+      const isPaid = Number(ticket.amountPaid) >= totalDue;
 
-      const shouldBePaid = Number(ticket.amountPaid) >= totalDue;
-      if (ticket.paid !== shouldBePaid) {
-        ticket.paid = shouldBePaid;
-        await ticket.save();
+      if (ticket.paid !== isPaid) {
+        ticket.paid = isPaid;
       }
+
+      const newStatus = recalculateStatus(ticket);
+      if (ticket.status !== newStatus) {
+        ticket.status = newStatus;
+      }
+
+      await ticket.save();
+      await maybeSendImportedPaidTicketEmail({ ticket, event, wasPaid, ctx });
 
       return ticket;
     } catch (err) {
       throw new Error(err?.message || "Failed to update payment status");
+    }
+  },
+
+  // ===========================================================================
+  // MUTATIONS — VALIDACIÓN QR (ESCANEO)
+  // ===========================================================================
+
+  /**
+   * Valida un QR y registra el ingreso de forma atómica.
+   *
+   * Flujo:
+   *   1. Parsear payload
+   *   2. Buscar ticket + verificar cross-evento
+   *   3. Evaluar condiciones de bloqueo en orden de prioridad
+   *   4. Actualización atómica con guarda $lt en scans (evita race condition)
+   *   5. Recalcular status y persistir
+   *
+   * @param {string}  qrPayload  - JSON crudo leído del QR
+   * @param {string}  [location] - Puerta o punto de acceso ("Puerta A")
+   * @param {string}  [scannedBy] - ID del operador que escanea
+   * @param {boolean} [forceEntry] - Admin override para entradas con deuda (opcional)
+   */
+  async validateTicket(
+    { qrPayload, scannedBy, location, forceEntry = false },
+    ctx,
+  ) {
+    try {
+      // 1. Parsear payload
+      let parsed;
+      try {
+        parsed = JSON.parse(qrPayload);
+      } catch {
+        return buildValidationResult("invalid", null, "QR inválido o corrupto");
+      }
+
+      const { ticketId, eventId: qrEventId } = parsed;
+      if (!ticketId) {
+        return buildValidationResult("invalid", null, "QR sin ticket ID");
+      }
+
+      // 2. Cargar ticket con relaciones necesarias
+      const ticket = await Ticket.findById(ticketId)
+        .populate("userId", "name firstSurName secondSurName email")
+        .populate("eventId", "name date price")
+        .lean();
+
+      if (!ticket) {
+        return buildValidationResult("invalid", null, "Ticket no existe");
+      }
+
+      // Validación cross-evento: evita que un QR de otro evento cuele personas
+      if (qrEventId && ticket.eventId._id.toString() !== qrEventId) {
+        return buildValidationResult(
+          "invalid",
+          ticket,
+          "QR no pertenece a este evento",
+        );
+      }
+
+      // 3. Condiciones de bloqueo — orden: cancelled > unpaid > fully_used
+
+      if (ticket.status === "cancelled") {
+        return buildValidationResult("blocked", ticket, "Entrada cancelada");
+      }
+
+      if (!ticket.paid && ticket.type !== "courtesy" && !forceEntry) {
+        return buildValidationResult(
+          "unpaid",
+          ticket,
+          `Entrada sin pagar — debe cancelar el pago antes de ingresar`,
+        );
+      }
+
+      if (ticket.status === "fully_used") {
+        return buildValidationResult(
+          "duplicate",
+          ticket,
+          `Todos los ingresos ya fueron utilizados (${ticket.scans}/${ticket.ticketQuantity})`,
+        );
+      }
+
+      // 4. Acceso permitido — actualización atómica con guarda en scans
+      const maxScans = ticket.ticketQuantity;
+
+      const updated = await Ticket.findOneAndUpdate(
+        {
+          _id: ticketId,
+          scans: { $lt: maxScans }, // guarda: aún quedan ingresos
+          status: { $nin: ["cancelled"] }, // segunda guarda: no fue cancelado concurrentemente
+        },
+        {
+          $inc: { scans: 1 },
+          $push: {
+            scanLog: {
+              scannedAt: new Date(),
+              scannedBy: scannedBy || null,
+              location: location || null,
+              result: "ok",
+            },
+          },
+        },
+        { new: true },
+      );
+
+      if (!updated) {
+        // La guarda falló: otro escáner procesó el mismo ticket en paralelo
+        return buildValidationResult(
+          "duplicate",
+          ticket,
+          "Ingreso ya registrado (doble escaneo detectado)",
+        );
+      }
+
+      // 5. Recalcular y persistir status
+      const newStatus = recalculateStatus(updated);
+      if (updated.status !== newStatus) {
+        await Ticket.findByIdAndUpdate(ticketId, { status: newStatus });
+        updated.status = newStatus;
+      }
+
+      const remaining = maxScans - updated.scans;
+      const message =
+        remaining > 0
+          ? `Acceso autorizado. Quedan ${remaining} entrada(s) disponibles.`
+          : "Acceso autorizado. Última entrada utilizada.";
+
+      return buildValidationResult(
+        "ok",
+        { ...ticket, scans: updated.scans, status: updated.status },
+        message,
+      );
+    } catch (err) {
+      throw new Error(err?.message || "Error validating ticket");
+    }
+  },
+
+  // ===========================================================================
+  // MUTATIONS — GESTIÓN ADMINISTRATIVA
+  // ===========================================================================
+
+  /**
+   * Cancela un ticket. Irreversible desde la app — solo admins.
+   */
+  async cancelTicket({ ticketId, reason, cancelledBy }, ctx) {
+    try {
+      if (!ticketId) throw new Error("ticketId is required");
+
+      const ticket = await Ticket.findByIdAndUpdate(
+        ticketId,
+        {
+          status: "cancelled",
+          cancelledBy: cancelledBy || null,
+          cancelledAt: new Date(),
+          notes: reason || null,
+          $push: {
+            scanLog: {
+              scannedAt: new Date(),
+              scannedBy: cancelledBy || null,
+              result: "invalid",
+              note: `Cancelado: ${reason || "sin razón especificada"}`,
+            },
+          },
+        },
+        { new: true, runValidators: true },
+      );
+
+      if (!ticket) throw new Error("Ticket not found");
+
+      return ticket;
+    } catch (err) {
+      throw new Error(err?.message || "Failed to cancel ticket");
     }
   },
 };
