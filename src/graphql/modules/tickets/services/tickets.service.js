@@ -151,6 +151,41 @@ function buildEmailFromTemplateOrFallback(
   return { subject: fallbackSubject, text: fallbackText, html: fallbackHtml };
 }
 
+function buildPurchasedEmailContent(data) {
+  const eventName = data?.event?.name || "tu evento";
+  const quantity = Number(
+    data?.ticket?.ticketQuantity || data?.ticketQuantity || 1,
+  );
+  const specialEventBuilt = normalizeTemplateResult(
+    importedSpecialEventTicketTemplate,
+    data,
+  );
+
+  if (specialEventBuilt && typeof specialEventBuilt === "object") {
+    return {
+      subject: specialEventBuilt.subject || `Tus entradas para ${eventName}`,
+      text:
+        specialEventBuilt.text ||
+        `Tus ${quantity} entrada(s) para ${eventName} ya están listas.`,
+      html:
+        specialEventBuilt.html ||
+        `<p>Tus ${quantity} entrada(s) para ${eventName} ya están listas para ingresar.</p>`,
+      context: specialEventBuilt.context,
+      attachments: specialEventBuilt.attachments,
+    };
+  }
+
+  return buildEmailFromTemplateOrFallback(
+    {
+      template: purchasedTicketTemplate,
+      fallbackSubject: `Tus entradas para ${eventName}`,
+      fallbackText: `Tus ${quantity} entrada(s) para ${eventName} ya están listas para ingresar.`,
+      fallbackHtml: `<p>Tus entradas para ${eventName} ya están listas. Cantidad: ${quantity}</p>`,
+    },
+    data,
+  );
+}
+
 function getEmailSender(ctx) {
   return (
     ctx?.sendEmail ||
@@ -357,32 +392,6 @@ function parseImportedTicketRows(fileBase64, sheetName) {
 
 function buildImportedTicketEmail(ticket, event, qrCodeDataUrl) {
   const recipientName = ticket.buyerName || "Asistente";
-  const specialEventEmail = normalizeTemplateResult(
-    importedSpecialEventTicketTemplate,
-    {
-      ticket,
-      event,
-      buyerName: recipientName,
-      buyerEmail: ticket.buyerEmail,
-      ticketQuantity: ticket.ticketQuantity,
-      qrCode: qrCodeDataUrl,
-      qrCodeDataUrl,
-      locale: "es-CR",
-    },
-  );
-
-  if (specialEventEmail && typeof specialEventEmail === "object") {
-    return {
-      to: ticket.buyerEmail,
-      subject: specialEventEmail.subject,
-      text: specialEventEmail.text,
-      html: specialEventEmail.html,
-      context: specialEventEmail.context,
-      attachments:
-        specialEventEmail.attachments || buildQrAttachment(qrCodeDataUrl),
-    };
-  }
-
   const emailData = {
     ticket,
     event,
@@ -395,15 +404,7 @@ function buildImportedTicketEmail(ticket, event, qrCodeDataUrl) {
     date: new Date().toLocaleDateString("es-CR"),
   };
 
-  const built = buildEmailFromTemplateOrFallback(
-    {
-      template: purchasedTicketTemplate,
-      fallbackSubject: "Entradas confirmadas",
-      fallbackText: "Tus entradas ya están listas para ingresar.",
-      fallbackHtml: `<p>Tus entradas para ${event.name} ya están listas. Cantidad: ${ticket.ticketQuantity}</p>`,
-    },
-    emailData,
-  );
+  const built = buildPurchasedEmailContent(emailData);
 
   return {
     to: ticket.buyerEmail,
@@ -522,12 +523,12 @@ async function generateRaffleNumbers(eventId, quantity) {
 async function adjustEventTotalTickets(eventId, delta) {
   const n = Number(delta);
   if (!Number.isInteger(n) || n === 0) return;
+  const event = await EventTicket.findById(eventId);
+  if (!event) throw new Error("Event not found");
 
-  await EventTicket.findByIdAndUpdate(
-    eventId,
-    { $inc: { totalTickets: n } },
-    { runValidators: true },
-  );
+  const current = Number(event.totalTickets || 0);
+  event.totalTickets = Math.max(0, current + n);
+  await event.save();
 }
 
 async function incrementEventTotalTickets(eventId, incBy) {
@@ -627,6 +628,23 @@ module.exports = {
         .sort({ createdAt: -1 });
     } catch (err) {
       throw new Error(err?.message || "Failed to fetch tickets");
+    }
+  },
+
+  async getMyTickets(_, ctx) {
+    try {
+      const currentUser = requireAuth(ctx);
+      const userId = currentUser?.id || currentUser?._id;
+      if (!userId) throw new Error("No autenticado");
+
+      return await Ticket.find({ userId })
+        .populate({
+          path: "userId",
+          select: "name firstSurName secondSurName email",
+        })
+        .sort({ createdAt: -1 });
+    } catch (err) {
+      throw new Error(err?.message || "Failed to fetch my tickets");
     }
   },
 
@@ -1108,22 +1126,14 @@ module.exports = {
         date: new Date().toLocaleDateString("es-CR"),
       };
 
-      const built = buildEmailFromTemplateOrFallback(
-        {
-          template: purchasedTicketTemplate,
-          fallbackSubject: "Entradas registradas",
-          fallbackText: "Aquí están tus entradas.",
-          fallbackHtml: `<p>Compra registrada. Ticket: ${ticket._id}</p>`,
-        },
-        baseEmailData,
-      );
+      const purchasedEmailBuilt = buildPurchasedEmailContent(baseEmailData);
 
       await sendEmail(ctx, {
         to: buyerEmail,
-        subject: built.subject,
-        text: built.text,
-        html: built.html,
-        context: built.context || {
+        subject: purchasedEmailBuilt.subject,
+        text: purchasedEmailBuilt.text,
+        html: purchasedEmailBuilt.html,
+        context: purchasedEmailBuilt.context || {
           ticketNumber: ticket._id.toString(),
           eventDescription: event.description,
           ticketQuantity: qty,
@@ -1133,7 +1143,8 @@ module.exports = {
           orderDate: baseEmailData.date,
           QR_CODE_URL: qrCodeDataUrl,
         },
-        attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
+        attachments:
+          purchasedEmailBuilt.attachments || buildQrAttachment(qrCodeDataUrl),
       });
 
       await incrementEventTotalTickets(eventId, qty);
@@ -1777,6 +1788,25 @@ module.exports = {
       return ticket;
     } catch (err) {
       throw new Error(err?.message || "Failed to cancel ticket");
+    }
+  },
+
+  async deleteTicket({ ticketId }, ctx) {
+    try {
+      requireTicketAdmin(ctx);
+      if (!ticketId) throw new Error("ticketId is required");
+
+      const ticket = await Ticket.findById(ticketId);
+      if (!ticket) throw new Error("Ticket not found");
+
+      const quantity = assertPositiveInt(ticket.ticketQuantity || 1, "ticketQuantity");
+
+      await Ticket.deleteOne({ _id: ticketId });
+      await adjustEventTotalTickets(ticket.eventId, -quantity);
+
+      return true;
+    } catch (err) {
+      throw new Error(err?.message || "Failed to delete ticket");
     }
   },
 };

@@ -40,6 +40,12 @@ module.exports = gql`
     bands: [String]
   }
 
+  input UserQueryFilterInput {
+    searchText: String
+    state: String
+    states: [String!]
+  }
+
   input AuthInput {
     email: String!
     password: String!
@@ -65,7 +71,7 @@ module.exports = gql`
 
   extend type Query {
     getUser: User
-    getUsers: [User]
+    getUsers(filter: UserQueryFilterInput): [User]
 
     getInstructorStudents: [User!]!
     getUsersByInstrument: [User!]!

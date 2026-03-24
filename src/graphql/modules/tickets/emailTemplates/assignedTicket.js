@@ -206,19 +206,7 @@ module.exports = function buildAssignedTicket({
                       ${introParagraph}
                     </p>
 
-                    <p
-                      style="
-                        font-size: 14px;
-                        line-height: 2;
-                        margin: 0;
-                        color: #747474;
-                        font-weight: 500;
-                        margin-top: 24px;
-                      "
-                    >
-                      Antes de ingresar a la actividad, las entradas deben estar
-                      canceladas al SINPE de la BCDB. (${escapeHtml(paymentSinpe)}) .
-                    </p>
+                 
                   </td>
                 </tr>
               </tbody>
@@ -276,32 +264,7 @@ module.exports = function buildAssignedTicket({
                   </td>
                 </tr>
 
-                <tr>
-                  <td>
-                    <p
-                      style="
-                        font-size: 12px;
-                        line-height: 2;
-                        margin: auto;
-                        text-align: center;
-                      "
-                    >
-                      Si necesita más entradas contactar a:
-                    </p>
-
-                    <div style="width: 100%; text-align: center;">
-                      <a
-                        href="${escapeHtml(contactUrl)}"
-                        style="
-                          font-size: 12px;
-                          text-align: center;
-                          line-height: 2;
-                          margin: auto;
-                        "
-                      >${escapeHtml(contactName)}</a>
-                    </div>
-                  </td>
-                </tr>
+             
 
                 ${
                   raffleHtml

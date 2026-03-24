@@ -9,7 +9,7 @@ const userService = require("../services/user.service");
 module.exports = {
   getUser: async (_, __, ctx) => userService.getUser(ctx),
 
-  getUsers: async () => userService.getUsers(),
+  getUsers: async (_, { filter }) => userService.getUsers(filter || {}),
 
   usersWithoutMedicalRecord: async () =>
     userService.usersWithoutMedicalRecord(),

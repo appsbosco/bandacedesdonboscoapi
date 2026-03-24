@@ -14,6 +14,14 @@ module.exports = {
     }
   },
 
+  getMyTickets: async (_, __, ctx) => {
+    try {
+      return await ticketsService.getMyTickets({}, ctx);
+    } catch (err) {
+      throw wrapError(err, "Failed to fetch my tickets");
+    }
+  },
+
   getTicketsNumbers: async (_, { eventId }, ctx) => {
     try {
       return await ticketsService.getTicketsNumbers({ eventId }, ctx);

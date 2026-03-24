@@ -80,9 +80,7 @@ module.exports = function buildPurchasedTicketEmail({
             <p style="margin:0 0 10px 0;text-align:center;color:#747474;">
               Acá están tu/s entrada/s para el evento. Utiliza el código QR al presentarlo en la entrada del evento.
             </p>
-            <p style="margin:0 0 18px 0;text-align:center;color:#747474;">
-              Antes de ingresar a la actividad, las entradas deben estar canceladas al SINPE de la BCDB. (6445-3952).
-            </p>
+         
 
             <div style="text-align:center; margin: 10px 0 18px 0;">
               <img alt="QR Code" src="cid:qrCode" width="260" style="display:block;margin:0 auto;border:none;outline:none;" />

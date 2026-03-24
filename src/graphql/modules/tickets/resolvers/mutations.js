@@ -41,6 +41,14 @@ module.exports = {
     }
   },
 
+  assignTicketsBulk: async (_, { input }, ctx) => {
+    try {
+      return await ticketsService.assignTicketsBulk({ input }, ctx);
+    } catch (err) {
+      throw wrapError(err, "Error assigning tickets in bulk");
+    }
+  },
+
   purchaseTicket: async (
     _,
     { eventId, buyerName, buyerEmail, ticketQuantity },
@@ -133,6 +141,14 @@ module.exports = {
       );
     } catch (err) {
       throw wrapError(err, "Failed to cancel ticket");
+    }
+  },
+
+  deleteTicket: async (_, { ticketId }, ctx) => {
+    try {
+      return await ticketsService.deleteTicket({ ticketId }, ctx);
+    } catch (err) {
+      throw wrapError(err, "Failed to delete ticket");
     }
   },
 };

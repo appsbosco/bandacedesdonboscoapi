@@ -200,6 +200,7 @@ module.exports = gql`
   extend type Query {
     # Lista tickets, opcionalmente filtrados por evento y/o status
     getTickets(eventId: ID, status: TicketStatus): [Ticket!]!
+    getMyTickets: [Ticket!]!
 
     # Números de rifa de un evento con su titular
     getTicketsNumbers(eventId: ID): [RaffleNumberInfo]!
@@ -281,5 +282,6 @@ module.exports = gql`
 
     # Cancela un ticket. Irreversible.
     cancelTicket(ticketId: ID!, reason: String, cancelledBy: ID): Ticket!
+    deleteTicket(ticketId: ID!): Boolean!
   }
 `;
