@@ -1,6 +1,12 @@
 // src/graphql/resolvers/index.js
 const scalars = require("./scalars");
 
+const ROOT_FIELD_EXCLUSIONS = {
+  documents: {
+    Mutation: new Set(["validateTicket"]),
+  },
+};
+
 /**
  * Merge global de resolvers:
  * - Combina Query/Mutation
@@ -16,7 +22,12 @@ function mergeResolvers(mods) {
     for (const rootType of ["Query", "Mutation"]) {
       if (!resolvers[rootType]) continue;
 
+      const excludedFields =
+        ROOT_FIELD_EXCLUSIONS[moduleName]?.[rootType] || new Set();
+
       for (const fieldName of Object.keys(resolvers[rootType])) {
+        if (excludedFields.has(fieldName)) continue;
+
         if (out[rootType][fieldName]) {
           throw new Error(
             `[GraphQL merge] Conflicto en ${rootType}.${fieldName} (módulo: ${moduleName})`,
