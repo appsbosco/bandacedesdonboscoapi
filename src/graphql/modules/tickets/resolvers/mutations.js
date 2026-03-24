@@ -106,6 +106,14 @@ module.exports = {
     }
   },
 
+  settleTicketPayment: async (_, { ticketId }, ctx) => {
+    try {
+      return await ticketsService.settleTicketPayment({ ticketId }, ctx);
+    } catch (err) {
+      throw wrapError(err, "Failed to settle ticket payment");
+    }
+  },
+
   validateTicket: async (_, { qrPayload, scannedBy, location, forceEntry }, ctx) => {
     try {
       return await ticketsService.validateTicket(

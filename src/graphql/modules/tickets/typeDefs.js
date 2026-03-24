@@ -141,6 +141,7 @@ module.exports = gql`
     capacity: Int!
     totalIssued: Int!
     totalPaid: Int!
+    totalCollected: Float!
     totalPending: Int!
     totalCheckedIn: Int!
     totalPartially: Int!
@@ -159,6 +160,9 @@ module.exports = gql`
     canEnter: Boolean!
     message: String!
     ticket: Ticket
+    totalDue: Float!
+    balanceDue: Float!
+    canMarkPaid: Boolean!
   }
 
   # Resultado de asignación masiva — informa éxitos y fallos individualmente
@@ -260,6 +264,7 @@ module.exports = gql`
 
     # Registra un abono y recalcula paid + status
     updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket
+    settleTicketPayment(ticketId: ID!): Ticket
 
     # ---- Escaneo QR ----------------------------------------------------------
 

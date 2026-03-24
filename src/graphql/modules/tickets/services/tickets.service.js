@@ -25,6 +25,9 @@ function tryRequire(path) {
 const assignedTicketTemplate = tryRequire("../emailTemplates/assignedTicket");
 const purchasedTicketTemplate = tryRequire("../emailTemplates/purchasedTicket");
 const courtesyTicketTemplate = tryRequire("../emailTemplates/courtesyTicket");
+const importedSpecialEventTicketTemplate = tryRequire(
+  "../emailTemplates/importedSpecialEventTicket",
+);
 
 // =============================================================================
 // HELPERS — AUTH
@@ -41,6 +44,30 @@ function getCurrentUserFromCtx(ctx) {
 function requireAuth(ctx) {
   const me = getCurrentUserFromCtx(ctx);
   // if (!me) throw new Error("Unauthorized");
+  return me;
+}
+
+const TICKET_ADMIN_ROLES = new Set([
+  "Admin",
+  "Director",
+  "Dirección Logística",
+  "Tickets Admin",
+]);
+const TICKET_ACCESS_ROLES = new Set([...TICKET_ADMIN_ROLES, "Taquilla"]);
+
+function requireTicketAccess(ctx) {
+  const me = requireAuth(ctx);
+  if (!me || !TICKET_ACCESS_ROLES.has(me.role)) {
+    throw new Error("No autorizado para operar tickets");
+  }
+  return me;
+}
+
+function requireTicketAdmin(ctx) {
+  const me = requireAuth(ctx);
+  if (!me || !TICKET_ADMIN_ROLES.has(me.role)) {
+    throw new Error("No autorizado para administrar tickets");
+  }
   return me;
 }
 
@@ -179,7 +206,9 @@ function normalizeText(value) {
 }
 
 function normalizeHeader(value) {
-  return normalizeText(value).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalizeText(value)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 function decodeBase64File(fileBase64) {
@@ -271,14 +300,17 @@ async function generateNextImportedTicketNumbers(eventId, quantity) {
     });
   });
 
-  return Array.from({ length: qty }, (_, index) => String(maxNumber + index + 1));
+  return Array.from({ length: qty }, (_, index) =>
+    String(maxNumber + index + 1),
+  );
 }
 
 function parseImportedTicketRows(fileBase64, sheetName) {
   const workbook = XLSX.read(decodeBase64File(fileBase64), { type: "buffer" });
-  const selectedSheetName = sheetName && workbook.Sheets[sheetName]
-    ? sheetName
-    : workbook.SheetNames[0];
+  const selectedSheetName =
+    sheetName && workbook.Sheets[sheetName]
+      ? sheetName
+      : workbook.SheetNames[0];
 
   if (!selectedSheetName) {
     throw new Error("El archivo Excel no contiene hojas");
@@ -297,7 +329,9 @@ function parseImportedTicketRows(fileBase64, sheetName) {
   }
 
   const [headerRow, ...dataRows] = matrix;
-  const mappedHeaders = headerRow.map((header) => IMPORT_HEADER_MAP[normalizeHeader(header)] || null);
+  const mappedHeaders = headerRow.map(
+    (header) => IMPORT_HEADER_MAP[normalizeHeader(header)] || null,
+  );
 
   const rows = [];
   for (let index = 0; index < dataRows.length; index += 1) {
@@ -309,7 +343,12 @@ function parseImportedTicketRows(fileBase64, sheetName) {
       out[mappedKey] = String(row[cellIndex] || "").trim();
     });
 
-    if (Object.values(out).every((value) => value === "" || value === out.__rowIndex)) continue;
+    if (
+      Object.values(out).every(
+        (value) => value === "" || value === out.__rowIndex,
+      )
+    )
+      continue;
     rows.push(out);
   }
 
@@ -318,6 +357,32 @@ function parseImportedTicketRows(fileBase64, sheetName) {
 
 function buildImportedTicketEmail(ticket, event, qrCodeDataUrl) {
   const recipientName = ticket.buyerName || "Asistente";
+  const specialEventEmail = normalizeTemplateResult(
+    importedSpecialEventTicketTemplate,
+    {
+      ticket,
+      event,
+      buyerName: recipientName,
+      buyerEmail: ticket.buyerEmail,
+      ticketQuantity: ticket.ticketQuantity,
+      qrCode: qrCodeDataUrl,
+      qrCodeDataUrl,
+      locale: "es-CR",
+    },
+  );
+
+  if (specialEventEmail && typeof specialEventEmail === "object") {
+    return {
+      to: ticket.buyerEmail,
+      subject: specialEventEmail.subject,
+      text: specialEventEmail.text,
+      html: specialEventEmail.html,
+      context: specialEventEmail.context,
+      attachments:
+        specialEventEmail.attachments || buildQrAttachment(qrCodeDataUrl),
+    };
+  }
+
   const emailData = {
     ticket,
     event,
@@ -359,7 +424,12 @@ function buildImportedTicketEmail(ticket, event, qrCodeDataUrl) {
   };
 }
 
-async function maybeSendImportedPaidTicketEmail({ ticket, event, wasPaid, ctx }) {
+async function maybeSendImportedPaidTicketEmail({
+  ticket,
+  event,
+  wasPaid,
+  ctx,
+}) {
   const shouldSend =
     ticket?.source === "excel_import" &&
     ticket?.paid &&
@@ -494,16 +564,35 @@ function recalculateStatus(ticket) {
   return "fully_used";
 }
 
+function getTicketTotals(ticket, event) {
+  const price = safeNumber(event?.price || 0, "event.price");
+  const totalDue = Math.max(0, Number(ticket?.ticketQuantity || 0) * price);
+  const amountPaid = Math.max(0, Number(ticket?.amountPaid || 0));
+  const balanceDue = Math.max(0, totalDue - amountPaid);
+
+  return {
+    totalDue,
+    balanceDue,
+    amountPaid,
+  };
+}
+
 // =============================================================================
 // HELPERS — VALIDACIÓN QR
 // =============================================================================
 
-function buildValidationResult(result, ticket, message) {
+function buildValidationResult(result, ticket, message, meta = {}) {
   return {
     result, // "ok" | "unpaid" | "duplicate" | "invalid" | "blocked"
     canEnter: result === "ok",
     message,
     ticket: ticket || null,
+    totalDue: meta.totalDue ?? 0,
+    balanceDue: meta.balanceDue ?? 0,
+    canMarkPaid:
+      Boolean(meta.canMarkPaid) &&
+      result === "unpaid" &&
+      Number(meta.balanceDue || 0) > 0,
   };
 }
 
@@ -513,6 +602,8 @@ function buildValidationResult(result, ticket, message) {
 
 module.exports = {
   requireAuth,
+  requireTicketAccess,
+  requireTicketAdmin,
 
   // ===========================================================================
   // QUERIES
@@ -523,6 +614,7 @@ module.exports = {
    */
   async getTickets({ eventId, status } = {}, ctx) {
     try {
+      requireTicketAccess(ctx);
       const query = {};
       if (eventId) query.eventId = eventId;
       if (status) query.status = status;
@@ -580,20 +672,40 @@ module.exports = {
    */
   async getEventStats({ eventId }, ctx) {
     try {
+      requireTicketAccess(ctx);
       if (!eventId) throw new Error("eventId is required");
 
       const event = await EventTicket.findById(eventId);
       if (!event) throw new Error("Event not found");
 
-      const [issued, paid, pending, used, partiallyUsed, cancelled] =
-        await Promise.all([
-          Ticket.countDocuments({ eventId }),
-          Ticket.countDocuments({ eventId, status: "paid" }),
-          Ticket.countDocuments({ eventId, status: "pending_payment" }),
-          Ticket.countDocuments({ eventId, status: "fully_used" }),
-          Ticket.countDocuments({ eventId, status: "partially_used" }),
-          Ticket.countDocuments({ eventId, status: "cancelled" }),
-        ]);
+      const [
+        issued,
+        paid,
+        pending,
+        used,
+        partiallyUsed,
+        cancelled,
+        collectedAgg,
+      ] = await Promise.all([
+        Ticket.countDocuments({ eventId }),
+        Ticket.countDocuments({
+          eventId,
+          paid: true,
+          status: { $ne: "cancelled" },
+        }),
+        Ticket.countDocuments({
+          eventId,
+          paid: false,
+          status: { $ne: "cancelled" },
+        }),
+        Ticket.countDocuments({ eventId, status: "fully_used" }),
+        Ticket.countDocuments({ eventId, status: "partially_used" }),
+        Ticket.countDocuments({ eventId, status: "cancelled" }),
+        Ticket.aggregate([
+          { $match: { eventId: event._id, status: { $ne: "cancelled" } } },
+          { $group: { _id: null, totalCollected: { $sum: "$amountPaid" } } },
+        ]),
+      ]);
 
       // checkins = checked_in + partially_used + fully_used
       const checkedIn = await Ticket.countDocuments({
@@ -607,6 +719,7 @@ module.exports = {
         capacity: event.ticketLimit,
         totalIssued: issued,
         totalPaid: paid,
+        totalCollected: Number(collectedAgg?.[0]?.totalCollected || 0),
         totalPending: pending,
         totalCheckedIn: checkedIn + partiallyUsed + used,
         totalPartially: partiallyUsed,
@@ -625,6 +738,7 @@ module.exports = {
    */
   async searchTickets({ eventId, query: q }, ctx) {
     try {
+      requireTicketAccess(ctx);
       if (!eventId) throw new Error("eventId is required");
       if (!q || q.trim().length < 2)
         throw new Error("Query must be at least 2 characters");
@@ -656,6 +770,7 @@ module.exports = {
     ctx,
   ) {
     try {
+      requireTicketAdmin(ctx);
       const event = new EventTicket({
         name,
         date,
@@ -681,6 +796,7 @@ module.exports = {
    */
   async assignTickets({ input }, ctx) {
     try {
+      requireTicketAdmin(ctx);
       if (!input) throw new Error("Input is required");
 
       const { userId, eventId, type, ticketQuantity } = input;
@@ -813,6 +929,7 @@ module.exports = {
    */
   async assignTicketsBulk({ input }, ctx) {
     try {
+      requireTicketAdmin(ctx);
       const { eventId, type, recipients } = input || {};
 
       if (!eventId) throw new Error("eventId is required");
@@ -1035,6 +1152,7 @@ module.exports = {
     ctx,
   ) {
     try {
+      requireTicketAdmin(ctx);
       const qty = assertPositiveInt(ticketQuantity, "ticketQuantity");
       if (!eventId) throw new Error("eventId is required");
       if (!buyerName) throw new Error("buyerName is required");
@@ -1117,6 +1235,7 @@ module.exports = {
    */
   async importTicketsFromExcel({ input }, ctx) {
     try {
+      requireTicketAdmin(ctx);
       const { eventId, fileBase64, sheetName } = input || {};
       if (!eventId) throw new Error("eventId is required");
       if (!fileBase64) throw new Error("fileBase64 is required");
@@ -1125,7 +1244,8 @@ module.exports = {
       if (!event) throw new Error("Event not found");
 
       const { rows } = parseImportedTicketRows(fileBase64, sheetName);
-      if (!rows.length) throw new Error("El archivo no contiene filas de datos");
+      if (!rows.length)
+        throw new Error("El archivo no contiene filas de datos");
 
       const grouped = new Map();
       const failedRows = [];
@@ -1133,7 +1253,9 @@ module.exports = {
       rows.forEach((row) => {
         const rowLabel = `Fila ${row.__rowIndex}`;
         const buyerName = String(row.buyerName || "").trim();
-        const buyerEmail = String(row.buyerEmail || "").trim().toLowerCase();
+        const buyerEmail = String(row.buyerEmail || "")
+          .trim()
+          .toLowerCase();
         const ticketNumber = String(row.ticketNumber || "").trim();
         const normalizedStatus = normalizePaymentStatus(row.paymentStatus);
 
@@ -1275,7 +1397,6 @@ module.exports = {
         }
 
         totalDelta += totalCount - previousQuantity;
-
       }
 
       await adjustEventTotalTickets(eventId, totalDelta);
@@ -1299,18 +1420,18 @@ module.exports = {
 
   async addImportedTicketRecipient({ input }, ctx) {
     try {
-      const {
-        eventId,
-        buyerName,
-        buyerEmail,
-        ticketQuantity,
-        paymentStatus,
-      } = input || {};
+      requireTicketAdmin(ctx);
+      const { eventId, buyerName, buyerEmail, ticketQuantity, paymentStatus } =
+        input || {};
 
       if (!eventId) throw new Error("eventId is required");
       if (!buyerName) throw new Error("buyerName is required");
       if (!buyerEmail) throw new Error("buyerEmail is required");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(buyerEmail).trim().toLowerCase())) {
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          String(buyerEmail).trim().toLowerCase(),
+        )
+      ) {
         throw new Error("buyerEmail is invalid");
       }
 
@@ -1325,7 +1446,11 @@ module.exports = {
 
       const importKey = buildImportKey({ buyerName, buyerEmail });
       const existing =
-        (await Ticket.findOne({ eventId, source: "excel_import", importKey })) || null;
+        (await Ticket.findOne({
+          eventId,
+          source: "excel_import",
+          importKey,
+        })) || null;
 
       const nextNumbers = await generateNextImportedTicketNumbers(eventId, qty);
       let ticket = existing;
@@ -1338,7 +1463,10 @@ module.exports = {
           buyerName: String(buyerName).trim(),
           buyerEmail: String(buyerEmail).trim().toLowerCase(),
           ticketQuantity: qty,
-          amountPaid: normalizedStatus === "paid" ? qty * safeNumber(event.price, "event.price") : 0,
+          amountPaid:
+            normalizedStatus === "paid"
+              ? qty * safeNumber(event.price, "event.price")
+              : 0,
           paid: normalizedStatus === "paid",
           status: normalizedStatus === "paid" ? "paid" : "pending_payment",
           qrCode: "",
@@ -1362,7 +1490,8 @@ module.exports = {
         if (normalizedStatus === "paid") {
           ticket.amountPaid += qty * safeNumber(event.price, "event.price");
         }
-        const totalDue = ticket.ticketQuantity * safeNumber(event.price, "event.price");
+        const totalDue =
+          ticket.ticketQuantity * safeNumber(event.price, "event.price");
         ticket.paid = Number(ticket.amountPaid) >= totalDue;
         ticket.status = recalculateStatus(ticket);
         if (!ticket.qrCode) {
@@ -1381,6 +1510,7 @@ module.exports = {
 
   async resendImportedTicketEmail({ ticketId }, ctx) {
     try {
+      requireTicketAdmin(ctx);
       return await resendImportedTicketEmailById(ticketId, ctx);
     } catch (err) {
       throw new Error(err?.message || "Error resending imported ticket email");
@@ -1397,6 +1527,7 @@ module.exports = {
    */
   async updatePaymentStatus({ ticketId, amountPaid }, ctx) {
     try {
+      requireTicketAccess(ctx);
       if (!ticketId) throw new Error("ticketId is required");
 
       const inc = safeNumber(amountPaid, "amountPaid");
@@ -1437,6 +1568,37 @@ module.exports = {
     }
   },
 
+  async settleTicketPayment({ ticketId }, ctx) {
+    try {
+      requireTicketAccess(ctx);
+      if (!ticketId) throw new Error("ticketId is required");
+
+      const ticket = await Ticket.findById(ticketId);
+      if (!ticket) throw new Error("Ticket not found");
+      if (ticket.type === "courtesy") {
+        throw new Error("La entrada de cortesía ya está pagada");
+      }
+      if (ticket.status === "cancelled") {
+        throw new Error("La entrada está cancelada");
+      }
+
+      const event = await EventTicket.findById(ticket.eventId);
+      if (!event) throw new Error("Event not found");
+
+      const { balanceDue } = getTicketTotals(ticket, event);
+      if (balanceDue <= 0) {
+        throw new Error("La entrada ya está completamente pagada");
+      }
+
+      return await this.updatePaymentStatus(
+        { ticketId, amountPaid: balanceDue },
+        ctx,
+      );
+    } catch (err) {
+      throw new Error(err?.message || "Failed to settle ticket payment");
+    }
+  },
+
   // ===========================================================================
   // MUTATIONS — VALIDACIÓN QR (ESCANEO)
   // ===========================================================================
@@ -1461,6 +1623,7 @@ module.exports = {
     ctx,
   ) {
     try {
+      const currentUser = requireTicketAccess(ctx);
       // 1. Parsear payload
       let parsed;
       try {
@@ -1493,6 +1656,8 @@ module.exports = {
         );
       }
 
+      const totals = getTicketTotals(ticket, ticket.eventId);
+
       // 3. Condiciones de bloqueo — orden: cancelled > unpaid > fully_used
 
       if (ticket.status === "cancelled") {
@@ -1504,6 +1669,10 @@ module.exports = {
           "unpaid",
           ticket,
           `Entrada sin pagar — debe cancelar el pago antes de ingresar`,
+          {
+            ...totals,
+            canMarkPaid: true,
+          },
         );
       }
 
@@ -1529,7 +1698,8 @@ module.exports = {
           $push: {
             scanLog: {
               scannedAt: new Date(),
-              scannedBy: scannedBy || null,
+              scannedBy:
+                scannedBy || currentUser?.id || currentUser?._id || null,
               location: location || null,
               result: "ok",
             },
@@ -1564,6 +1734,7 @@ module.exports = {
         "ok",
         { ...ticket, scans: updated.scans, status: updated.status },
         message,
+        totals,
       );
     } catch (err) {
       throw new Error(err?.message || "Error validating ticket");
@@ -1579,6 +1750,7 @@ module.exports = {
    */
   async cancelTicket({ ticketId, reason, cancelledBy }, ctx) {
     try {
+      requireTicketAdmin(ctx);
       if (!ticketId) throw new Error("ticketId is required");
 
       const ticket = await Ticket.findByIdAndUpdate(
