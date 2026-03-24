@@ -6,6 +6,7 @@ require("dotenv").config();
 const {
   ApolloServerPluginLandingPageLocalDefault,
 } = require("apollo-server-core");
+const { sendMail } = require("./src/graphql/shared/mailer");
 const { liveblocksAuthHandler } = require("./src/realtime/liveblocks-auth");
 const {
   persistFormationSlotsHandler,
@@ -287,7 +288,19 @@ async function initOnce() {
         context: async ({ req }) => {
           const token = extractToken(req);
 
-          const ctx = { req, user: null, currentUser: null, me: null };
+          const sendEmail = async (input) => sendMail(input);
+          const ctx = {
+            req,
+            user: null,
+            currentUser: null,
+            me: null,
+            sendEmail,
+            services: {
+              email: {
+                sendEmail,
+              },
+            },
+          };
           if (!token) return ctx;
 
           try {
