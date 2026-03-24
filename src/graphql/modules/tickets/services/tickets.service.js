@@ -153,9 +153,21 @@ function buildEmailFromTemplateOrFallback(
 
 function buildPurchasedEmailContent(data) {
   const eventName = data?.event?.name || "tu evento";
+  const eventDescription = data?.event?.description || eventName;
   const quantity = Number(
     data?.ticket?.ticketQuantity || data?.ticketQuantity || 1,
   );
+  const recipientName =
+    data?.user?.name ||
+    data?.buyerName ||
+    data?.ticket?.buyerName ||
+    "Asistente";
+  const raffleNumbers = Array.isArray(data?.raffleNumbers)
+    ? data.raffleNumbers
+    : Array.isArray(data?.ticket?.raffleNumbers)
+      ? data.ticket.raffleNumbers
+      : [];
+  const qrCodeDataUrl = data?.qrCodeDataUrl || data?.qrCode || data?.ticket?.qrCode;
   const specialEventBuilt = normalizeTemplateResult(
     importedSpecialEventTicketTemplate,
     data,
@@ -179,8 +191,58 @@ function buildPurchasedEmailContent(data) {
     {
       template: purchasedTicketTemplate,
       fallbackSubject: `Tus entradas para ${eventName}`,
-      fallbackText: `Tus ${quantity} entrada(s) para ${eventName} ya están listas para ingresar.`,
-      fallbackHtml: `<p>Tus entradas para ${eventName} ya están listas. Cantidad: ${quantity}</p>`,
+      fallbackText:
+        `Hola ${recipientName}, tus ${quantity} entrada(s) para ${eventName} ya están listas.` +
+        (raffleNumbers.length ? ` Números de rifa: ${raffleNumbers.join(", ")}.` : ""),
+      fallbackHtml: `
+        <html dir="ltr" lang="es">
+          <head>
+            <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+          </head>
+          <body style="background:#f7f7f7;margin:0;padding:24px;font-family:Arial,sans-serif;color:#1f2937;">
+            <div style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+              <div style="padding:28px 28px 20px;border-bottom:1px solid #f1f5f9;">
+                <p style="margin:0 0 8px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#94a3b8;font-weight:700;">
+                  Banda CEDES Don Bosco
+                </p>
+                <h1 style="margin:0;font-size:28px;line-height:1.2;color:#111827;">
+                  Tus entradas para ${eventName}
+                </h1>
+                <p style="margin:12px 0 0;font-size:14px;line-height:1.7;color:#475569;">
+                  ${eventDescription}
+                </p>
+              </div>
+              <div style="padding:24px 28px 28px;">
+                <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#334155;">
+                  Hola <strong>${recipientName}</strong>, tus <strong>${quantity}</strong> entrada(s) ya están listas para ingresar.
+                </p>
+                ${
+                  raffleNumbers.length
+                    ? `<p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#475569;">
+                        Números de rifa: <strong>${raffleNumbers.join(", ")}</strong>
+                      </p>`
+                    : ""
+                }
+                ${
+                  qrCodeDataUrl
+                    ? `<div style="text-align:center;padding:12px 0 8px;">
+                        <img
+                          alt="Código QR"
+                          src="cid:qrCode"
+                          width="220"
+                          style="display:block;margin:0 auto;border:1px solid #e5e7eb;border-radius:12px;background:#fff;"
+                        />
+                        <p style="margin:12px 0 0;font-size:12px;color:#94a3b8;">
+                          Presenta este QR en la entrada del evento.
+                        </p>
+                      </div>`
+                    : ""
+                }
+              </div>
+            </div>
+          </body>
+        </html>
+      `,
     },
     data,
   );

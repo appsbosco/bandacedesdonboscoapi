@@ -39,8 +39,8 @@ module.exports = function buildPurchasedTicketEmail({
     : "";
 
   return {
-    subject: "Entradas asignadas",
-    text: "Aquí están tus entradas.",
+    subject: `Tus entradas para ${eventName || "el evento"} ya están listas`,
+    text: `Hola ${fullName || "asistente"}, aquí están tus entradas para ${eventName || "el evento"}.`,
     html: `
       <html dir="ltr" lang="es">
         <head>
