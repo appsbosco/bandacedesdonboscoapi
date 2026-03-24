@@ -32,10 +32,14 @@ module.exports = function buildImportedSpecialEventTicket({
   const eventId = String(event?._id || event?.id || "");
   if (eventId !== SPECIAL_EVENT_ID) return null;
 
-  const recipientName = escapeHtml(buyerName || ticket?.buyerName || "Invitado");
+  const recipientName = escapeHtml(
+    buyerName || ticket?.buyerName || "Invitado",
+  );
   const recipientEmail = escapeHtml(buyerEmail || ticket?.buyerEmail || "");
   const eventName = escapeHtml(event?.name || "Evento BCDB");
-  const eventDescription = escapeHtml(event?.description || "Tus entradas están listas");
+  const eventDescription = escapeHtml(
+    event?.description || "Tus entradas están listas",
+  );
   const eventDate = escapeHtml(formatEventDate(event?.date, locale));
   const ticketId = escapeHtml(ticket?._id?.toString?.() || ticket?.id || "");
   const quantity = Number(ticket?.ticketQuantity || 1);
@@ -52,82 +56,111 @@ module.exports = function buildImportedSpecialEventTicket({
           <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
           <meta name="x-apple-disable-message-reformatting" />
         </head>
-        <body style="margin:0;background:#f5f1e8;font-family:Helvetica,Arial,sans-serif;color:#231f20;">
-          <div style="max-width:640px;margin:0 auto;padding:28px 16px;">
-            <div style="background:linear-gradient(135deg,#1f3c88 0%,#0b1530 100%);border-radius:28px;padding:32px;color:#ffffff;box-shadow:0 20px 45px rgba(13,21,48,.18);">
-              <p style="margin:0 0 12px 0;font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:#d6def8;">
-                Banda CEDES Don Bosco
-              </p>
-              <h1 style="margin:0;font-size:34px;line-height:1.1;font-weight:800;">
-                ${eventName}
-              </h1>
-              <p style="margin:14px 0 0 0;font-size:16px;line-height:1.6;color:#e6ebff;">
-                ${eventDescription}
-              </p>
-            </div>
+        <body style="margin:0;padding:0;background-color:#f0ede8;font-family:Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%;">
 
-            <div style="background:#ffffff;border-radius:24px;margin-top:-18px;padding:28px;box-shadow:0 18px 36px rgba(35,31,32,.08);">
-              <p style="margin:0 0 10px 0;font-size:15px;line-height:1.7;">
-                Hola <strong>${recipientName}</strong>, tus entradas ya quedaron listas para ingresar al evento.
-              </p>
-              <p style="margin:0 0 20px 0;font-size:15px;line-height:1.7;color:#5a5f73;">
-                Presenta este QR en la entrada. Este correo corresponde a <strong>${quantity}</strong> entrada(s).
-              </p>
+          <div style="max-width:560px;margin:0 auto;padding:36px 16px 52px;">
 
-              <div style="display:block;background:#f8f9fe;border:1px solid #e6ebff;border-radius:18px;padding:18px;margin-bottom:22px;">
-                <p style="margin:0 0 8px 0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7380a6;">
-                  Datos del evento
+            <!-- MAIN CARD -->
+            <div style="background:#ffffff;border-radius:3px;overflow:hidden;border:1px solid #dedad4;">
+
+              <!-- HEADER: compact, editorial -->
+              <div style="padding:30px 32px 24px;border-bottom:1px solid #eeebe6;">
+                <p style="margin:0 0 14px 0;font-size:10px;font-weight:700;letter-spacing:.28em;text-transform:uppercase;color:#b0a99e;">
+                  Banda CEDES Don Bosco
                 </p>
-                <p style="margin:0 0 6px 0;font-size:15px;"><strong>Evento:</strong> ${eventName}</p>
-                ${eventDate ? `<p style="margin:0 0 6px 0;font-size:15px;"><strong>Fecha:</strong> ${eventDate}</p>` : ""}
-                <p style="margin:0 0 6px 0;font-size:15px;"><strong>Cantidad:</strong> ${quantity} entrada(s)</p>
-                ${externalNumbers ? `<p style="margin:0 0 6px 0;font-size:15px;"><strong>Números de entrada:</strong> ${externalNumbers}</p>` : ""}
-                <p style="margin:0;font-size:15px;"><strong>Correo:</strong> ${recipientEmail || "No disponible"}</p>
-              </div>
-
-              <div style="text-align:center;margin:22px 0;">
-                <img alt="QR Code" src="cid:qrCode" width="250" style="display:block;margin:0 auto;border:none;outline:none;" />
-              </div>
-
-              <div style="background:#fff8ea;border:1px solid #f2dfb5;border-radius:18px;padding:16px 18px;margin-top:12px;">
-                <p style="margin:0;font-size:14px;line-height:1.7;color:#5d4b1f;">
-                  <strong>Referencia:</strong> ${ticketId}
+                <h1 style="margin:0 0 8px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;line-height:1.15;color:#1a1a18;letter-spacing:-.3px;">
+                  ${eventName}
+                </h1>
+                <p style="margin:0;font-size:14px;line-height:1.65;color:#7a756e;">
+                  ${eventDescription}
                 </p>
               </div>
 
-              <div style="margin-top:26px;padding-top:18px;border-top:1px solid #eceff7;text-align:center;">
-                <p style="margin:0 0 8px 0;font-size:15px;line-height:1.7;color:#66708a;font-weight:600;">
-                  Desarrollado por
+              <!-- BODY -->
+              <div style="padding:26px 32px 30px;">
+
+                <!-- Greeting -->
+                <p style="margin:0 0 22px 0;font-size:14.5px;line-height:1.7;color:#444;">
+                  Hola <strong style="color:#1a1a18;">${recipientName}</strong> — tus entradas ya quedaron listas. Presenta este QR en la entrada; corresponde a <strong style="color:#1a1a18;">${quantity}</strong> entrada(s).
+                </p>
+
+                <!-- Details table -->
+                <table role="presentation" style="width:100%;border-collapse:collapse;font-size:13.5px;margin-bottom:26px;">
+                  ${
+                    eventDate
+                      ? `
+                  <tr>
+                    <td style="padding:8px 0;border-bottom:1px solid #f0ede8;color:#b0a99e;width:100px;vertical-align:top;">Fecha</td>
+                    <td style="padding:8px 0;border-bottom:1px solid #f0ede8;color:#1a1a18;">${eventDate}</td>
+                  </tr>`
+                      : ""
+                  }
+                  <tr>
+                    <td style="padding:8px 0;border-bottom:1px solid #f0ede8;color:#b0a99e;vertical-align:top;">Entradas</td>
+                    <td style="padding:8px 0;border-bottom:1px solid #f0ede8;color:#1a1a18;font-weight:700;">${quantity}</td>
+                  </tr>
+                  ${
+                    externalNumbers
+                      ? `
+                  <tr>
+                    <td style="padding:8px 0;border-bottom:1px solid #f0ede8;color:#b0a99e;vertical-align:top;">Números</td>
+                    <td style="padding:8px 0;border-bottom:1px solid #f0ede8;color:#1a1a18;">${externalNumbers}</td>
+                  </tr>`
+                      : ""
+                  }
+                  <tr>
+                    <td style="padding:8px 0;color:#b0a99e;vertical-align:top;">Correo</td>
+                    <td style="padding:8px 0;color:#1a1a18;">${recipientEmail || "No disponible"}</td>
+                  </tr>
+                </table>
+
+                <!-- QR block -->
+                <div style="text-align:center;padding:22px 0;">
+                  <img
+                    alt="Código QR"
+                    src="cid:qrCode"
+                    width="180"
+                    style="display:block;margin:0 auto;border:1px solid #dedad4;"
+                  />
+                  <p style="margin:10px 0 0;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:#c0b9b1;">
+                    Escanear en la entrada
+                  </p>
+                </div>
+
+             
+
+              </div>
+
+              <!-- FOOTER -->
+              <div style="padding:18px 32px;border-top:1px solid #eeebe6;background:#faf8f5;text-align:center;">
+                <div style="display:inline-flex;flex-direction:column;align-items:center;gap:8px;">
+                  <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#b0a99e;font-weight:700;">
+                    Desarrollado por
+                  </span>
                   <a
                     href="${JOSUE_INSTAGRAM_URL}"
                     target="_blank"
                     rel="noopener noreferrer"
-                    style="color:#1f3c88;font-weight:800;text-decoration:none;margin-left:6px;display:inline-flex;align-items:center;gap:6px;"
+                    style="display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;color:#1f3c88;text-decoration:none;background:#ffffff;border:1px solid #dbe3f2;border-radius:999px;padding:10px 16px;box-shadow:0 4px 14px rgba(31,60,136,.06);"
                   >
-                    <span
-                      style="display:inline-block;width:16px;height:16px;vertical-align:middle;"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                      >
-                        <rect x="3" y="3" width="18" height="18" rx="5" stroke="#1f3c88" stroke-width="1.8"/>
-                        <circle cx="12" cy="12" r="4.2" stroke="#1f3c88" stroke-width="1.8"/>
-                        <circle cx="17.4" cy="6.6" r="1.2" fill="#1f3c88"/>
+                    <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:#f3f6fc;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" style="display:block;">
+                        <rect x="3" y="3" width="18" height="18" rx="5" stroke="#1f3c88" stroke-width="2"/>
+                        <circle cx="12" cy="12" r="4" stroke="#1f3c88" stroke-width="2"/>
+                        <circle cx="17.2" cy="6.8" r="1.3" fill="#1f3c88"/>
                       </svg>
                     </span>
-                    Josué Chinchilla
+                    <span>Josué Chinchilla</span>
+                    <span style="font-size:13px;line-height:1;color:#8a99ba;">↗</span>
                   </a>
-                </p>
-                <p style="margin:0;font-size:12px;line-height:1.7;color:#a0a6ba;">
-                  Guarda este correo y preséntalo el día del evento.
-                </p>
+                </div>
               </div>
+
             </div>
+            <!-- /CARD -->
+
           </div>
+
         </body>
       </html>
     `,
