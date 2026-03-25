@@ -201,6 +201,7 @@ module.exports = gql`
     year: Int
     grade: String
     band: String
+    instrument: String
     status: EvaluationStatus
     subjectId: ID
   }
@@ -222,6 +223,7 @@ module.exports = gql`
     adminPendingEvaluations(filter: AcademicDashboardFilter): [AcademicEvaluation!]!
 
     parentChildrenAcademicOverview(periodId: ID, year: Int): [ParentChildAcademicData!]!
+    parentChildEvaluations(childId: ID!, filter: AcademicDashboardFilter): [AcademicEvaluation!]!
   }
 
   # ─── Mutations ───────────────────────────────────────────────────────────────

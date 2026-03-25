@@ -84,6 +84,15 @@ module.exports = {
     }
   },
 
+  parentChildEvaluations: async (_, { childId, filter }, ctx) => {
+    try {
+      return await svc.getParentChildEvaluations(childId, filter || {}, ctx);
+    } catch (e) {
+      console.error("[query:parentChildEvaluations]", e.message);
+      throw new Error(e.message || "Error al obtener evaluaciones del hijo");
+    }
+  },
+
   parentChildrenAcademicOverview: async (_, { periodId, year }, ctx) => {
     try {
       return await svc.getParentChildrenOverview(periodId, year, ctx);

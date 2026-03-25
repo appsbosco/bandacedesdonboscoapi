@@ -10,6 +10,7 @@ const isoDate = (v) => (v instanceof Date ? v.toISOString() : v ? String(v) : nu
 const typeResolvers = {
   AcademicSubject: {
     id: (p) => String(p._id || p.id),
+    isActive: (p) => p.isActive ?? true,
     bands: (p) => p.bands || [],
     grades: (p) => p.grades || [],
     createdAt: (p) => isoDate(p.createdAt),
@@ -18,6 +19,7 @@ const typeResolvers = {
 
   AcademicPeriod: {
     id: (p) => String(p._id || p.id),
+    isActive: (p) => p.isActive ?? true,
     createdAt: (p) => isoDate(p.createdAt),
     updatedAt: (p) => isoDate(p.updatedAt),
   },
