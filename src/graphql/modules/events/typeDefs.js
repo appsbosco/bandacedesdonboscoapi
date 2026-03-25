@@ -60,6 +60,7 @@ module.exports = gql`
     notificationLog: NotificationLog
     busCapacities: [BusCapacity!]!
     transportPaymentEnabled: Boolean!
+    transportFeeAmount: Float!
     priority: EventPriority
     visibility: String
     createdAt: String
@@ -87,6 +88,7 @@ module.exports = gql`
     audience: [String]
     busCapacities: [BusCapacityInput!]
     transportPaymentEnabled: Boolean
+    transportFeeAmount: Float
     priority: EventPriority
     visibility: String
   }

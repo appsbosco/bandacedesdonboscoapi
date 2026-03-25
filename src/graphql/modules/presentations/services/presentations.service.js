@@ -1,6 +1,7 @@
 // services/presentations.service.js
 const PerformanceAttendance = require("../../../../../models/PerformanceAttendance");
 const EventRoster = require("../../../../../models/EventRoster");
+const Event = require("../../../../../models/Events");
 const Hotel = require("../../../../../models/Hotel");
 const User = require("../../../../../models/User");
 
@@ -352,6 +353,9 @@ async function initializeEventRoster(eventId, ctx) {
           excludedFromTransport: false,
           attendanceStatus: "PENDING",
           transportPaid: false,
+          transportAmountPaid: 0,
+          transportExempt: STAFF_ROLES.has(user.role),
+          transportExemptReason: STAFF_ROLES.has(user.role) ? "Staff no paga transporte" : "",
           createdBy: currentUser?._id || null,
         },
       },
@@ -707,19 +711,51 @@ async function bulkMarkAttendance(eventId, entries, ctx) {
   return getEventRoster(eventId, {}, ctx);
 }
 
-async function setTransportPayment(eventId, userId, paid, ctx) {
+async function setTransportPayment(eventId, userId, paid, paymentInput = {}, ctx) {
   const currentUser = requireTransportPaymentAccess(ctx);
   if (!eventId || !userId) {
     throw new Error("eventId y userId son requeridos");
   }
 
+  const rosterEntry = await EventRoster.findOne({
+    event: eventId,
+    user: userId,
+    excludedFromEvent: false,
+    excludedFromTransport: false,
+  });
+
+  if (!rosterEntry) throw new Error("Registro no encontrado o excluido del transporte");
+  if (rosterEntry.isStaff) {
+    throw new Error("Staff no paga transporte");
+  }
+
+  const exempt = paymentInput?.exempt === true;
+  const method = paymentInput?.method || null;
+  const exemptionReason = String(paymentInput?.exemptionReason || "").trim();
+  const event = await Event.findById(eventId).select("transportFeeAmount");
+  const configuredAmount = Number(event?.transportFeeAmount) > 0 ? Number(event.transportFeeAmount) : 0;
+  const providedAmount = Number(paymentInput?.amount);
+  const amount =
+    Number.isFinite(providedAmount) && providedAmount >= 0 ? providedAmount : configuredAmount;
+
+  if (!exempt && paid && !["CASH", "SINPE"].includes(method)) {
+    throw new Error("Debe indicar si el pago fue en efectivo o SINPE");
+  }
+  if (!exempt && paid && amount <= 0) {
+    throw new Error("El monto de transporte debe ser mayor que 0");
+  }
+
   const updated = await EventRoster.findOneAndUpdate(
-    { event: eventId, user: userId, excludedFromEvent: false, excludedFromTransport: false },
+    { _id: rosterEntry._id },
     {
       $set: {
-        transportPaid: Boolean(paid),
-        transportPaidBy: paid ? currentUser._id : null,
-        transportPaidAt: paid ? new Date() : null,
+        transportPaid: exempt ? false : Boolean(paid),
+        transportPaidBy: !exempt && paid ? currentUser._id : null,
+        transportPaidAt: !exempt && paid ? new Date() : null,
+        transportPaymentMethod: !exempt && paid ? method : null,
+        transportAmountPaid: !exempt && paid ? amount : 0,
+        transportExempt: exempt,
+        transportExemptReason: exempt ? exemptionReason : "",
       },
     },
     { new: true },
@@ -728,7 +764,6 @@ async function setTransportPayment(eventId, userId, paid, ctx) {
     .populate("attendanceMarkedBy")
     .populate("transportPaidBy");
 
-  if (!updated) throw new Error("Registro no encontrado o excluido del transporte");
   return updated;
 }
 

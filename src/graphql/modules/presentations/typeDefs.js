@@ -42,6 +42,11 @@ module.exports = gql`
     LATE
   }
 
+  enum TransportPaymentMethod {
+    CASH
+    SINPE
+  }
+
   type EventRosterEntry {
     id: ID!
     event: Event!
@@ -60,6 +65,10 @@ module.exports = gql`
     transportPaid: Boolean!
     transportPaidBy: User
     transportPaidAt: String
+    transportPaymentMethod: TransportPaymentMethod
+    transportAmountPaid: Float!
+    transportExempt: Boolean!
+    transportExemptReason: String
     isStaff: Boolean!
     createdAt: String!
     updatedAt: String!
@@ -200,6 +209,10 @@ module.exports = gql`
       eventId: ID!
       userId: ID!
       paid: Boolean!
+      method: TransportPaymentMethod
+      amount: Float
+      exempt: Boolean
+      exemptionReason: String
     ): EventRosterEntry!
   }
 `;

@@ -147,12 +147,17 @@ module.exports = {
     }
   },
 
-  setTransportPayment: async (_, { eventId, userId, paid }, ctx) => {
+  setTransportPayment: async (
+    _,
+    { eventId, userId, paid, method, amount, exempt, exemptionReason },
+    ctx,
+  ) => {
     try {
       return await presentationsService.setTransportPayment(
         eventId,
         userId,
         paid,
+        { method, amount, exempt, exemptionReason },
         ctx,
       );
     } catch (error) {

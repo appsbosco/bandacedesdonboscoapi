@@ -98,6 +98,10 @@ async function updateEvent(id, input, ctx) {
   if (input.transportPaymentEnabled !== undefined) {
     updateData.transportPaymentEnabled = Boolean(input.transportPaymentEnabled);
   }
+  if (input.transportFeeAmount !== undefined) {
+    const fee = Number(input.transportFeeAmount);
+    updateData.transportFeeAmount = Number.isFinite(fee) && fee >= 0 ? fee : 0;
+  }
 
   const updated = await Event.findByIdAndUpdate(id, updateData, {
     new: true,

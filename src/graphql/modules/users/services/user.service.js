@@ -1,5 +1,6 @@
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
+const { deleteUserCascade } = require("./userCascade.service");
 
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -171,6 +172,7 @@ async function deleteUser(id) {
   if (!user) throw new Error("El usuario no existe");
 
   try {
+    await deleteUserCascade(id);
     await User.findOneAndDelete({ _id: id });
     return "Usuario eliminado correctamente";
   } catch (error) {
@@ -405,9 +407,29 @@ async function getUser(ctx) {
   return User.findById(ctx.user.id);
 }
 
-async function getUsers() {
+async function getUsers(filter = {}) {
   try {
-    return await User.find({})
+    const { searchText, state, states } = filter || {};
+    const query = {};
+
+    if (Array.isArray(states) && states.length > 0) {
+      query.state = { $in: states.filter(Boolean) };
+    } else if (state) {
+      query.state = state;
+    }
+
+    if (searchText?.trim()) {
+      const re = new RegExp(searchText.trim(), "i");
+      query.$or = [
+        { name: re },
+        { firstSurName: re },
+        { secondSurName: re },
+        { email: re },
+        { carnet: re },
+      ];
+    }
+
+    return await User.find(query)
       .select("-password -resetPasswordToken -resetPasswordExpires")
       .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
       .lean();

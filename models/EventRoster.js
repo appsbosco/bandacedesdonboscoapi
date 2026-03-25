@@ -73,6 +73,14 @@ const eventRosterSchema = new mongoose.Schema(
       default: null,
     },
     transportPaidAt: { type: Date, default: null },
+    transportPaymentMethod: {
+      type: String,
+      enum: ["CASH", "SINPE"],
+      default: null,
+    },
+    transportAmountPaid: { type: Number, min: 0, default: 0 },
+    transportExempt: { type: Boolean, default: false },
+    transportExemptReason: { type: String, default: "" },
 
     // --- Flags ---
     isStaff: { type: Boolean, default: false },

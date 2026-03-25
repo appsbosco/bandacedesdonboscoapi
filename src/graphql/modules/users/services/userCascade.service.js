@@ -8,6 +8,7 @@ const Attendance = require("../../../../../models/Attendance");
 const AttendanceClass = require("../../../../../models/ClassAttendance");
 const MedicalRecord = require("../../../../../models/MedicalRecord");
 const PerformanceAttendance = require("../../../../../models/PerformanceAttendance");
+const EventRoster = require("../../../../../models/EventRoster");
 const Payment = require("../../../../../models/Payment");
 const Order = require("../../../../../models/Order");
 const { Ticket } = require("../../../../../models/Tickets");
@@ -84,6 +85,19 @@ async function deleteUserCascade(userIdInput) {
     }),
     MedicalRecord.deleteMany({ user: userId }),
     PerformanceAttendance.deleteMany({ user: userId }),
+    EventRoster.deleteMany({ user: userId }),
+    EventRoster.updateMany(
+      { attendanceMarkedBy: userId },
+      { $unset: { attendanceMarkedBy: 1, attendanceMarkedAt: 1 } },
+    ),
+    EventRoster.updateMany(
+      { createdBy: userId },
+      { $unset: { createdBy: 1 } },
+    ),
+    EventRoster.updateMany(
+      { transportPaidBy: userId },
+      { $unset: { transportPaidBy: 1, transportPaidAt: 1 } },
+    ),
     Payment.deleteMany({ user: userId }),
     Order.deleteMany({ userId }),
     Ticket.deleteMany({ userId }),

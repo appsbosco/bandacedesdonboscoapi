@@ -26,4 +26,5 @@ module.exports = [
   require("./tourPayments"),
   require("./tourImports"),
   require("./formations"),
+  require("./academicEvaluations"),
 ];

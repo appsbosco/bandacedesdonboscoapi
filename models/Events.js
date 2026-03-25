@@ -76,6 +76,11 @@ const EventSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    transportFeeAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
 
     // ── Meta ─────────────────────────────────────────────────────────────────
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
