@@ -8,6 +8,8 @@ const Ticket = require("../../../../../models/Tickets");
 const Document = require("../../../../../models/Document");
 const User = require("../../../../../models/User");
 
+const DOCUMENT_ADMIN_ROLES = new Set(["Admin", "CEDES Financiero"]);
+
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
 
@@ -27,6 +29,14 @@ function requireUserId(ctx) {
   const userId = getUserId(user);
   if (!userId) throw new Error("No autenticado");
   return { user, userId };
+}
+
+function isDocumentAdmin(user) {
+  if (!user) return false;
+  return (
+    DOCUMENT_ADMIN_ROLES.has(user.role) ||
+    user.roles?.some((role) => DOCUMENT_ADMIN_ROLES.has(role))
+  );
 }
 
 function safeJsonParse(str) {
@@ -260,7 +270,7 @@ async function setDocumentStatus(documentId, status, ctx) {
   if (!documentId) throw new Error("documentId requerido");
   if (!status) throw new Error("status requerido");
 
-  const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+  const isAdmin = isDocumentAdmin(user);
   const filter = isAdmin
     ? { _id: documentId, isDeleted: { $ne: true } }
     : { _id: documentId, owner: userId, isDeleted: { $ne: true } };
@@ -281,7 +291,7 @@ async function deleteDocument(documentId, ctx) {
   const { user, userId } = requireUserId(ctx);
   if (!documentId) throw new Error("documentId requerido");
 
-  const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+  const isAdmin = isDocumentAdmin(user);
 
   // Admin puede eliminar cualquier documento; usuario normal solo los suyos
   const filter = isAdmin
@@ -399,7 +409,7 @@ async function getDocumentById(id, ctx) {
   const { user, userId } = requireUserId(ctx);
   if (!id) throw new Error("ID de documento requerido");
 
-  const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+  const isAdmin = isDocumentAdmin(user);
 
   // Admin puede ver cualquier documento; usuario normal solo los suyos
   const filter = isAdmin
@@ -502,8 +512,8 @@ async function enqueueDocumentOcr(input, ctx) {
   });
   if (!doc) throw new Error("Documento no existe");
 
-  if (!["PASSPORT", "VISA"].includes(doc.type)) {
-    throw new Error("OCR disponible solo para PASSPORT o VISA");
+  if (!["PASSPORT", "VISA", "PERMISO_SALIDA"].includes(doc.type)) {
+    throw new Error("OCR disponible solo para PASSPORT, VISA o PERMISO_SALIDA");
   }
 
   const hasRaw = doc.images?.some((img) => img.kind === "RAW");

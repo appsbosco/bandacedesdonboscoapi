@@ -11,6 +11,7 @@ const Parent = require("../../../models/Parents");
 // ─── Roles privilegiados (admin-level) ───────────────────────────────────────
 // Mantener sincronizado con los roles reales del sistema.
 const PRIVILEGED_ROLES = new Set(["Admin", "Director", "Subdirector"]);
+const TOUR_FINANCIAL_ROLES = new Set(["CEDES Financiero"]);
 
 /**
  * Returns true if the user has admin-level access to tours.
@@ -19,6 +20,11 @@ const PRIVILEGED_ROLES = new Set(["Admin", "Director", "Subdirector"]);
 function isPrivilegedTourViewer(user) {
   if (!user) return false;
   return PRIVILEGED_ROLES.has(user.role);
+}
+
+function canManageTourFinance(user) {
+  if (!user) return false;
+  return isPrivilegedTourViewer(user) || TOUR_FINANCIAL_ROLES.has(user.role);
 }
 
 /**
@@ -135,4 +141,6 @@ module.exports = {
   getParentChildrenUserIds,
   assertParentCanViewChild,
   PRIVILEGED_ROLES,
+  TOUR_FINANCIAL_ROLES,
+  canManageTourFinance,
 };

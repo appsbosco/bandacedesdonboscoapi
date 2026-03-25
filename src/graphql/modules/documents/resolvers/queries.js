@@ -4,6 +4,8 @@
  */
 const documentService = require("../services/document.service");
 
+const DOCUMENT_ADMIN_ROLES = new Set(["Admin", "CEDES Financiero"]);
+
 module.exports = {
   myDocuments: async (_, { filters, pagination }, ctx) => {
     try {
@@ -45,7 +47,9 @@ module.exports = {
     try {
       // Verificar rol admin en el resolver (no en el service, para mantener separación)
       const user = ctx?.user || ctx?.me || ctx?.currentUser;
-      const isAdmin = user?.role === "Admin" || user?.roles?.includes("Admin");
+      const isAdmin =
+        DOCUMENT_ADMIN_ROLES.has(user?.role) ||
+        user?.roles?.some((role) => DOCUMENT_ADMIN_ROLES.has(role));
       if (!isAdmin) throw new Error("No autorizado");
 
       return await documentService.getAllDocuments(

@@ -13,6 +13,7 @@
 const TourParticipant = require("../../../../../models/TourParticipant");
 const Tour = require("../../../../../models/Tour");
 const Document = require("../../../../../models/Document");
+const { canManageTourFinance } = require("../../../shared/tourAuth");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -22,12 +23,12 @@ function requireAuth(ctx) {
   return user;
 }
 
-const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
-
 function requireAdmin(ctx) {
   const user = requireAuth(ctx);
-  if (!ADMIN_ROLES.has(user.role)) {
-    throw new Error("No autorizado: se requiere rol Admin, Director o Subdirector");
+  if (!canManageTourFinance(user)) {
+    throw new Error(
+      "No autorizado: se requiere rol Admin, Director, Subdirector o CEDES Financiero"
+    );
   }
   return user;
 }

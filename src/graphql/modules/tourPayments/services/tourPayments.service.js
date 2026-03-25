@@ -23,6 +23,7 @@ const TourPaymentPlan = require("../../../../../models/TourPaymentPlan");
 const ParticipantFinancialAccount = require("../../../../../models/ParticipantFinancialAccount");
 const ParticipantInstallment = require("../../../../../models/ParticipantInstallment");
 const TourPayment = require("../../../../../models/TourPayment");
+const { canManageTourFinance } = require("../../../shared/tourAuth");
 
 // ─── Auth guards ──────────────────────────────────────────────────────────────
 
@@ -32,13 +33,11 @@ function requireAuth(ctx) {
   return user;
 }
 
-const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
-
 function requireAdmin(ctx) {
   const user = requireAuth(ctx);
-  if (!ADMIN_ROLES.has(user.role)) {
+  if (!canManageTourFinance(user)) {
     throw new Error(
-      "No autorizado: se requiere rol Admin, Director o Subdirector",
+      "No autorizado: se requiere rol Admin, Director, Subdirector o CEDES Financiero",
     );
   }
   return user;
