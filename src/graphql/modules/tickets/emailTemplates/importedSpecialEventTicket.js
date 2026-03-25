@@ -1,6 +1,4 @@
 "use strict";
-
-const SPECIAL_EVENT_ID = "69c213e365b8a50a73072670";
 const JOSUE_INSTAGRAM_URL = "https://instagram.com/josuechinchilla3";
 
 const escapeHtml = (v) =>
@@ -21,6 +19,26 @@ function formatEventDate(value, locale = "es-CR") {
   }).format(date);
 }
 
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function isComedyGen2026Event(event) {
+  const normalizedName = normalizeText(event?.name);
+  const normalizedDescription = normalizeText(event?.description);
+
+  return (
+    normalizedName.includes("show de comedia") &&
+    (normalizedName.includes("gen 2026") ||
+      normalizedDescription.includes("gen 2026"))
+  );
+}
+
 module.exports = function buildImportedSpecialEventTicket({
   ticket,
   event,
@@ -29,8 +47,7 @@ module.exports = function buildImportedSpecialEventTicket({
   qrCodeDataUrl,
   locale = "es-CR",
 } = {}) {
-  const eventId = String(event?._id || event?.id || "");
-  if (eventId !== SPECIAL_EVENT_ID) return null;
+  if (!isComedyGen2026Event(event)) return null;
 
   const recipientName = escapeHtml(
     buyerName || ticket?.buyerName || "Invitado",

@@ -57,6 +57,7 @@ module.exports = gql`
     name: String
     email: String
     quantity: Int
+    skipEmail: Boolean
   }
 
   # Asignación masiva mixta (usuarios registrados + externos)

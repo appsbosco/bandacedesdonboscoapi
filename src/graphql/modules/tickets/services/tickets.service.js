@@ -491,12 +491,18 @@ async function maybeSendImportedPaidTicketEmail({
   ticket,
   event,
   wasPaid,
+  previousQuantity,
   ctx,
 }) {
+  const quantityChangedAfterEmail =
+    Number(ticket?.paymentEmailSentForQuantity || 0) !==
+    Number(ticket?.ticketQuantity || 0);
   const shouldSend =
     ticket?.source === "excel_import" &&
     ticket?.paid &&
-    !wasPaid &&
+    (!wasPaid ||
+      Number(previousQuantity || 0) !== Number(ticket?.ticketQuantity || 0) ||
+      quantityChangedAfterEmail) &&
     ticket?.buyerEmail;
 
   if (!shouldSend) return false;
@@ -1041,6 +1047,9 @@ module.exports = {
             ? `${user.name} ${user.firstSurName}`.trim()
             : recipient.name;
           const email = user?.email || recipient.email;
+          const skipEmail =
+            Boolean(recipient.skipEmail) ||
+            normalizeText(user?.state) === "exalumno";
 
           if (!name)
             throw new Error(
@@ -1105,14 +1114,16 @@ module.exports = {
             },
           );
 
-          await sendEmail(ctx, {
-            to: email,
-            subject: built.subject,
-            text: built.text,
-            html: built.html,
-            context: built.context,
-            attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
-          });
+          if (!skipEmail) {
+            await sendEmail(ctx, {
+              to: email,
+              subject: built.subject,
+              text: built.text,
+              html: built.html,
+              context: built.context,
+              attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
+            });
+          }
 
           return ticket;
         }),
@@ -1469,6 +1480,15 @@ module.exports = {
           updatedTickets += 1;
         }
 
+        const sentEmail = await maybeSendImportedPaidTicketEmail({
+          ticket,
+          event,
+          wasPaid: Boolean(ticket.paymentEmailSentAt),
+          previousQuantity,
+          ctx,
+        });
+        if (sentEmail) emailsSent += 1;
+
         totalDelta += totalCount - previousQuantity;
       }
 
@@ -1527,6 +1547,8 @@ module.exports = {
 
       const nextNumbers = await generateNextImportedTicketNumbers(eventId, qty);
       let ticket = existing;
+      const previousQuantity = ticket?.ticketQuantity || 0;
+      const wasPaid = Boolean(ticket?.paid);
       if (!ticket) {
         ticket = new Ticket({
           eventId,
@@ -1574,6 +1596,14 @@ module.exports = {
         await ticket.save();
         await incrementEventTotalTickets(eventId, qty);
       }
+
+      await maybeSendImportedPaidTicketEmail({
+        ticket,
+        event,
+        wasPaid,
+        previousQuantity,
+        ctx,
+      });
 
       return ticket;
     } catch (err) {
@@ -1633,7 +1663,13 @@ module.exports = {
       }
 
       await ticket.save();
-      await maybeSendImportedPaidTicketEmail({ ticket, event, wasPaid, ctx });
+      await maybeSendImportedPaidTicketEmail({
+        ticket,
+        event,
+        wasPaid,
+        previousQuantity: ticket.ticketQuantity,
+        ctx,
+      });
 
       return ticket;
     } catch (err) {
