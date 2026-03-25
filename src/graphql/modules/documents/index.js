@@ -18,7 +18,9 @@ module.exports = {
   typeDefs,
   resolvers: {
     Query: queries,
-    Mutation: mutations,
+    Mutation: Object.fromEntries(
+      Object.entries(mutations || {}).filter(([key]) => key !== "validateTicket"),
+    ),
     ...types,
   },
 };

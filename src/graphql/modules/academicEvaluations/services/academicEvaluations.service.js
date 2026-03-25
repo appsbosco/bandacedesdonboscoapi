@@ -84,7 +84,16 @@ async function getAcademicSubjects({ grade, isActive } = {}, ctx) {
   requireAuth(ctx);
   const query = {};
   if (isActive !== undefined) query.isActive = isActive;
-  if (grade) query.grades = grade;
+  if (grade) {
+    // Include subjects that match the grade OR have no grade restrictions
+    // (grades empty array, null, or field missing entirely)
+    query.$or = [
+      { grades: grade },
+      { grades: { $size: 0 } },
+      { grades: { $exists: false } },
+      { grades: null },
+    ];
+  }
   return AcademicSubject.find(query).sort({ name: 1 });
 }
 
@@ -99,7 +108,11 @@ async function updateAcademicSubject(id, input, ctx) {
   requireAdmin(ctx);
   const subject = await AcademicSubject.findById(id);
   if (!subject) throw new Error("Materia no encontrada");
-  Object.assign(subject, input);
+  // Normalize grades/bands: treat null as [] so queries using $size:0 keep working
+  const sanitized = { ...input };
+  if (sanitized.grades == null) sanitized.grades = [];
+  if (sanitized.bands == null) sanitized.bands = [];
+  Object.assign(subject, sanitized);
   await subject.save();
   return subject;
 }
@@ -474,7 +487,7 @@ async function getStudentPerformance(studentId, periodId, year, ctx) {
 
 async function getAdminDashboard(filter = {}, ctx) {
   requireAdmin(ctx);
-  const { periodId, year, grade, band } = filter;
+  const { periodId, year, grade, band, instrument } = filter;
 
   // Obtener todos los IDs de estudiantes con evaluaciones aprobadas
   const approvedQuery = { status: "approved" };
@@ -486,10 +499,13 @@ async function getAdminDashboard(filter = {}, ctx) {
     .populate("student", "name firstSurName grade bands instrument _id")
     .lean();
 
-  // Filtrar por grado/banda si se especificó
+  // Filtrar por grado/banda/instrumento si se especificó
   let filtered = approvedEvals;
   if (grade) filtered = filtered.filter((e) => e.student?.grade === grade);
   if (band) filtered = filtered.filter((e) => (e.student?.bands || []).includes(band));
+  if (instrument) filtered = filtered.filter((e) =>
+    e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
+  );
   if (year) filtered = filtered.filter((e) => e.period?.year === Number(year));
 
   const studentIds = [...new Set(filtered.map((e) => String(e.student?._id || e.student)))];
@@ -610,7 +626,7 @@ async function getAdminDashboard(filter = {}, ctx) {
 
 async function getAdminPendingEvaluations(filter = {}, ctx) {
   requireAdmin(ctx);
-  const { periodId, grade, subjectId } = filter;
+  const { periodId, grade, subjectId, instrument } = filter;
 
   const query = { status: "pending" };
   if (periodId) query.period = periodId;
@@ -624,27 +640,31 @@ async function getAdminPendingEvaluations(filter = {}, ctx) {
     .sort({ submittedByStudentAt: 1 })
     .lean();
 
-  // Filter by grade after populate
-  if (grade) {
-    return evals.filter((e) => e.student?.grade === grade);
-  }
-  return evals;
+  let result = evals;
+  if (grade) result = result.filter((e) => e.student?.grade === grade);
+  if (instrument) result = result.filter((e) =>
+    e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
+  );
+  return result;
 }
 
 async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
   requireAdmin(ctx);
-  const { periodId, year, grade } = filter;
+  const { periodId, year, grade, instrument } = filter;
 
   const approvedQuery = { status: "approved" };
   if (periodId) approvedQuery.period = periodId;
 
   const approvedEvals = await AcademicEvaluation.find(approvedQuery)
-    .populate("student", "name firstSurName grade bands _id")
+    .populate("student", "name firstSurName grade bands instrument _id")
     .populate("period", "year _id")
     .lean();
 
   let filtered = approvedEvals;
   if (grade) filtered = filtered.filter((e) => e.student?.grade === grade);
+  if (instrument) filtered = filtered.filter((e) =>
+    e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
+  );
   if (year) filtered = filtered.filter((e) => e.period?.year === Number(year));
 
   const studentIds = [...new Set(filtered.map((e) => String(e.student?._id || e.student)))];
@@ -663,6 +683,26 @@ async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
   return performances
     .sort((a, b) => a.averageGeneral - b.averageGeneral)
     .slice(0, limit);
+}
+
+// ─── Parent child evaluations ─────────────────────────────────────────────────
+
+async function getParentChildEvaluations(childId, filter = {}, ctx) {
+  await requireParentChildAccess(ctx, childId);
+  const { periodId, subjectId, status } = filter;
+
+  const query = { student: childId };
+  if (periodId) query.period = periodId;
+  if (subjectId) query.subject = subjectId;
+  if (status) query.status = status;
+
+  return AcademicEvaluation.find(query)
+    .populate("subject")
+    .populate("period")
+    .populate("student", "name firstSurName email grade instrument _id")
+    .populate("reviewedByAdmin", "name firstSurName email _id")
+    .sort({ createdAt: -1 })
+    .lean();
 }
 
 // ─── Parent ────────────────────────────────────────────────────────────────────
@@ -750,6 +790,7 @@ async function acknowledgeChildPerformance(childId, periodId, comment, ctx) {
 module.exports = {
   getAcademicSubjects,
   getAdminPendingEvaluations,
+  getParentChildEvaluations,
   createAcademicSubject,
   updateAcademicSubject,
   getAcademicPeriods,

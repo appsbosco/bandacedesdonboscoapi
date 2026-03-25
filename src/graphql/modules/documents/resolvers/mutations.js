@@ -1,86 +1,96 @@
 /**
  * documents - Mutations
- * Resolvers delgados
+ * Resolvers delgados — args match typeDefs (no input: wrappers)
  */
 const documentService = require("../services/document.service");
 
 module.exports = {
-  validateTicket: async (_, { qrCode }, ctx) => {
+  // createDocument(type: DocumentType!, notes: String): Document!
+  createDocument: async (_, { type, notes }, ctx) => {
     try {
-      return await documentService.validateTicket(qrCode, ctx);
-    } catch (error) {
-      console.error(error);
-      throw new Error(error.message || "No se pudo validar el ticket");
-    }
-  },
-
-  createDocument: async (_, { input }, ctx) => {
-    try {
-      return await documentService.createDocument(input, ctx);
+      return await documentService.createDocument({ type, notes }, ctx);
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo crear el documento");
     }
   },
 
-  getSignedUpload: async (_, { input }, ctx) => {
+  // getSignedUpload(documentId: ID!, kind: ImageKind): SignedUploadResult!
+  getSignedUpload: async (_, { documentId, kind }, ctx) => {
     try {
-      return await documentService.getSignedUpload(input, ctx);
+      return await documentService.getSignedUpload({ documentId, kind }, ctx);
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo generar la firma de upload");
     }
   },
 
-  addDocumentImage: async (_, { input }, ctx) => {
+  // addDocumentImage(documentId: ID!, image: AddDocumentImageInput!): Document!
+  addDocumentImage: async (_, { documentId, image }, ctx) => {
     try {
-      return await documentService.addDocumentImage(input, ctx);
+      return await documentService.addDocumentImage({ documentId, image }, ctx);
     } catch (error) {
       console.error(error);
-      throw new Error(
-        error.message || "No se pudo agregar la imagen al documento",
-      );
+      throw new Error(error.message || "No se pudo agregar la imagen al documento");
     }
   },
 
-  upsertDocumentExtractedData: async (_, { input }, ctx) => {
+  // upsertDocumentExtractedData(documentId: ID!, data: UpsertDocumentExtractedDataInput!): Document!
+  // Service expects { documentId, extracted } — map 'data' → 'extracted'
+  upsertDocumentExtractedData: async (_, { documentId, data }, ctx) => {
     try {
-      return await documentService.upsertDocumentExtractedData(input, ctx);
+      return await documentService.upsertDocumentExtractedData(
+        { documentId, extracted: data },
+        ctx
+      );
     } catch (error) {
       console.error(error);
-      throw new Error(
-        error.message || "No se pudo actualizar datos extraídos del documento",
-      );
+      throw new Error(error.message || "No se pudo actualizar datos extraídos del documento");
     }
   },
 
+  // setDocumentStatus(documentId: ID!, status: DocumentStatus!): Document!
   setDocumentStatus: async (_, { documentId, status }, ctx) => {
     try {
       return await documentService.setDocumentStatus(documentId, status, ctx);
     } catch (error) {
       console.error(error);
-      throw new Error(
-        error.message || "No se pudo actualizar el estado del documento",
-      );
+      throw new Error(error.message || "No se pudo actualizar el estado del documento");
     }
   },
 
+  // deleteDocument(documentId: ID!): Boolean!
   deleteDocument: async (_, { documentId }, ctx) => {
     try {
-      return await documentService.deleteDocument(documentId, ctx);
+      const result = await documentService.deleteDocument(documentId, ctx);
+      return result?.success === true;
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo eliminar el documento");
     }
   },
 
-  enqueueDocumentOcr: async (_, { input }, ctx) => {
+  // enqueueDocumentOcr(documentId: ID!): EnqueueOcrResult!
+  enqueueDocumentOcr: async (_, { documentId }, ctx) => {
     try {
-      return await documentService.enqueueDocumentOcr(input, ctx);
+      const result = await documentService.enqueueDocumentOcr({ documentId }, ctx);
+      return { ok: result?.success === true, jobId: result?.jobId || null, message: null };
+    } catch (error) {
+      console.error(error);
+      throw new Error(error.message || "No se pudo encolar el OCR del documento");
+    }
+  },
+
+  updateDocumentVisibilitySettings: async (_, { restrictSensitiveUploadsToAdmins }, ctx) => {
+    try {
+      return await documentService.updateDocumentVisibilitySettings(
+        { restrictSensitiveUploadsToAdmins },
+        ctx
+      );
     } catch (error) {
       console.error(error);
       throw new Error(
-        error.message || "No se pudo encolar el OCR del documento",
+        error.message || "No se pudo actualizar la configuración de visibilidad"
       );
     }
   },

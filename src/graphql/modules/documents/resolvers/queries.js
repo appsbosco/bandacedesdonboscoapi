@@ -4,8 +4,6 @@
  */
 const documentService = require("../services/document.service");
 
-const DOCUMENT_ADMIN_ROLES = new Set(["Admin", "CEDES Financiero"]);
-
 module.exports = {
   myDocuments: async (_, { filters, pagination }, ctx) => {
     try {
@@ -43,13 +41,21 @@ module.exports = {
     }
   },
 
+  documentVisibilitySettings: async (_, __, ctx) => {
+    try {
+      return await documentService.getDocumentVisibilitySettings(ctx);
+    } catch (error) {
+      console.error(error);
+      throw new Error(
+        error.message || "No se pudo obtener la configuración de visibilidad de documentos"
+      );
+    }
+  },
+
   allDocuments: async (_, { filters, pagination }, ctx) => {
     try {
-      // Verificar rol admin en el resolver (no en el service, para mantener separación)
       const user = ctx?.user || ctx?.me || ctx?.currentUser;
-      const isAdmin =
-        DOCUMENT_ADMIN_ROLES.has(user?.role) ||
-        user?.roles?.some((role) => DOCUMENT_ADMIN_ROLES.has(role));
+      const isAdmin = documentService.isDocumentAdmin(user);
       if (!isAdmin) throw new Error("No autorizado");
 
       return await documentService.getAllDocuments(

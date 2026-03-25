@@ -1,6 +1,6 @@
-const { gql } = require("apollo-server");
+const { gql } = require("apollo-server-express");
 
-module.exports = gql`
+const typeDefs = gql`
   enum DocumentType {
     PASSPORT
     VISA
@@ -45,124 +45,7 @@ module.exports = gql`
     glarePct: Float
     attempt: Int
     torchUsed: Boolean
-    ts: DateTime
-  }
-
-  type DocumentImage {
-    _id: ID!
-    kind: ImageKind
-    url: String!
-    provider: ImageProvider!
-    publicId: String
-    width: Int
-    height: Int
-    bytes: Int
-    mimeType: String
-    sha256: String
-    captureMeta: CaptureMeta
-    uploadedAt: DateTime!
-  }
-
-  type DocumentExtractedData {
-    fullName: String
-    givenNames: String
-    surname: String
-    nationality: String
-    issuingCountry: String
-    documentNumber: String
-    passportNumber: String
-    visaType: String
-    dateOfBirth: DateTime
-    sex: String
-    expirationDate: DateTime
-    issueDate: DateTime
-    mrzRaw: String
-    mrzValid: Boolean
-    mrzFormat: String
-    reasonCodes: [String!]
-    ocrText: String
-    ocrConfidence: Float
-  }
-
-  type Document {
-    _id: ID!
-    owner: User!
-    type: DocumentType!
-    status: DocumentStatus!
-    source: DocumentSource!
-    images: [DocumentImage!]!
-    extracted: DocumentExtractedData
-    notes: String
-    ocrAttempts: Int
-    ocrLastError: String
-    ocrUpdatedAt: DateTime
-    retentionUntil: DateTime
-    lastAccessedAt: DateTime
-    isDeleted: Boolean!
-    createdAt: DateTime!
-    updatedAt: DateTime!
-    createdBy: User!
-    updatedBy: User
-    isExpired: Boolean
-    daysUntilExpiration: Int
-  }
-
-  type DocumentsResult {
-    documents: [Document!]!
-    pagination: PaginationInfo!
-  }
-
-  type PaginationInfo {
-    total: Int!
-    limit: Int!
-    skip: Int!
-    hasMore: Boolean!
-  }
-
-  type ExpirationSummary {
-    total: Int!
-    expired: Int!
-    expiringIn30Days: Int!
-    expiringIn60Days: Int!
-    expiringIn90Days: Int!
-    valid: Int!
-    noExpirationDate: Int!
-  }
-
-  type DeleteDocumentResult {
-    success: Boolean!
-    message: String!
-  }
-
-  type SignedUploadResult {
-    timestamp: Int!
-    signature: String!
-    apiKey: String!
-    cloudName: String!
-    folder: String!
-    publicId: String!
-    resourceType: String!
-  }
-
-  input AllDocumentsFiltersInput {
-    type: DocumentType
-    status: DocumentStatus
-    ownerName: String
-    expirationBefore: DateTime
-    expirationAfter: DateTime
-  }
-
-  input CreateDocumentInput {
-    type: DocumentType!
-    source: DocumentSource
-    notes: String
-    retentionUntil: DateTime
-  }
-
-  input GetSignedUploadInput {
-    documentId: ID!
-    kind: ImageKind!
-    mimeType: String
+    ts: String
   }
 
   input CaptureMetaInput {
@@ -174,12 +57,88 @@ module.exports = gql`
     glarePct: Float
     attempt: Int
     torchUsed: Boolean
-    ts: DateTime
+    ts: String
+  }
+
+  type DocumentImage {
+    id: ID!
+    kind: ImageKind!
+    url: String!
+    provider: ImageProvider!
+    publicId: String
+    width: Int
+    height: Int
+    bytes: Int
+    mimeType: String
+    sha256: String
+    captureMeta: CaptureMeta
+    uploadedAt: String
+  }
+
+  type DocumentExtractedData {
+    fullName: String
+    givenNames: String
+    surname: String
+    nationality: String
+    issuingCountry: String
+    documentNumber: String
+    passportNumber: String
+    visaType: String
+    visaControlNumber: String
+    dateOfBirth: String
+    sex: String
+    expirationDate: String
+    issueDate: String
+    destination: String
+    authorizerName: String
+    mrzRaw: String
+    mrzValid: Boolean
+    mrzFormat: String
+    reasonCodes: [String]
+    ocrText: String
+    ocrConfidence: Float
+  }
+
+  type Document {
+    id: ID!
+    owner: User
+    type: DocumentType!
+    status: DocumentStatus!
+    source: DocumentSource!
+    images: [DocumentImage]
+    extracted: DocumentExtractedData
+    notes: String
+    retentionUntil: String
+    lastAccessedAt: String
+    ocrAttempts: Int
+    ocrLastError: String
+    ocrUpdatedAt: String
+    isExpired: Boolean
+    daysUntilExpiration: Int
+    createdBy: User
+    updatedBy: User
+    createdAt: String
+    updatedAt: String
+  }
+
+  type DocumentPagination {
+    documents: [Document]
+    total: Int
+    hasMore: Boolean
+  }
+
+  type ExpirationSummary {
+    total: Int
+    expired: Int
+    expiringIn30Days: Int
+    expiringIn60Days: Int
+    expiringIn90Days: Int
+    valid: Int
+    noExpirationDate: Int
   }
 
   input AddDocumentImageInput {
-    documentId: ID!
-    kind: ImageKind
+    kind: ImageKind!
     url: String!
     provider: ImageProvider
     publicId: String
@@ -192,7 +151,6 @@ module.exports = gql`
   }
 
   input UpsertDocumentExtractedDataInput {
-    documentId: ID!
     fullName: String
     givenNames: String
     surname: String
@@ -201,67 +159,89 @@ module.exports = gql`
     documentNumber: String
     passportNumber: String
     visaType: String
-    dateOfBirth: DateTime
+    visaControlNumber: String
+    dateOfBirth: String
     sex: String
-    expirationDate: DateTime
-    issueDate: DateTime
+    expirationDate: String
+    issueDate: String
+    destination: String
+    authorizerName: String
     mrzRaw: String
     mrzValid: Boolean
     mrzFormat: String
-    reasonCodes: [String!]
+    reasonCodes: [String]
     ocrText: String
     ocrConfidence: Float
   }
 
-  input DocumentFiltersInput {
-    type: DocumentType
-    status: DocumentStatus
-    source: DocumentSource
-    expired: Boolean
-    expiresBefore: DateTime
-    expiresInDays: Int
+  type SignedUploadResult {
+    signature: String!
+    timestamp: Int!
+    cloudName: String!
+    apiKey: String!
+    folder: String!
+    publicId: String
+    resourceType: String
   }
 
-  input PaginationInput {
-    limit: Int
-    skip: Int
+  type DocumentVisibilitySettings {
+    restrictSensitiveUploadsToAdmins: Boolean!
+    sensitiveTypes: [DocumentType!]!
+  }
+
+  type EnqueueOcrResult {
+    ok: Boolean!
+    jobId: String
+    message: String
   }
 
   extend type Query {
     myDocuments(
-      filters: DocumentFiltersInput
-      pagination: PaginationInput
-    ): DocumentsResult!
+      type: DocumentType
+      status: DocumentStatus
+      expiredOnly: Boolean
+      limit: Int
+      skip: Int
+    ): DocumentPagination!
 
     allDocuments(
-      filters: AllDocumentsFiltersInput
-      pagination: PaginationInput
-    ): DocumentsResult!
+      ownerSearch: String
+      type: DocumentType
+      status: DocumentStatus
+      expiredOnly: Boolean
+      limit: Int
+      skip: Int
+    ): DocumentPagination!
 
-    documentById(id: ID!): Document!
-    documentsExpiringSummary(referenceDate: DateTime): ExpirationSummary!
-  }
+    documentById(id: ID!): Document
 
-  input EnqueueDocumentOcrInput {
-    documentId: ID!
-  }
+    documentsExpiringSummary(referenceDate: String): ExpirationSummary!
 
-  type EnqueueDocumentOcrResult {
-    success: Boolean!
-    jobId: String
+    documentVisibilitySettings: DocumentVisibilitySettings!
   }
 
   extend type Mutation {
-    createDocument(input: CreateDocumentInput!): Document!
-    getSignedUpload(input: GetSignedUploadInput!): SignedUploadResult!
-    addDocumentImage(input: AddDocumentImageInput!): Document!
+    createDocument(type: DocumentType!, notes: String): Document!
+
+    getSignedUpload(documentId: ID!, kind: ImageKind): SignedUploadResult!
+
+    addDocumentImage(documentId: ID!, image: AddDocumentImageInput!): Document!
+
     upsertDocumentExtractedData(
-      input: UpsertDocumentExtractedDataInput!
+      documentId: ID!
+      data: UpsertDocumentExtractedDataInput!
     ): Document!
+
     setDocumentStatus(documentId: ID!, status: DocumentStatus!): Document!
-    deleteDocument(documentId: ID!): DeleteDocumentResult!
-    enqueueDocumentOcr(
-      input: EnqueueDocumentOcrInput!
-    ): EnqueueDocumentOcrResult!
+
+    deleteDocument(documentId: ID!): Boolean!
+
+    enqueueDocumentOcr(documentId: ID!): EnqueueOcrResult!
+
+    updateDocumentVisibilitySettings(
+      restrictSensitiveUploadsToAdmins: Boolean!
+    ): DocumentVisibilitySettings!
   }
 `;
+
+module.exports = typeDefs;

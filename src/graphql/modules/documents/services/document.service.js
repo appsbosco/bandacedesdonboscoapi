@@ -6,9 +6,12 @@
 const crypto = require("crypto");
 const Ticket = require("../../../../../models/Tickets");
 const Document = require("../../../../../models/Document");
+const DocumentModuleSettings = require("../../../../../models/DocumentModuleSettings");
 const User = require("../../../../../models/User");
 
 const DOCUMENT_ADMIN_ROLES = new Set(["Admin", "CEDES Financiero"]);
+const SENSITIVE_DOCUMENT_TYPES = new Set(["PASSPORT", "VISA", "PERMISO_SALIDA"]);
+const DOCUMENT_SETTINGS_KEY = "default";
 
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
@@ -37,6 +40,23 @@ function isDocumentAdmin(user) {
     DOCUMENT_ADMIN_ROLES.has(user.role) ||
     user.roles?.some((role) => DOCUMENT_ADMIN_ROLES.has(role))
   );
+}
+
+async function getOrCreateDocumentModuleSettings() {
+  const settings = await DocumentModuleSettings.findOneAndUpdate(
+    { key: DOCUMENT_SETTINGS_KEY },
+    { $setOnInsert: { key: DOCUMENT_SETTINGS_KEY } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
+
+  return settings;
+}
+
+function mapVisibilitySettings(settings) {
+  return {
+    restrictSensitiveUploadsToAdmins: Boolean(settings?.restrictSensitiveUploadsToAdmins ?? true),
+    sensitiveTypes: [...SENSITIVE_DOCUMENT_TYPES],
+  };
 }
 
 function safeJsonParse(str) {
@@ -138,8 +158,21 @@ async function validateTicket(qrCode, ctx) {
  * Documents CRUD
  */
 async function createDocument(input, ctx) {
-  const { userId } = requireUserId(ctx);
+  const { user, userId } = requireUserId(ctx);
   if (!input) throw new Error("Datos de documento requeridos");
+
+  const settings = await getOrCreateDocumentModuleSettings();
+  const isSensitiveType = SENSITIVE_DOCUMENT_TYPES.has(input.type);
+
+  if (
+    isSensitiveType &&
+    settings.restrictSensitiveUploadsToAdmins &&
+    !isDocumentAdmin(user)
+  ) {
+    throw new Error(
+      "La subida de pasaporte, visa y permiso de salida está reservada al administrador"
+    );
+  }
 
   const created = await Document.create({
     ...input,
@@ -198,6 +231,31 @@ async function getSignedUpload(input, ctx) {
   };
 }
 
+async function getDocumentVisibilitySettings(ctx) {
+  requireUserId(ctx);
+  const settings = await getOrCreateDocumentModuleSettings();
+  return mapVisibilitySettings(settings);
+}
+
+async function updateDocumentVisibilitySettings(input, ctx) {
+  const { user, userId } = requireUserId(ctx);
+  if (!isDocumentAdmin(user)) throw new Error("No autorizado");
+
+  const settings = await DocumentModuleSettings.findOneAndUpdate(
+    { key: DOCUMENT_SETTINGS_KEY },
+    {
+      $set: {
+        restrictSensitiveUploadsToAdmins: Boolean(input?.restrictSensitiveUploadsToAdmins),
+        updatedBy: userId,
+      },
+      $setOnInsert: { key: DOCUMENT_SETTINGS_KEY },
+    },
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+  ).lean();
+
+  return mapVisibilitySettings(settings);
+}
+
 async function addDocumentImage(input, ctx) {
   const { userId } = requireUserId(ctx);
   if (!input) throw new Error("Datos requeridos");
@@ -249,12 +307,13 @@ async function upsertDocumentExtractedData(input, ctx) {
   if (!documentId) throw new Error("documentId requerido");
 
   const extractedPayload = extracted || rest;
-  if (!extractedPayload || Object.keys(extractedPayload).length === 0) {
-    throw new Error("Datos extraídos requeridos");
-  }
-
   const doc = await Document.findOne({ _id: documentId, owner: userId });
   if (!doc) throw new Error("Documento no existe");
+
+  if (!extractedPayload || Object.keys(extractedPayload).length === 0) {
+    const populated = await baseDocumentPopulate(Document.findById(doc._id));
+    return populated || doc;
+  }
 
   doc.extracted = { ...(doc.extracted || {}), ...extractedPayload };
   doc.updatedBy = userId;
@@ -550,6 +609,7 @@ async function enqueueDocumentOcr(input, ctx) {
 module.exports = {
   requireAuth,
   validateTicket,
+  isDocumentAdmin,
 
   createDocument,
   getSignedUpload,
@@ -558,6 +618,8 @@ module.exports = {
   setDocumentStatus,
   deleteDocument,
   enqueueDocumentOcr,
+  getDocumentVisibilitySettings,
+  updateDocumentVisibilitySettings,
 
   getMyDocuments,
   getAllDocuments,
