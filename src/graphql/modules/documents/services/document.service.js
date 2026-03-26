@@ -223,13 +223,11 @@ async function getSignedUpload(input, ctx) {
     isDeleted: { $ne: true },
   });
   if (!doc) throw new Error("Documento no existe");
-  if (mimeType === "application/pdf" || mimeType === "image/pdf") {
-    throw new Error("Los archivos PDF no estan permitidos");
-  }
 
   const folder = `documents/${documentId}/${kind.toLowerCase()}`;
   const timestamp = Math.round(Date.now() / 1000);
-  const resourceType = "image";
+  const isPdf = mimeType === "application/pdf" || mimeType === "image/pdf";
+  const resourceType = isPdf ? "raw" : "image";
   const publicId = `${folder}/${Date.now()}`;
 
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -290,9 +288,6 @@ async function addDocumentImage(input, ctx) {
 
   if (imagePayload.mimeType === "image/pdf") {
     imagePayload.mimeType = "application/pdf";
-  }
-  if (imagePayload.mimeType === "application/pdf") {
-    throw new Error("Los archivos PDF no estan permitidos");
   }
 
   if (!imagePayload || Object.keys(imagePayload).length === 0) {

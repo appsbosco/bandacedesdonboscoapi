@@ -15,10 +15,10 @@ module.exports = {
     }
   },
 
-  // getSignedUpload(documentId: ID!, kind: ImageKind): SignedUploadResult!
-  getSignedUpload: async (_, { documentId, kind }, ctx) => {
+  // getSignedUpload(documentId: ID!, kind: ImageKind, mimeType: String): SignedUploadResult!
+  getSignedUpload: async (_, { documentId, kind, mimeType }, ctx) => {
     try {
-      return await documentService.getSignedUpload({ documentId, kind }, ctx);
+      return await documentService.getSignedUpload({ documentId, kind, mimeType }, ctx);
     } catch (error) {
       console.error(error);
       throw new Error(error.message || "No se pudo generar la firma de upload");

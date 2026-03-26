@@ -21,6 +21,14 @@ module.exports = {
         : parent.issueDate || null,
   },
   Document: {
+    createdAt: (parent) =>
+      parent.createdAt instanceof Date
+        ? parent.createdAt.toISOString()
+        : parent.createdAt || null,
+    updatedAt: (parent) =>
+      parent.updatedAt instanceof Date
+        ? parent.updatedAt.toISOString()
+        : parent.updatedAt || null,
     owner: async (parent, _, context) => {
       // Si ya está poblado, retornar
       if (parent.owner && typeof parent.owner === "object") {

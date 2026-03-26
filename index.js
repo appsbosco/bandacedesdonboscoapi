@@ -110,12 +110,15 @@ function buildCloudinaryPdfCandidates({ url, publicId }) {
   }
 
   if (cloudName && publicId) {
-    const normalizedPublicId = publicId.endsWith(".pdf")
-      ? publicId
-      : `${publicId}.pdf`;
     candidates.push(
-      `https://res.cloudinary.com/${cloudName}/raw/upload/${normalizedPublicId}`,
+      `https://res.cloudinary.com/${cloudName}/raw/upload/${publicId}`,
     );
+
+    if (!publicId.endsWith(".pdf")) {
+      candidates.push(
+        `https://res.cloudinary.com/${cloudName}/raw/upload/${publicId}.pdf`,
+      );
+    }
   }
 
   return [...new Set(candidates)];

@@ -233,7 +233,7 @@ const typeDefs = gql`
   extend type Mutation {
     createDocument(type: DocumentType!, notes: String): Document!
 
-    getSignedUpload(documentId: ID!, kind: ImageKind): SignedUploadResult!
+    getSignedUpload(documentId: ID!, kind: ImageKind, mimeType: String): SignedUploadResult!
 
     addDocumentImage(documentId: ID!, image: AddDocumentImageInput!): Document!
 
