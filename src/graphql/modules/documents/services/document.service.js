@@ -894,14 +894,46 @@ async function processDocumentOcrSync(input, ctx) {
     });
 
     // 7. Save extracted data + status
+    //    Use $set with explicit field mapping to avoid Mongoose subdoc issues
+    //    and filter out fields not in the extractedDataSchema.
+    const ext = result.extracted || {};
+    const extractedForDb = {
+      fullName:          ext.fullName || null,
+      givenNames:        ext.givenNames || null,
+      surname:           ext.surname || null,
+      nationality:       ext.nationality || null,
+      issuingCountry:    ext.issuingCountry || null,
+      documentNumber:    ext.documentNumber || null,
+      passportNumber:    ext.passportNumber || null,
+      visaType:          ext.visaType || null,
+      visaControlNumber: ext.visaControlNumber || null,
+      dateOfBirth:       ext.dateOfBirth || null,
+      sex:               ext.sex || null,
+      expirationDate:    ext.expirationDate || null,
+      issueDate:         ext.issueDate || null,
+      destination:       ext.destination || null,
+      authorizerName:    ext.authorizerName || null,
+      mrzRaw:            ext.mrzRaw || null,
+      mrzValid:          ext.mrzValid ?? false,
+      mrzFormat:         ext.mrzFormat || null,
+      reasonCodes:       ext.reasonCodes || [],
+      ocrText:           ext.ocrText || null,
+      ocrConfidence:     ext.ocrConfidence || 0,
+    };
+    console.log("[processDocumentOcrSync] Saving extracted fields:",
+      Object.entries(extractedForDb)
+        .filter(([k, v]) => v != null && k !== "ocrText")
+        .map(([k, v]) => `${k}=${typeof v === "string" && v.length > 30 ? v.slice(0, 30) + "…" : v}`)
+        .join(", ")
+    );
+
     const updatedDoc = await Document.findById(doc._id);
-    if (!updatedDoc.extracted) updatedDoc.extracted = {};
-    Object.assign(updatedDoc.extracted, result.extracted);
+    updatedDoc.set("extracted", extractedForDb);
     updatedDoc.status = result.status;
     updatedDoc.source = "OCR";
     updatedDoc.ocrUpdatedAt = new Date();
     if (result.status === "OCR_FAILED") {
-      updatedDoc.ocrLastError = (result.extracted.reasonCodes || []).join(",");
+      updatedDoc.ocrLastError = (ext.reasonCodes || []).join(",");
     }
     await updatedDoc.save();
 
