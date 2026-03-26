@@ -168,17 +168,10 @@ async function poll() {
     const { buffer: normalizedBuf, visionText, visionConfidence } = await normalizeDocument(rawBuf, doc.type);
 
     // 3. Reuse OCR text from normalization Vision call (avoids second API call)
-    let ocrText = visionText;
-    let ocrConfidence = visionConfidence;
+    let ocrText = visionText || '';
+    let ocrConfidence = visionConfidence || 0;
 
-    // Only call Vision again if normalization didn't return usable text
-    if (!ocrText || ocrText.length < 20) {
-      const fallback = await analyzeDocument(normalizedBuf);
-      ocrText = fallback.text;
-      ocrConfidence = fallback.confidence;
-    }
-
-    // 4. Type-specific extraction
+    // 4. Type-specific extraction — try with pre-norm text first
     let result;
     if (doc.type === 'PASSPORT') {
       result = await processPassport(ocrText, ocrConfidence);
@@ -189,6 +182,23 @@ async function poll() {
     } else {
       // OTHER: no OCR, just normalize image
       result = { extracted: { ocrText: '', ocrConfidence: 0, mrzValid: false, reasonCodes: ['NO_OCR_FOR_TYPE'] }, status: 'OCR_SUCCESS' };
+    }
+
+    // 4b. If MRZ not found in pre-norm text, retry OCR on normalized image
+    const mrzMissing = !result?.extracted?.mrzValid &&
+      (result?.extracted?.reasonCodes || []).some(c =>
+        c === 'NO_MRZ_FOUND' || c === 'MRZ_PARSE_FAILED'
+      );
+    if (mrzMissing && ['PASSPORT', 'VISA'].includes(doc.type)) {
+      console.log(`[OCR] MRZ not found in pre-norm text for ${doc._id}, retrying on normalized image...`);
+      const fallback = await analyzeDocument(normalizedBuf);
+      ocrText = fallback.text || '';
+      ocrConfidence = fallback.confidence || 0;
+      if (doc.type === 'PASSPORT') {
+        result = await processPassport(ocrText, ocrConfidence);
+      } else {
+        result = await processVisa(ocrText, ocrConfidence);
+      }
     }
 
     // 5. Upload normalized image

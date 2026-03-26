@@ -828,32 +828,46 @@ async function processDocumentOcrSync(input, ctx) {
     const normalizedBuf = normResult.buffer;
     console.log(`[processDocumentOcrSync] Normalized: ${normalizedBuf.length} bytes, visionText=${(normResult.visionText || '').length} chars`);
 
-    // 3. Use Vision text; fallback to second call only if text is too short
+    // 3. Try OCR text from normalization Vision call first (pre-crop image)
     let ocrText = normResult.visionText || '';
     let ocrConfidence = normResult.visionConfidence || 0;
-    if (!ocrText || ocrText.length < 20) {
-      console.log("[processDocumentOcrSync] Vision text too short, running fallback OCR...");
-      const fallback = await deps.analyzeDocument(normalizedBuf);
-      ocrText = fallback.text;
-      ocrConfidence = fallback.confidence;
-    }
-    console.log(`[processDocumentOcrSync] OCR text: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`);
+    console.log(`[processDocumentOcrSync] Pre-norm OCR: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`);
 
-    // 4. Type-specific extraction
+    // 4. Type-specific extraction — try with pre-norm text first
     let result;
     if (doc.type === "PASSPORT") {
       result = _processPassportText(ocrText, ocrConfidence);
     } else if (doc.type === "VISA") {
       result = _processVisaText(ocrText, ocrConfidence);
     } else {
-      // PERMISO_SALIDA — simple OCR without MRZ
       result = {
         extracted: { ocrText, ocrConfidence, mrzValid: false, reasonCodes: [] },
         status: ocrConfidence > 0.2 ? "OCR_SUCCESS" : "OCR_FAILED",
       };
     }
 
-    // 5. Upload normalized image to Cloudinary
+    // 5. If MRZ not found or extraction failed, retry OCR on the NORMALIZED image
+    //    (post-crop/resize gives cleaner text for MRZ detection)
+    const mrzMissing = !result.extracted.mrzValid &&
+      (result.extracted.reasonCodes || []).some(c =>
+        c === "NO_MRZ_FOUND" || c === "MRZ_PARSE_FAILED"
+      );
+    if (mrzMissing && ["PASSPORT", "VISA"].includes(doc.type)) {
+      console.log("[processDocumentOcrSync] MRZ not found in pre-norm text, retrying on normalized image...");
+      const fallback = await deps.analyzeDocument(normalizedBuf);
+      ocrText = fallback.text || '';
+      ocrConfidence = fallback.confidence || 0;
+      console.log(`[processDocumentOcrSync] Post-norm OCR: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`);
+
+      if (doc.type === "PASSPORT") {
+        result = _processPassportText(ocrText, ocrConfidence);
+      } else {
+        result = _processVisaText(ocrText, ocrConfidence);
+      }
+    }
+
+    // 6. Upload normalized image to Cloudinary
+    console.log(`[processDocumentOcrSync] Extraction result: status=${result.status} mrzValid=${result.extracted.mrzValid} fields=${Object.keys(result.extracted).filter(k => result.extracted[k] && !['ocrText','reasonCodes','ocrConfidence'].includes(k)).join(',')}`);
     console.log("[processDocumentOcrSync] Uploading normalized image to Cloudinary...");
     const ownerId = doc.owner.toString();
     const uploadResult = await _uploadBufferToCloudinary(
