@@ -2,6 +2,7 @@
 module.exports = [
   require("./attendance"),
   require("./apoyo"),
+  require("./bookingRequests"),
   require("./camps"),
   require("./classAttendance"),
   require("./documents"),
