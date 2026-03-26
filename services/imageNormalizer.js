@@ -38,11 +38,15 @@ function computeCropRegion(vertices, imgWidth, imgHeight) {
 /**
  * Normalize a document image:
  * 1. Auto-rotate via EXIF
- * 2. Google Vision → crop bounds + rotation angle
+ * 2. Google Vision → crop bounds + rotation angle + OCR text
  * 3. Correct rotation (< 45°)
  * 4. Crop to document content using Vision bounds
  * 5. Resize to spec per document type
  * 6. JPEG compress, enforce 600 KB limit
+ *
+ * Returns { buffer, visionText, visionConfidence }
+ * visionText/visionConfidence come from the Vision call used for cropping.
+ * Callers can reuse these to avoid a second Vision API call for OCR.
  */
 async function normalizeDocument(rawBuffer, documentType) {
   const spec = SPECS[documentType] || SPECS.OTHER;
@@ -54,13 +58,17 @@ async function normalizeDocument(rawBuffer, documentType) {
     .jpeg({ quality: 95 })
     .toBuffer();
 
-  // Step 2: Vision analysis
-  let cropBounds    = null;
-  let rotationAngle = 0;
+  // Step 2: Vision analysis (reuse text + confidence for OCR)
+  let cropBounds       = null;
+  let rotationAngle    = 0;
+  let visionText       = '';
+  let visionConfidence = 0;
   try {
     const v = await analyzeDocument(workBuf);
-    cropBounds    = v.cropBounds;
-    rotationAngle = v.rotationAngle;
+    cropBounds       = v.cropBounds;
+    rotationAngle    = v.rotationAngle;
+    visionText       = v.text || '';
+    visionConfidence = v.confidence || 0;
   } catch (err) {
     console.warn('[imageNormalizer] Vision failed, skipping auto-crop/rotate:', err.message);
   }
@@ -117,7 +125,7 @@ async function normalizeDocument(rawBuffer, documentType) {
     q -= 5;
   } while (finalBuf.length > 600 * 1024 && q > 50);
 
-  return finalBuf;
+  return { buffer: finalBuf, visionText, visionConfidence };
 }
 
 module.exports = { normalizeDocument, fetchBuffer };

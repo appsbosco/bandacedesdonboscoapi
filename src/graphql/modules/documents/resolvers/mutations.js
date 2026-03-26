@@ -81,6 +81,16 @@ module.exports = {
     }
   },
 
+  // processDocumentOcr(documentId: ID!): Document!
+  processDocumentOcr: async (_, { documentId }, ctx) => {
+    try {
+      return await documentService.processDocumentOcrSync({ documentId }, ctx);
+    } catch (error) {
+      console.error(error);
+      throw new Error(error.message || "No se pudo procesar el OCR del documento");
+    }
+  },
+
   updateDocumentVisibilitySettings: async (_, { restrictSensitiveUploadsToAdmins }, ctx) => {
     try {
       return await documentService.updateDocumentVisibilitySettings(

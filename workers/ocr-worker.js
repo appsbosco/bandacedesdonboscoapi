@@ -9,7 +9,7 @@ const { normalizeDocument, fetchBuffer } = require('../services/imageNormalizer'
 const { validateMRZ, extractMRZData } = require('../utils/mrz');
 const { parsePermisoSalida } = require('../utils/permisoParser');
 
-const POLL_MS    = parseInt(process.env.OCR_POLL_INTERVAL || '5000', 10);
+const POLL_MS    = parseInt(process.env.OCR_POLL_INTERVAL || '1500', 10);
 const MAX_TRIES  = 5;
 const MRZ_RE     = /^[A-Z0-9<]{30,44}$/;
 
@@ -149,8 +149,8 @@ async function processPermisoSalida(ocrText, ocrConfidence) {
 
 async function poll() {
   const doc = await Document.findOneAndUpdate(
-    { status: 'OCR_PENDING', ocrAttempts: { $lt: MAX_TRIES }, isDeleted: false },
-    { $set: { status: 'OCR_PROCESSING', ocrUpdatedAt: new Date() }, $inc: { ocrAttempts: 1 } },
+    { status: 'OCR_PENDING', ocrAttempts: { $lt: MAX_TRIES }, isDeleted: { $ne: true } },
+    { $set: { status: 'OCR_PROCESSING', ocrUpdatedAt: new Date() } },
     { new: true }
   );
   if (!doc) return;
@@ -164,11 +164,19 @@ async function poll() {
     // 1. Download
     const rawBuf = await fetchBuffer(rawImage.url);
 
-    // 2. Normalize (Vision-guided rotate+crop+resize)
-    const normalizedBuf = await normalizeDocument(rawBuf, doc.type);
+    // 2. Normalize (Vision-guided rotate+crop+resize) — now returns OCR text too
+    const { buffer: normalizedBuf, visionText, visionConfidence } = await normalizeDocument(rawBuf, doc.type);
 
-    // 3. OCR via Vision (already called during normalization - reuse text from Vision)
-    const { text: ocrText, confidence: ocrConfidence } = await analyzeDocument(normalizedBuf);
+    // 3. Reuse OCR text from normalization Vision call (avoids second API call)
+    let ocrText = visionText;
+    let ocrConfidence = visionConfidence;
+
+    // Only call Vision again if normalization didn't return usable text
+    if (!ocrText || ocrText.length < 20) {
+      const fallback = await analyzeDocument(normalizedBuf);
+      ocrText = fallback.text;
+      ocrConfidence = fallback.confidence;
+    }
 
     // 4. Type-specific extraction
     let result;

@@ -238,6 +238,14 @@ const typeDefs = gql`
 
     enqueueDocumentOcr(documentId: ID!): EnqueueOcrResult!
 
+    """
+    Process OCR synchronously — normalizes image, runs Vision OCR, extracts
+    MRZ/text data, uploads normalized image, and returns the Document with
+    extracted data in a single request. Eliminates worker + polling delays.
+    Typical response time: 5-12 seconds.
+    """
+    processDocumentOcr(documentId: ID!): Document!
+
     updateDocumentVisibilitySettings(
       restrictSensitiveUploadsToAdmins: Boolean!
     ): DocumentVisibilitySettings!

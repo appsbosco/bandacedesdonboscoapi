@@ -10,7 +10,11 @@ const DocumentModuleSettings = require("../../../../../models/DocumentModuleSett
 const User = require("../../../../../models/User");
 
 const DOCUMENT_ADMIN_ROLES = new Set(["Admin", "CEDES Financiero"]);
-const SENSITIVE_DOCUMENT_TYPES = new Set(["PASSPORT", "VISA", "PERMISO_SALIDA"]);
+const SENSITIVE_DOCUMENT_TYPES = new Set([
+  "PASSPORT",
+  "VISA",
+  "PERMISO_SALIDA",
+]);
 const DOCUMENT_SETTINGS_KEY = "default";
 
 function requireAuth(ctx) {
@@ -46,7 +50,7 @@ async function getOrCreateDocumentModuleSettings() {
   const settings = await DocumentModuleSettings.findOneAndUpdate(
     { key: DOCUMENT_SETTINGS_KEY },
     { $setOnInsert: { key: DOCUMENT_SETTINGS_KEY } },
-    { new: true, upsert: true, setDefaultsOnInsert: true }
+    { new: true, upsert: true, setDefaultsOnInsert: true },
   ).lean();
 
   return settings;
@@ -54,7 +58,9 @@ async function getOrCreateDocumentModuleSettings() {
 
 function mapVisibilitySettings(settings) {
   return {
-    restrictSensitiveUploadsToAdmins: Boolean(settings?.restrictSensitiveUploadsToAdmins ?? true),
+    restrictSensitiveUploadsToAdmins: Boolean(
+      settings?.restrictSensitiveUploadsToAdmins ?? true,
+    ),
     sensitiveTypes: [...SENSITIVE_DOCUMENT_TYPES],
   };
 }
@@ -170,7 +176,7 @@ async function createDocument(input, ctx) {
     !isDocumentAdmin(user)
   ) {
     throw new Error(
-      "La subida de pasaporte, visa y permiso de salida está reservada al administrador"
+      "La subida de pasaporte, visa y permiso de salida está reservada al administrador",
     );
   }
 
@@ -245,12 +251,14 @@ async function updateDocumentVisibilitySettings(input, ctx) {
     { key: DOCUMENT_SETTINGS_KEY },
     {
       $set: {
-        restrictSensitiveUploadsToAdmins: Boolean(input?.restrictSensitiveUploadsToAdmins),
+        restrictSensitiveUploadsToAdmins: Boolean(
+          input?.restrictSensitiveUploadsToAdmins,
+        ),
         updatedBy: userId,
       },
       $setOnInsert: { key: DOCUMENT_SETTINGS_KEY },
     },
-    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true },
   ).lean();
 
   return mapVisibilitySettings(settings);
@@ -606,6 +614,305 @@ async function enqueueDocumentOcr(input, ctx) {
   return { success: true, jobId: String(doc._id) };
 }
 
+// ─── Sync OCR processing helpers ──────────────────────────────────────────────
+
+const MRZ_RE = /^[A-Z0-9<]{30,44}$/;
+
+function _extractMRZLines(text) {
+  const candidates = text
+    .split("\n")
+    .map((l) => l.trim().replace(/\s+/g, ""))
+    .filter((l) => MRZ_RE.test(l));
+
+  for (let i = 0; i < candidates.length - 1; i++) {
+    if (candidates[i].length === 44 && candidates[i + 1].length === 44) {
+      return candidates[i] + "\n" + candidates[i + 1];
+    }
+  }
+  for (let i = 0; i < candidates.length - 2; i++) {
+    if (
+      candidates[i].length === 30 &&
+      candidates[i + 1].length === 30 &&
+      candidates[i + 2].length === 30
+    ) {
+      return candidates.slice(i, i + 3).join("\n");
+    }
+  }
+  return null;
+}
+
+function _parseEnglishDate(str) {
+  const MONTHS = {
+    JAN: 0,
+    FEB: 1,
+    MAR: 2,
+    APR: 3,
+    MAY: 4,
+    JUN: 5,
+    JUL: 6,
+    AUG: 7,
+    SEP: 8,
+    OCT: 9,
+    NOV: 10,
+    DEC: 11,
+  };
+  const m = (str || "").toUpperCase().match(/(\d{1,2})\s*([A-Z]{3})\s*(\d{4})/);
+  if (!m) return null;
+  const d = new Date(parseInt(m[3]), MONTHS[m[2]], parseInt(m[1]));
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Lazy-loaded OCR dependencies — only resolved when processDocumentOcrSync runs.
+// This avoids crashing the main server if @google-cloud/vision is not installed
+// (the worker process loads it separately).
+let _lazyDeps = null;
+function _getOcrDeps() {
+  if (!_lazyDeps) {
+    console.log("[processDocumentOcrSync] Loading OCR dependencies...");
+    const cld = require("cloudinary").v2;
+    // Ensure Cloudinary is configured for sync processing
+    if (!cld.config().cloud_name && process.env.CLOUDINARY_CLOUD_NAME) {
+      cld.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+    }
+    _lazyDeps = {
+      cloudinary: cld,
+      analyzeDocument: require("../../../../../services/vision.service")
+        .analyzeDocument,
+      normalizeDocument: require("../../../../../services/imageNormalizer")
+        .normalizeDocument,
+      fetchBuffer: require("../../../../../services/imageNormalizer")
+        .fetchBuffer,
+      validateMRZ: require("../../../../../utils/mrz").validateMRZ,
+      extractMRZData: require("../../../../../utils/mrz").extractMRZData,
+    };
+    console.log("[processDocumentOcrSync] OCR dependencies loaded OK");
+  }
+  return _lazyDeps;
+}
+
+function _processPassportText(ocrText, ocrConfidence) {
+  const { validateMRZ, extractMRZData } = _getOcrDeps();
+  const extracted = { ocrText, ocrConfidence };
+  const reasonCodes = [];
+
+  const mrzText = _extractMRZLines(ocrText);
+  if (!mrzText) {
+    reasonCodes.push("NO_MRZ_FOUND");
+    return {
+      extracted: { ...extracted, mrzValid: false, reasonCodes },
+      status: "OCR_FAILED",
+    };
+  }
+
+  const mrzResult = validateMRZ(mrzText);
+  if (mrzResult.valid) {
+    Object.assign(extracted, {
+      fullName:
+        `${mrzResult.givenNames || ""} ${mrzResult.surname || ""}`.trim(),
+      givenNames: mrzResult.givenNames,
+      surname: mrzResult.surname,
+      passportNumber: mrzResult.passportNumber,
+      nationality: mrzResult.nationality,
+      issuingCountry: mrzResult.issuingCountry,
+      dateOfBirth: mrzResult.dateOfBirth,
+      sex: mrzResult.sex,
+      expirationDate: mrzResult.expirationDate,
+      mrzRaw: mrzText,
+      mrzValid: true,
+      mrzFormat: "TD3",
+    });
+    return { extracted: { ...extracted, reasonCodes }, status: "OCR_SUCCESS" };
+  }
+
+  const partial = extractMRZData(mrzText);
+  if (partial) {
+    Object.assign(extracted, {
+      ...partial,
+      fullName:
+        partial.givenNames && partial.surname
+          ? `${partial.givenNames} ${partial.surname}`.trim()
+          : null,
+      mrzRaw: mrzText,
+      mrzValid: false,
+    });
+    reasonCodes.push("MRZ_CHECKDIGIT_FAIL");
+  } else {
+    reasonCodes.push("MRZ_PARSE_FAILED");
+  }
+
+  return { extracted: { ...extracted, reasonCodes }, status: "OCR_SUCCESS" };
+}
+
+function _processVisaText(ocrText, ocrConfidence) {
+  const base = _processPassportText(ocrText, ocrConfidence);
+
+  const visaType = ocrText.match(
+    /(?:VISA\s*(?:TYPE|CLASS)|CLASS)[\/\s:]*([A-Z][A-Z0-9\/\-]{0,5})/i,
+  );
+  if (visaType) base.extracted.visaType = visaType[1].trim();
+
+  const issueDate = ocrText.match(
+    /(?:ISSUE\s*DATE|ISSUED)[:\s]*(\d{1,2}\s*[A-Z]{3}\s*\d{4})/i,
+  );
+  if (issueDate) base.extracted.issueDate = _parseEnglishDate(issueDate[1]);
+
+  const controlNo = ocrText.match(/(?:FOLIO|CONTROL)[:\s#]*([A-Z0-9]{6,12})/i);
+  if (controlNo) base.extracted.visaControlNumber = controlNo[1];
+
+  return base;
+}
+
+function _uploadBufferToCloudinary(buffer, folder) {
+  const { cloudinary } = _getOcrDeps();
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        resource_type: "image",
+        format: "jpg",
+        access_mode: "authenticated",
+      },
+      (err, result) => (err ? reject(err) : resolve(result)),
+    );
+    stream.end(buffer);
+  });
+}
+
+/**
+ * processDocumentOcrSync — processes OCR synchronously in a single request.
+ * Normalizes image, runs Vision OCR, extracts MRZ/text, uploads normalized
+ * image, saves results, and returns the fully populated Document.
+ * Eliminates worker polling delay + frontend polling delay.
+ */
+async function processDocumentOcrSync(input, ctx) {
+  const { userId } = requireUserId(ctx);
+  if (!input?.documentId) throw new Error("documentId requerido");
+
+  const doc = await Document.findOne({
+    _id: input.documentId,
+    owner: userId,
+    isDeleted: { $ne: true },
+  });
+  if (!doc) throw new Error("Documento no existe");
+
+  if (!["PASSPORT", "VISA", "PERMISO_SALIDA"].includes(doc.type)) {
+    throw new Error("OCR disponible solo para PASSPORT, VISA o PERMISO_SALIDA");
+  }
+
+  const rawImage = doc.images?.find((img) => img.kind === "RAW");
+  if (!rawImage) throw new Error("El documento no tiene imagen RAW");
+
+  // Mark as processing
+  doc.status = "OCR_PROCESSING";
+  doc.ocrAttempts = (doc.ocrAttempts || 0) + 1;
+  doc.ocrUpdatedAt = new Date();
+  await doc.save();
+
+  try {
+    console.log(`[processDocumentOcrSync] Starting for doc=${doc._id} type=${doc.type}`);
+    const deps = _getOcrDeps();
+
+    // 1. Download raw image
+    if (!rawImage.url) throw new Error("La imagen RAW no tiene URL");
+    console.log(`[processDocumentOcrSync] Downloading RAW image: ${rawImage.url.slice(0, 80)}...`);
+    const rawBuf = await deps.fetchBuffer(rawImage.url);
+    console.log(`[processDocumentOcrSync] Downloaded ${rawBuf.length} bytes`);
+
+    // 2. Normalize + get Vision OCR text in ONE call
+    console.log("[processDocumentOcrSync] Normalizing image...");
+    const normResult = await deps.normalizeDocument(rawBuf, doc.type);
+    const normalizedBuf = normResult.buffer;
+    console.log(`[processDocumentOcrSync] Normalized: ${normalizedBuf.length} bytes, visionText=${(normResult.visionText || '').length} chars`);
+
+    // 3. Use Vision text; fallback to second call only if text is too short
+    let ocrText = normResult.visionText || '';
+    let ocrConfidence = normResult.visionConfidence || 0;
+    if (!ocrText || ocrText.length < 20) {
+      console.log("[processDocumentOcrSync] Vision text too short, running fallback OCR...");
+      const fallback = await deps.analyzeDocument(normalizedBuf);
+      ocrText = fallback.text;
+      ocrConfidence = fallback.confidence;
+    }
+    console.log(`[processDocumentOcrSync] OCR text: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`);
+
+    // 4. Type-specific extraction
+    let result;
+    if (doc.type === "PASSPORT") {
+      result = _processPassportText(ocrText, ocrConfidence);
+    } else if (doc.type === "VISA") {
+      result = _processVisaText(ocrText, ocrConfidence);
+    } else {
+      // PERMISO_SALIDA — simple OCR without MRZ
+      result = {
+        extracted: { ocrText, ocrConfidence, mrzValid: false, reasonCodes: [] },
+        status: ocrConfidence > 0.2 ? "OCR_SUCCESS" : "OCR_FAILED",
+      };
+    }
+
+    // 5. Upload normalized image to Cloudinary
+    console.log("[processDocumentOcrSync] Uploading normalized image to Cloudinary...");
+    const ownerId = doc.owner.toString();
+    const uploadResult = await _uploadBufferToCloudinary(
+      normalizedBuf,
+      `documents/${ownerId}/normalized`,
+    );
+    console.log(`[processDocumentOcrSync] Uploaded: ${uploadResult.secure_url?.slice(0, 60)}...`);
+
+    // 6. Save normalized image
+    await Document.findByIdAndUpdate(doc._id, {
+      $push: {
+        images: {
+          kind: "NORMALIZED",
+          url: uploadResult.secure_url,
+          provider: "CLOUDINARY",
+          publicId: uploadResult.public_id,
+          width: uploadResult.width,
+          height: uploadResult.height,
+          bytes: uploadResult.bytes,
+          mimeType: "image/jpeg",
+          uploadedAt: new Date(),
+        },
+      },
+    });
+
+    // 7. Save extracted data + status
+    const updatedDoc = await Document.findById(doc._id);
+    if (!updatedDoc.extracted) updatedDoc.extracted = {};
+    Object.assign(updatedDoc.extracted, result.extracted);
+    updatedDoc.status = result.status;
+    updatedDoc.source = "OCR";
+    updatedDoc.ocrUpdatedAt = new Date();
+    if (result.status === "OCR_FAILED") {
+      updatedDoc.ocrLastError = (result.extracted.reasonCodes || []).join(",");
+    }
+    await updatedDoc.save();
+
+    // 8. Return populated document
+    const populated = await baseDocumentPopulate(Document.findById(doc._id));
+    return populated;
+  } catch (err) {
+    const errMsg = err?.message || err?.toString?.() || String(err) || "Error desconocido";
+    console.error("[processDocumentOcrSync] failed:", errMsg, err);
+    // On failure, revert to OCR_PENDING so the worker can retry
+    try {
+      await Document.findByIdAndUpdate(doc._id, {
+        $set: {
+          status: "OCR_PENDING",
+          ocrLastError: errMsg,
+          ocrUpdatedAt: new Date(),
+        },
+      });
+    } catch (revertErr) {
+      console.error("[processDocumentOcrSync] revert failed:", revertErr);
+    }
+    throw new Error(`Error procesando OCR: ${errMsg}`);
+  }
+}
+
 module.exports = {
   requireAuth,
   validateTicket,
@@ -618,6 +925,7 @@ module.exports = {
   setDocumentStatus,
   deleteDocument,
   enqueueDocumentOcr,
+  processDocumentOcrSync,
   getDocumentVisibilitySettings,
   updateDocumentVisibilitySettings,
 
