@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node .",
     "dev": "nodemon .",
-    "worker:ocr": "node workers/ocr-worker.js"
+    "worker:ocr": "node workers/ocr-worker.js",
+    "sync:tour-documents": "node scripts/resync-tour-document-projection.js"
   },
   "engines": {
     "node": "22.x"

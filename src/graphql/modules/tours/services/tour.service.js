@@ -13,6 +13,9 @@ const TourPayment = require("../../../../../models/TourPayment");
 const ParticipantFinancialAccount = require("../../../../../models/ParticipantFinancialAccount");
 const ParticipantInstallment = require("../../../../../models/ParticipantInstallment");
 const {
+  syncTourDocumentsForOwner,
+} = require("../../tourDocuments/services/tourDocuments.service");
+const {
   isPrivilegedTourViewer,
   getLinkedTourParticipantOrThrow,
   isParentActor,
@@ -29,6 +32,13 @@ function requireAuth(ctx) {
 }
 
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
+const CANONICAL_DOCUMENT_FIELDS = new Set([
+  "passportNumber",
+  "passportExpiry",
+  "hasVisa",
+  "visaExpiry",
+  "hasExitPermit",
+]);
 
 function requireAdmin(ctx) {
   const user = requireAuth(ctx);
@@ -236,6 +246,9 @@ async function createTourParticipant(tourId, input, ctx) {
   if (linkedUserId) data.linkedUser = linkedUserId;
 
   const participant = await TourParticipant.create(data);
+  if (linkedUserId) {
+    await syncTourDocumentsForOwner(linkedUserId, { updatedBy: admin._id || admin.id });
+  }
   return populateParticipant(TourParticipant.findById(participant._id));
 }
 
@@ -296,6 +309,17 @@ async function createTourParticipantsBatch(tourId, participantsInput, ctx) {
       ordered: false,
     });
     insertedIds = inserted.map((p) => p._id);
+
+    const linkedOwners = [
+      ...new Set(
+        inserted
+          .map((participant) => participant.linkedUser?.toString?.() || participant.linkedUser)
+          .filter(Boolean),
+      ),
+    ];
+    for (const ownerId of linkedOwners) {
+      await syncTourDocumentsForOwner(ownerId, { updatedBy: adminId });
+    }
   }
 
   const participants =
@@ -321,6 +345,15 @@ async function updateTourParticipant(id, input, ctx) {
 
   const participant = await TourParticipant.findById(id);
   if (!participant) throw new Error("Participante no encontrado");
+
+  const attemptedCanonicalFields = [...CANONICAL_DOCUMENT_FIELDS].filter(
+    (field) => input[field] !== undefined,
+  );
+  if (participant.linkedUser && attemptedCanonicalFields.length > 0) {
+    throw new Error(
+      "Pasaporte, visa y permiso de salida se sincronizan desde Documents para participantes vinculados. Editalos en el módulo Documents.",
+    );
+  }
 
   const allowed = {};
   const identityFields = [
@@ -377,6 +410,10 @@ async function updateTourParticipant(id, input, ctx) {
   );
 
   if (!updated) throw new Error("No se pudo actualizar el participante");
+  if (allowed.linkedUser) {
+    await syncTourDocumentsForOwner(allowed.linkedUser, { updatedBy: allowed.updatedBy });
+    return populateParticipant(TourParticipant.findById(id));
+  }
   return updated;
 }
 

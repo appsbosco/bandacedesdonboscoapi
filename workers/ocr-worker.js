@@ -8,6 +8,9 @@ const { analyzeDocument } = require('../services/vision.service');
 const { normalizeDocument, fetchBuffer } = require('../services/imageNormalizer');
 const { validateMRZ, extractMRZData } = require('../utils/mrz');
 const { parsePermisoSalida } = require('../utils/permisoParser');
+const {
+  syncTourDocumentFromDocument,
+} = require('../src/graphql/modules/tourDocuments/services/tourDocuments.service');
 
 const POLL_MS    = parseInt(process.env.OCR_POLL_INTERVAL || '1500', 10);
 const MAX_TRIES  = 5;
@@ -235,6 +238,9 @@ async function poll() {
       updatedDoc.ocrLastError = (result.extracted.reasonCodes || []).join(',');
     }
     await updatedDoc.save();
+    await syncTourDocumentFromDocument(updatedDoc, {
+      updatedBy: updatedDoc.updatedBy || updatedDoc.createdBy || null,
+    });
 
     console.log(`[OCR] ${doc._id} → ${result.status} confidence=${(result.extracted.ocrConfidence || 0).toFixed(2)}`);
 

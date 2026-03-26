@@ -8,6 +8,9 @@ const Ticket = require("../../../../../models/Tickets");
 const Document = require("../../../../../models/Document");
 const DocumentModuleSettings = require("../../../../../models/DocumentModuleSettings");
 const User = require("../../../../../models/User");
+const {
+  syncTourDocumentFromDocument,
+} = require("../../tourDocuments/services/tourDocuments.service");
 
 const DOCUMENT_ADMIN_ROLES = new Set(["Admin", "CEDES Financiero"]);
 const SENSITIVE_DOCUMENT_TYPES = new Set([
@@ -86,6 +89,12 @@ function applyPagination(query, pagination) {
   const sort = { [sortBy]: sortOrder };
 
   return query.sort(sort).skip(skip).limit(limit);
+}
+
+async function syncTourProjectionForDocument(document, options = {}) {
+  if (!document) return;
+  if (!SENSITIVE_DOCUMENT_TYPES.has(document.type)) return;
+  await syncTourDocumentFromDocument(document, options);
 }
 
 function sanitizeMyDocumentsFilters(filters, userId) {
@@ -190,6 +199,8 @@ async function createDocument(input, ctx) {
     createdBy: userId,
     updatedBy: userId,
   });
+
+  await syncTourProjectionForDocument(created, { updatedBy: userId });
 
   const doc = await baseDocumentPopulate(Document.findById(created._id));
   return doc || created;
@@ -308,6 +319,7 @@ async function addDocumentImage(input, ctx) {
   );
 
   if (!updated) throw new Error("Documento no existe");
+  await syncTourProjectionForDocument(updated, { updatedBy: userId });
   return updated;
 }
 
@@ -331,6 +343,7 @@ async function upsertDocumentExtractedData(input, ctx) {
   doc.updatedBy = userId;
 
   await doc.save();
+  await syncTourProjectionForDocument(doc, { updatedBy: userId });
 
   const populated = await baseDocumentPopulate(Document.findById(doc._id));
   return populated || doc;
@@ -355,6 +368,7 @@ async function setDocumentStatus(documentId, status, ctx) {
   );
 
   if (!updated) throw new Error("Documento no existe");
+  await syncTourProjectionForDocument(updated, { updatedBy: userId });
   return updated;
 }
 
@@ -376,6 +390,7 @@ async function deleteDocument(documentId, ctx) {
   );
   if (!updated) throw new Error("Documento no existe");
 
+  await syncTourProjectionForDocument(updated, { updatedBy: userId });
   return true;
 }
 
@@ -978,6 +993,7 @@ async function processDocumentOcrSync(input, ctx) {
       updatedDoc.ocrLastError = (ext.reasonCodes || []).join(",");
     }
     await updatedDoc.save();
+    await syncTourProjectionForDocument(updatedDoc, { updatedBy: userId });
 
     // 8. Return populated document
     const populated = await baseDocumentPopulate(Document.findById(doc._id));
