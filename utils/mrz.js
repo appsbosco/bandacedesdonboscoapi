@@ -59,11 +59,11 @@ function validateCheckDigit(data, checkDigit) {
  * Línea 2: 44 caracteres
  */
 function parseMRZTD3(mrzText) {
-  // Limpiar y normalizar
+  // Split on newlines FIRST, then clean each line (preserve \n as separator)
   const lines = mrzText
     .toUpperCase()
-    .replace(/\s/g, "")
     .split("\n")
+    .map((line) => line.replace(/[^\nA-Z0-9<]/g, ""))
     .filter((line) => line.length > 0);
 
   if (lines.length !== 2) {

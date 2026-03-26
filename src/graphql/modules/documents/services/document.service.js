@@ -813,12 +813,16 @@ async function processDocumentOcrSync(input, ctx) {
   await doc.save();
 
   try {
-    console.log(`[processDocumentOcrSync] Starting for doc=${doc._id} type=${doc.type}`);
+    console.log(
+      `[processDocumentOcrSync] Starting for doc=${doc._id} type=${doc.type}`,
+    );
     const deps = _getOcrDeps();
 
     // 1. Download raw image
     if (!rawImage.url) throw new Error("La imagen RAW no tiene URL");
-    console.log(`[processDocumentOcrSync] Downloading RAW image: ${rawImage.url.slice(0, 80)}...`);
+    console.log(
+      `[processDocumentOcrSync] Downloading RAW image: ${rawImage.url.slice(0, 80)}...`,
+    );
     const rawBuf = await deps.fetchBuffer(rawImage.url);
     console.log(`[processDocumentOcrSync] Downloaded ${rawBuf.length} bytes`);
 
@@ -826,12 +830,16 @@ async function processDocumentOcrSync(input, ctx) {
     console.log("[processDocumentOcrSync] Normalizing image...");
     const normResult = await deps.normalizeDocument(rawBuf, doc.type);
     const normalizedBuf = normResult.buffer;
-    console.log(`[processDocumentOcrSync] Normalized: ${normalizedBuf.length} bytes, visionText=${(normResult.visionText || '').length} chars`);
+    console.log(
+      `[processDocumentOcrSync] Normalized: ${normalizedBuf.length} bytes, visionText=${(normResult.visionText || "").length} chars`,
+    );
 
     // 3. Try OCR text from normalization Vision call first (pre-crop image)
-    let ocrText = normResult.visionText || '';
+    let ocrText = normResult.visionText || "";
     let ocrConfidence = normResult.visionConfidence || 0;
-    console.log(`[processDocumentOcrSync] Pre-norm OCR: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`);
+    console.log(
+      `[processDocumentOcrSync] Pre-norm OCR: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`,
+    );
 
     // 4. Type-specific extraction — try with pre-norm text first
     let result;
@@ -848,16 +856,21 @@ async function processDocumentOcrSync(input, ctx) {
 
     // 5. If MRZ not found or extraction failed, retry OCR on the NORMALIZED image
     //    (post-crop/resize gives cleaner text for MRZ detection)
-    const mrzMissing = !result.extracted.mrzValid &&
-      (result.extracted.reasonCodes || []).some(c =>
-        c === "NO_MRZ_FOUND" || c === "MRZ_PARSE_FAILED"
+    const mrzMissing =
+      !result.extracted.mrzValid &&
+      (result.extracted.reasonCodes || []).some(
+        (c) => c === "NO_MRZ_FOUND" || c === "MRZ_PARSE_FAILED",
       );
     if (mrzMissing && ["PASSPORT", "VISA"].includes(doc.type)) {
-      console.log("[processDocumentOcrSync] MRZ not found in pre-norm text, retrying on normalized image...");
+      console.log(
+        "[processDocumentOcrSync] MRZ not found in pre-norm text, retrying on normalized image...",
+      );
       const fallback = await deps.analyzeDocument(normalizedBuf);
-      ocrText = fallback.text || '';
+      ocrText = fallback.text || "";
       ocrConfidence = fallback.confidence || 0;
-      console.log(`[processDocumentOcrSync] Post-norm OCR: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`);
+      console.log(
+        `[processDocumentOcrSync] Post-norm OCR: ${ocrText.length} chars, confidence=${ocrConfidence.toFixed(2)}`,
+      );
 
       if (doc.type === "PASSPORT") {
         result = _processPassportText(ocrText, ocrConfidence);
@@ -867,14 +880,28 @@ async function processDocumentOcrSync(input, ctx) {
     }
 
     // 6. Upload normalized image to Cloudinary
-    console.log(`[processDocumentOcrSync] Extraction result: status=${result.status} mrzValid=${result.extracted.mrzValid} fields=${Object.keys(result.extracted).filter(k => result.extracted[k] && !['ocrText','reasonCodes','ocrConfidence'].includes(k)).join(',')}`);
-    console.log("[processDocumentOcrSync] Uploading normalized image to Cloudinary...");
+    console.log(
+      `[processDocumentOcrSync] Extraction result: status=${result.status} mrzValid=${result.extracted.mrzValid} fields=${Object.keys(
+        result.extracted,
+      )
+        .filter(
+          (k) =>
+            result.extracted[k] &&
+            !["ocrText", "reasonCodes", "ocrConfidence"].includes(k),
+        )
+        .join(",")}`,
+    );
+    console.log(
+      "[processDocumentOcrSync] Uploading normalized image to Cloudinary...",
+    );
     const ownerId = doc.owner.toString();
     const uploadResult = await _uploadBufferToCloudinary(
       normalizedBuf,
       `documents/${ownerId}/normalized`,
     );
-    console.log(`[processDocumentOcrSync] Uploaded: ${uploadResult.secure_url?.slice(0, 60)}...`);
+    console.log(
+      `[processDocumentOcrSync] Uploaded: ${uploadResult.secure_url?.slice(0, 60)}...`,
+    );
 
     // 6. Save normalized image
     await Document.findByIdAndUpdate(doc._id, {
@@ -898,33 +925,37 @@ async function processDocumentOcrSync(input, ctx) {
     //    and filter out fields not in the extractedDataSchema.
     const ext = result.extracted || {};
     const extractedForDb = {
-      fullName:          ext.fullName || null,
-      givenNames:        ext.givenNames || null,
-      surname:           ext.surname || null,
-      nationality:       ext.nationality || null,
-      issuingCountry:    ext.issuingCountry || null,
-      documentNumber:    ext.documentNumber || null,
-      passportNumber:    ext.passportNumber || null,
-      visaType:          ext.visaType || null,
+      fullName: ext.fullName || null,
+      givenNames: ext.givenNames || null,
+      surname: ext.surname || null,
+      nationality: ext.nationality || null,
+      issuingCountry: ext.issuingCountry || null,
+      documentNumber: ext.documentNumber || null,
+      passportNumber: ext.passportNumber || null,
+      visaType: ext.visaType || null,
       visaControlNumber: ext.visaControlNumber || null,
-      dateOfBirth:       ext.dateOfBirth || null,
-      sex:               ext.sex || null,
-      expirationDate:    ext.expirationDate || null,
-      issueDate:         ext.issueDate || null,
-      destination:       ext.destination || null,
-      authorizerName:    ext.authorizerName || null,
-      mrzRaw:            ext.mrzRaw || null,
-      mrzValid:          ext.mrzValid ?? false,
-      mrzFormat:         ext.mrzFormat || null,
-      reasonCodes:       ext.reasonCodes || [],
-      ocrText:           ext.ocrText || null,
-      ocrConfidence:     ext.ocrConfidence || 0,
+      dateOfBirth: ext.dateOfBirth || null,
+      sex: ext.sex || null,
+      expirationDate: ext.expirationDate || null,
+      issueDate: ext.issueDate || null,
+      destination: ext.destination || null,
+      authorizerName: ext.authorizerName || null,
+      mrzRaw: ext.mrzRaw || null,
+      mrzValid: ext.mrzValid ?? false,
+      mrzFormat: ext.mrzFormat || null,
+      reasonCodes: ext.reasonCodes || [],
+      ocrText: ext.ocrText || null,
+      ocrConfidence: ext.ocrConfidence || 0,
     };
-    console.log("[processDocumentOcrSync] Saving extracted fields:",
+    console.log(
+      "[processDocumentOcrSync] Saving extracted fields:",
       Object.entries(extractedForDb)
         .filter(([k, v]) => v != null && k !== "ocrText")
-        .map(([k, v]) => `${k}=${typeof v === "string" && v.length > 30 ? v.slice(0, 30) + "…" : v}`)
-        .join(", ")
+        .map(
+          ([k, v]) =>
+            `${k}=${typeof v === "string" && v.length > 30 ? v.slice(0, 30) + "…" : v}`,
+        )
+        .join(", "),
     );
 
     const updatedDoc = await Document.findById(doc._id);
@@ -941,7 +972,8 @@ async function processDocumentOcrSync(input, ctx) {
     const populated = await baseDocumentPopulate(Document.findById(doc._id));
     return populated;
   } catch (err) {
-    const errMsg = err?.message || err?.toString?.() || String(err) || "Error desconocido";
+    const errMsg =
+      err?.message || err?.toString?.() || String(err) || "Error desconocido";
     console.error("[processDocumentOcrSync] failed:", errMsg, err);
     // On failure, revert to OCR_PENDING so the worker can retry
     try {
