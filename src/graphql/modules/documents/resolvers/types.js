@@ -6,6 +6,20 @@
 const { daysUntilExpiration } = require("../../../../../utils/expiration");
 
 module.exports = {
+  DocumentExtractedData: {
+    dateOfBirth: (parent) =>
+      parent.dateOfBirth instanceof Date
+        ? parent.dateOfBirth.toISOString()
+        : parent.dateOfBirth || null,
+    expirationDate: (parent) =>
+      parent.expirationDate instanceof Date
+        ? parent.expirationDate.toISOString()
+        : parent.expirationDate || null,
+    issueDate: (parent) =>
+      parent.issueDate instanceof Date
+        ? parent.issueDate.toISOString()
+        : parent.issueDate || null,
+  },
   Document: {
     owner: async (parent, _, context) => {
       // Si ya está poblado, retornar

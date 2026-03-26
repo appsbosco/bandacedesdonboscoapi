@@ -105,6 +105,10 @@ function sanitizeMyDocumentsFilters(filters, userId) {
       mongo["extracted.expirationDate"].$lte = new Date(f.expirationBefore);
   }
 
+  if (f.expiredOnly) {
+    mongo["extracted.expirationDate"] = { $lt: new Date() };
+  }
+
   return mongo;
 }
 
@@ -372,7 +376,7 @@ async function deleteDocument(documentId, ctx) {
   );
   if (!updated) throw new Error("Documento no existe");
 
-  return { success: true, message: "Documento eliminado correctamente" };
+  return true;
 }
 
 /**
@@ -421,6 +425,9 @@ async function getAllDocuments(filters, pagination, ctx) {
 
   if (f.status) mongo.status = f.status;
   if (f.type) mongo.type = f.type;
+  if (f.expiredOnly) {
+    mongo["extracted.expirationDate"] = { $lt: new Date() };
+  }
 
   // Búsqueda por nombre: busca los IDs de usuarios que coincidan
   if (f.ownerName && f.ownerName.trim()) {
@@ -588,7 +595,7 @@ async function enqueueDocumentOcr(input, ctx) {
 
   // Guard: already processing
   if (doc.status === "OCR_PENDING" || doc.status === "OCR_PROCESSING") {
-    return { success: true, jobId: String(doc._id) };
+    return { ok: true, jobId: String(doc._id) };
   }
 
   // Guard: max attempts
@@ -611,7 +618,7 @@ async function enqueueDocumentOcr(input, ctx) {
   doc.updatedBy = userId;
   await doc.save();
 
-  return { success: true, jobId: String(doc._id) };
+  return { ok: true, jobId: String(doc._id) };
 }
 
 // ─── Sync OCR processing helpers ──────────────────────────────────────────────
@@ -750,17 +757,21 @@ function _processPassportText(ocrText, ocrConfidence) {
 function _processVisaText(ocrText, ocrConfidence) {
   const base = _processPassportText(ocrText, ocrConfidence);
 
-  const visaType = ocrText.match(
-    /(?:VISA\s*(?:TYPE|CLASS)|CLASS)[\/\s:]*([A-Z][A-Z0-9\/\-]{0,5})/i,
+  // Visa class: match "Type/Class R B1/B2" or "Visa Class: B1/B2"
+  // The label is "Type/Class" or "Visa Type" or "Visa Class"
+  // After the label, there may be a single-letter type (R, M) then the class (B1/B2, F1, J1, H1B)
+  const visaTypeMatch = ocrText.match(
+    /(?:TYPE\s*\/\s*CLASS|VISA\s*(?:TYPE|CLASS))[:\s\/]*(?:[A-Z]\s+)?([A-Z]\d[A-Z0-9\/\-]{0,6})/i,
   );
-  if (visaType) base.extracted.visaType = visaType[1].trim();
+  if (visaTypeMatch) base.extracted.visaType = visaTypeMatch[1].trim();
 
   const issueDate = ocrText.match(
     /(?:ISSUE\s*DATE|ISSUED)[:\s]*(\d{1,2}\s*[A-Z]{3}\s*\d{4})/i,
   );
   if (issueDate) base.extracted.issueDate = _parseEnglishDate(issueDate[1]);
 
-  const controlNo = ocrText.match(/(?:FOLIO|CONTROL)[:\s#]*([A-Z0-9]{6,12})/i);
+  // Control number: "Control Number 20231234567" or "FOLIO: ABC123"
+  const controlNo = ocrText.match(/(?:CONTROL\s*(?:NO\.?|NUMBER|#)|FOLIO)[:\s#]*(\d{6,20})/i);
   if (controlNo) base.extracted.visaControlNumber = controlNo[1];
 
   return base;

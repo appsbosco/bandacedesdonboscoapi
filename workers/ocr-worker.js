@@ -115,13 +115,13 @@ async function processVisa(ocrText, ocrConfidence) {
   const base = await processPassport(ocrText, ocrConfidence);
 
   // Additional visa-specific fields from full text
-  const visaType = ocrText.match(/(?:VISA\s*(?:TYPE|CLASS)|CLASS)[\/\s:]*([A-Z][A-Z0-9\/\-]{0,5})/i);
-  if (visaType) base.extracted.visaType = visaType[1].trim();
+  const visaTypeMatch = ocrText.match(/(?:TYPE\s*\/\s*CLASS|VISA\s*(?:TYPE|CLASS))[:\s\/]*(?:[A-Z]\s+)?([A-Z]\d[A-Z0-9\/\-]{0,6})/i);
+  if (visaTypeMatch) base.extracted.visaType = visaTypeMatch[1].trim();
 
   const issueDate = ocrText.match(/(?:ISSUE\s*DATE|ISSUED)[:\s]*(\d{1,2}\s*[A-Z]{3}\s*\d{4})/i);
   if (issueDate) base.extracted.issueDate = parseEnglishDate(issueDate[1]);
 
-  const controlNo = ocrText.match(/(?:FOLIO|CONTROL)[:\s#]*([A-Z0-9]{6,12})/i);
+  const controlNo = ocrText.match(/(?:CONTROL\s*(?:NO\.?|NUMBER|#)|FOLIO)[:\s#]*(\d{6,20})/i);
   if (controlNo) base.extracted.visaControlNumber = controlNo[1];
 
   return base;

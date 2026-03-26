@@ -123,7 +123,13 @@ const typeDefs = gql`
 
   type DocumentPagination {
     documents: [Document]
+    pagination: DocumentPaginationInfo!
+  }
+
+  type DocumentPaginationInfo {
     total: Int
+    limit: Int
+    skip: Int
     hasMore: Boolean
   }
 
@@ -195,23 +201,27 @@ const typeDefs = gql`
     message: String
   }
 
-  extend type Query {
-    myDocuments(
-      type: DocumentType
-      status: DocumentStatus
-      expiredOnly: Boolean
-      limit: Int
-      skip: Int
-    ): DocumentPagination!
+  input DocumentFiltersInput {
+    ownerName: String
+    type: DocumentType
+    status: DocumentStatus
+    expirationBefore: String
+    expirationAfter: String
+    expiredOnly: Boolean
+  }
 
-    allDocuments(
-      ownerSearch: String
-      type: DocumentType
-      status: DocumentStatus
-      expiredOnly: Boolean
-      limit: Int
-      skip: Int
-    ): DocumentPagination!
+  input DocumentPaginationInput {
+    page: Int
+    limit: Int
+    skip: Int
+    sortBy: String
+    sortOrder: String
+  }
+
+  extend type Query {
+    myDocuments(filters: DocumentFiltersInput, pagination: DocumentPaginationInput): DocumentPagination!
+
+    allDocuments(filters: DocumentFiltersInput, pagination: DocumentPaginationInput): DocumentPagination!
 
     documentById(id: ID!): Document
 
