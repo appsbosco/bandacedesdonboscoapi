@@ -42,20 +42,10 @@ function hasResolvedUser(order) {
 // ─── Notifications ───────────────────────────────────────────────────────────
 
 async function sendNewProductNotification(productId) {
-  console.log("[store.service] Preparando notificación de nuevo producto", {
-    productId,
-    at: new Date().toISOString(),
-  });
   try {
     await dispatch(EVENTS.STORE_PRODUCT_CREATED, { productId });
-    console.log("[store.service] Notificación de nuevo producto finalizada", {
-      productId,
-    });
   } catch (err) {
-    console.error("[store.service] notif error:", err.message, {
-      productId,
-      stack: err.stack,
-    });
+    console.error("[store.service] notif error:", err.message);
   }
 }
 
@@ -75,13 +65,6 @@ async function createProduct(payload, ctx) {
     availableForDays: payload.availableForDays,
     photo: payload.photo,
     ...(closingDate ? { closingDate } : {}),
-  });
-
-  console.log("[store.service] Producto creado", {
-    productId: created._id.toString(),
-    name: created.name,
-    category: created.category,
-    price: created.price,
   });
 
   await sendNewProductNotification(created._id.toString());

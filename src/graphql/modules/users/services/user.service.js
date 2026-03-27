@@ -342,29 +342,10 @@ async function updateNotificationToken(userId, token) {
   if (!user) throw new Error("El usuario no existe");
 
   user.notificationTokens = user.notificationTokens || [];
-  const alreadyExists = user.notificationTokens.includes(token);
 
-  console.log("[user.service] updateNotificationToken llamado", {
-    userId,
-    email: user.email,
-    currentTokenCount: user.notificationTokens.length,
-    alreadyExists,
-    tokenPreview: maskToken(token),
-  });
-
-  if (!alreadyExists) {
+  if (!user.notificationTokens.includes(token)) {
     user.notificationTokens.push(token);
     await user.save();
-    console.log("[user.service] Token agregado", {
-      userId,
-      newTokenCount: user.notificationTokens.length,
-      tokenPreview: maskToken(token),
-    });
-  } else {
-    console.log("[user.service] Token ya existía, no se agrega", {
-      userId,
-      tokenPreview: maskToken(token),
-    });
   }
 
   return user;
