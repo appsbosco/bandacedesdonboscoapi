@@ -152,6 +152,19 @@ module.exports = gql`
     pendingAcknowledgements: [AcademicEvaluation!]!
   }
 
+  type SectionAcademicMember {
+    memberId: ID!
+    memberName: String!
+    memberGrade: String
+    memberInstrument: String
+    memberAvatar: String
+    allEvaluationsSubmitted: Boolean!
+    expectedEvaluationsCount: Int!
+    submittedEvaluationsCount: Int!
+    missingEvaluationsCount: Int!
+    performance: StudentPerformance!
+  }
+
   type AcknowledgeAcademicResult {
     success: Boolean!
     message: String!
@@ -224,6 +237,8 @@ module.exports = gql`
 
     parentChildrenAcademicOverview(periodId: ID, year: Int): [ParentChildAcademicData!]!
     parentChildEvaluations(childId: ID!, filter: AcademicDashboardFilter): [AcademicEvaluation!]!
+
+    sectionInstrumentAcademicOverview(periodId: ID, year: Int): [SectionAcademicMember!]!
   }
 
   # ─── Mutations ───────────────────────────────────────────────────────────────

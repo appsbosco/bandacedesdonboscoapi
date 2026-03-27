@@ -101,4 +101,13 @@ module.exports = {
       throw new Error(e.message || "Error al obtener resumen académico de hijos");
     }
   },
+
+  sectionInstrumentAcademicOverview: async (_, { periodId, year }, ctx) => {
+    try {
+      return await svc.getSectionInstrumentOverview(periodId, year, ctx);
+    } catch (e) {
+      console.error("[query:sectionInstrumentAcademicOverview]", e.message);
+      throw new Error(e.message || "Error al obtener resumen académico de la sección");
+    }
+  },
 };
