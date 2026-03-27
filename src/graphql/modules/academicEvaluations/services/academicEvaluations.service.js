@@ -10,7 +10,6 @@ const { inferSectionFromInstrument } = require("../../../../../utils/sections");
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
-const SECTION_ACADEMIC_ROLES = new Set(["Principal de sección", "Asistente de sección"]);
 const SECTION_ACADEMIC_REVIEWER_ROLES = new Set(["Principal de sección"]);
 
 function getUser(ctx) {
@@ -30,7 +29,8 @@ function isAdmin(user) {
 function isSectionAcademicViewer(user) {
   return (
     user?.entityType !== "Parent" &&
-    SECTION_ACADEMIC_ROLES.has(user?.role) &&
+    SECTION_ACADEMIC_REVIEWER_ROLES.has(user?.role) &&
+    user?.state === "Exalumno" &&
     Boolean(String(user?.instrument || "").trim())
   );
 }
@@ -99,7 +99,7 @@ async function requireSectionInstrumentLeader(ctx) {
 
   if (!isSectionAcademicViewer(userFull)) {
     throw new Error(
-      "No autorizado: se requiere ser Principal o Asistente de sección con instrumento asignado"
+      "No autorizado: se requiere ser Principal de sección con estado Exalumno e instrumento asignado"
     );
   }
 
