@@ -342,10 +342,29 @@ async function updateNotificationToken(userId, token) {
   if (!user) throw new Error("El usuario no existe");
 
   user.notificationTokens = user.notificationTokens || [];
+  const alreadyExists = user.notificationTokens.includes(token);
 
-  if (!user.notificationTokens.includes(token)) {
+  console.log("[user.service] updateNotificationToken llamado", {
+    userId,
+    email: user.email,
+    currentTokenCount: user.notificationTokens.length,
+    alreadyExists,
+    tokenPreview: maskToken(token),
+  });
+
+  if (!alreadyExists) {
     user.notificationTokens.push(token);
     await user.save();
+    console.log("[user.service] Token agregado", {
+      userId,
+      newTokenCount: user.notificationTokens.length,
+      tokenPreview: maskToken(token),
+    });
+  } else {
+    console.log("[user.service] Token ya existía, no se agrega", {
+      userId,
+      tokenPreview: maskToken(token),
+    });
   }
 
   return user;
@@ -381,6 +400,12 @@ async function upgradeUserGrades() {
     console.error("user.service.upgradeUserGrades:", error);
     return false;
   }
+}
+
+function maskToken(token) {
+  if (!token || typeof token !== "string") return "<invalid>";
+  if (token.length <= 12) return token;
+  return `${token.slice(0, 8)}...${token.slice(-4)}`;
 }
 
 async function updateUserState() {

@@ -30,12 +30,21 @@ async function sendPushNotification(tokens, template) {
 
   const app = getFirebaseAdmin();
   const messaging = app.messaging();
+  const totalTokens = tokens.length;
 
   // Partir en chunks de 500
   const chunks = chunkArray(tokens, FCM_BATCH_SIZE);
   const invalidTokens = [];
 
-  for (const chunk of chunks) {
+  console.log("[notificationService] Inicio sendPushNotification", {
+    totalTokens,
+    chunkCount: chunks.length,
+    title: template.title,
+    link: template.link,
+    sampleTokens: tokens.slice(0, 5).map(maskToken),
+  });
+
+  for (const [index, chunk] of chunks.entries()) {
     const message = {
       tokens: chunk,
       notification: {
@@ -58,14 +67,30 @@ async function sendPushNotification(tokens, template) {
 
     let response;
     try {
+      console.log("[notificationService] Enviando chunk", {
+        chunkIndex: index + 1,
+        chunkCount: chunks.length,
+        tokenCount: chunk.length,
+        sampleTokens: chunk.slice(0, 5).map(maskToken),
+      });
       response = await messaging.sendEachForMulticast(message);
     } catch (err) {
-      console.error("[notificationService] Error en sendEachForMulticast:", err.message);
+      console.error("[notificationService] Error en sendEachForMulticast:", err.message, {
+        code: err.code,
+        stack: err.stack,
+        chunkIndex: index + 1,
+        chunkCount: chunks.length,
+        tokenCount: chunk.length,
+      });
       continue; // best-effort: continúa con siguiente chunk
     }
 
     console.log(
-      `[notificationService] Chunk enviado — éxitos: ${response.successCount}, fallos: ${response.failureCount}`
+      `[notificationService] Chunk enviado — éxitos: ${response.successCount}, fallos: ${response.failureCount}`,
+      {
+        chunkIndex: index + 1,
+        chunkCount: chunks.length,
+      }
     );
 
     // Detectar tokens inválidos en este chunk
@@ -75,11 +100,14 @@ async function sendPushNotification(tokens, template) {
         if (INVALID_TOKEN_CODES.has(code)) {
           invalidTokens.push(chunk[idx]);
           console.warn(
-            `[notificationService] Token inválido detectado (${code}): ${chunk[idx].slice(0, 20)}…`
+            `[notificationService] Token inválido detectado (${code}): ${maskToken(chunk[idx])}`
           );
         } else {
           console.warn(
-            `[notificationService] Fallo no-invalidante (${code}): ${chunk[idx].slice(0, 20)}…`
+            `[notificationService] Fallo no-invalidante (${code}): ${maskToken(chunk[idx])}`,
+            {
+              message: res.error.message,
+            }
           );
         }
       }
@@ -92,6 +120,11 @@ async function sendPushNotification(tokens, template) {
       console.error("[notificationService] Error limpiando tokens:", err.message)
     );
   }
+
+  console.log("[notificationService] Fin sendPushNotification", {
+    totalTokens,
+    invalidTokens: invalidTokens.length,
+  });
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -104,3 +137,9 @@ function chunkArray(arr, size) {
 }
 
 module.exports = { sendPushNotification };
+
+function maskToken(token) {
+  if (!token || typeof token !== "string") return "<invalid>";
+  if (token.length <= 12) return token;
+  return `${token.slice(0, 8)}...${token.slice(-4)}`;
+}

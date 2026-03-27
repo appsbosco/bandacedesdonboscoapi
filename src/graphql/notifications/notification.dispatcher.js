@@ -17,6 +17,12 @@ const { sendPushNotification } = require("./notification.service");
  */
 async function dispatch(eventName, payload = {}) {
   try {
+    console.log("[dispatcher] Inicio dispatch", {
+      eventName,
+      payload,
+      at: new Date().toISOString(),
+    });
+
     const { tokens } = await getAllTokens();
 
     if (!tokens.length) {
@@ -25,12 +31,20 @@ async function dispatch(eventName, payload = {}) {
     }
 
     const template = resolveTemplate(eventName, payload);
-    console.log(`[dispatcher] "${eventName}" → ${tokens.length} tokens`);
+    console.log(`[dispatcher] "${eventName}" → ${tokens.length} tokens`, {
+      template,
+    });
     await sendPushNotification(tokens, template);
+    console.log("[dispatcher] Dispatch completado", { eventName });
   } catch (err) {
     console.error(
       `[dispatcher] Error best-effort en "${eventName}":`,
       err.message,
+      {
+        eventName,
+        payload,
+        stack: err.stack,
+      },
     );
   }
 }
@@ -45,6 +59,13 @@ async function dispatch(eventName, payload = {}) {
  */
 async function dispatchToTokens(eventName, tokens = [], payload = {}) {
   try {
+    console.log("[dispatcher] Inicio dispatchToTokens", {
+      eventName,
+      tokenCount: tokens.length,
+      payload,
+      at: new Date().toISOString(),
+    });
+
     if (!tokens.length) {
       console.log(`[dispatcher] Sin tokens destino para: "${eventName}"`);
       return;
@@ -54,10 +75,16 @@ async function dispatchToTokens(eventName, tokens = [], payload = {}) {
       `[dispatcher] "${eventName}" → ${tokens.length} tokens específicos`,
     );
     await sendPushNotification(tokens, template);
+    console.log("[dispatcher] dispatchToTokens completado", { eventName });
   } catch (err) {
     console.error(
       `[dispatcher] Error best-effort en dispatchToTokens "${eventName}":`,
       err.message,
+      {
+        eventName,
+        payload,
+        stack: err.stack,
+      },
     );
   }
 }

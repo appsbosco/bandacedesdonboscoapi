@@ -25,8 +25,16 @@ async function getAllTokens() {
     }
   }
 
+  const tokens = [...tokenToUsers.keys()];
+
+  console.log("[tokenRepository] Tokens cargados para dispatch", {
+    usersWithTokens: users.length,
+    uniqueTokens: tokens.length,
+    sampleTokens: tokens.slice(0, 5).map(maskToken),
+  });
+
   return {
-    tokens: [...tokenToUsers.keys()],
+    tokens,
     tokenToUsers,
   };
 }
@@ -60,3 +68,9 @@ async function getTokensByUserId(userId) {
 }
 
 module.exports = { getAllTokens, removeInvalidTokens, getTokensByUserId };
+
+function maskToken(token) {
+  if (!token || typeof token !== "string") return "<invalid>";
+  if (token.length <= 12) return token;
+  return `${token.slice(0, 8)}...${token.slice(-4)}`;
+}
