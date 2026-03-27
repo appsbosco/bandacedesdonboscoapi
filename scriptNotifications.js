@@ -26,7 +26,7 @@ async function sendTestNotification() {
 
     const message = {
       notification: {
-        title: "Banda CEDES Don Bosco - Nuevo Producto Disponible",
+        title: "Nuevo Producto Disponible",
         body: "Un nuevo producto ha sido añadido y ya puedes hacer la solicitud de tu almuerzo.",
       },
       tokens: tokens,
