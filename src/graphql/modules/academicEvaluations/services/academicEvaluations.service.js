@@ -5,10 +5,13 @@ const AcademicPeriod = require("../../../../../models/academic/AcademicPeriod");
 const AcademicEvaluation = require("../../../../../models/academic/AcademicEvaluation");
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
+const { inferSectionFromInstrument } = require("../../../../../utils/sections");
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
+const SECTION_ACADEMIC_ROLES = new Set(["Principal de sección", "Asistente de sección"]);
+const SECTION_ACADEMIC_REVIEWER_ROLES = new Set(["Principal de sección"]);
 
 function getUser(ctx) {
   return ctx?.user || ctx?.me || ctx?.currentUser;
@@ -22,6 +25,23 @@ function requireAuth(ctx) {
 
 function isAdmin(user) {
   return ADMIN_ROLES.has(user.role);
+}
+
+function isSectionAcademicViewer(user) {
+  return (
+    user?.entityType !== "Parent" &&
+    SECTION_ACADEMIC_ROLES.has(user?.role) &&
+    Boolean(String(user?.instrument || "").trim())
+  );
+}
+
+function isSectionAcademicReviewer(user) {
+  return (
+    user?.entityType !== "Parent" &&
+    SECTION_ACADEMIC_REVIEWER_ROLES.has(user?.role) &&
+    user?.state === "Exalumno" &&
+    Boolean(String(user?.instrument || "").trim())
+  );
 }
 
 function requireAdmin(ctx) {
@@ -40,11 +60,12 @@ function requireStudentSelf(ctx) {
 }
 
 /** Admin o el mismo estudiante */
-function requireStudentAccess(ctx, studentId) {
+async function requireStudentAccess(ctx, studentId) {
   const user = requireAuth(ctx);
   if (isAdmin(user)) return user;
   if (user.entityType === "Parent") throw new Error("No autorizado");
   if (String(user._id || user.id) !== String(studentId)) {
+    if (await hasSectionStudentAccess(user, studentId)) return user;
     throw new Error("Solo puedes ver tus propias evaluaciones");
   }
   return user;
@@ -70,12 +91,165 @@ async function requireParentChildAccess(ctx, childId) {
   return user;
 }
 
+async function requireSectionInstrumentLeader(ctx) {
+  const user = requireAuth(ctx);
+  const userFull = await User.findById(user._id || user.id)
+    .select("_id role state instrument")
+    .lean();
+
+  if (!isSectionAcademicViewer(userFull)) {
+    throw new Error(
+      "No autorizado: se requiere ser Principal o Asistente de sección con instrumento asignado"
+    );
+  }
+
+  return {
+    ...user,
+    role: userFull.role,
+    state: userFull.state,
+    instrument: userFull.instrument,
+    section: inferSectionFromInstrument(userFull.instrument),
+  };
+}
+
+async function requireSectionReviewerAccessToStudent(ctx, studentId) {
+  const user = requireAuth(ctx);
+  const userFull = await User.findById(user._id || user.id)
+    .select("_id role state instrument")
+    .lean();
+
+  if (!isSectionAcademicReviewer(userFull)) {
+    throw new Error(
+      "No autorizado: se requiere ser Principal de sección con estado Exalumno e instrumento asignado"
+    );
+  }
+
+  const canAccess = await hasSectionStudentAccess(
+    {
+      ...user,
+      role: userFull.role,
+      state: userFull.state,
+      instrument: userFull.instrument,
+    },
+    studentId
+  );
+
+  if (!canAccess) {
+    throw new Error("No autorizado para revisar evaluaciones de este integrante");
+  }
+
+  return {
+    ...user,
+    role: userFull.role,
+    state: userFull.state,
+    instrument: userFull.instrument,
+  };
+}
+
 // ─── Utils ────────────────────────────────────────────────────────────────────
 
 function normalizeScore(scoreRaw, scaleMin, scaleMax) {
   if (scaleMax <= scaleMin) throw new Error("scaleMax debe ser mayor que scaleMin");
   const norm = ((scoreRaw - scaleMin) / (scaleMax - scaleMin)) * 100;
   return Math.round(norm * 100) / 100;
+}
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildSubjectGradeQuery(grade) {
+  if (!grade) return {};
+  return {
+    $or: [
+      { grades: grade },
+      { grades: { $size: 0 } },
+      { grades: { $exists: false } },
+      { grades: null },
+    ],
+  };
+}
+
+async function hasSectionStudentAccess(user, studentId) {
+  const leader = await User.findById(user._id || user.id)
+    .select("_id role state instrument")
+    .lean();
+
+  if (!isSectionAcademicViewer(leader)) return false;
+
+  const target = await User.findById(studentId)
+    .select("instrument state grade")
+    .lean();
+
+  if (!target) throw new Error("Integrante no encontrado");
+  if (target.state !== "Estudiante Activo") {
+    throw new Error("Solo puedes ver integrantes activos de tu sección");
+  }
+  if (!target.grade) {
+    throw new Error("El integrante no tiene nivel académico asignado");
+  }
+
+  const leaderSection = inferSectionFromInstrument(leader.instrument);
+  const targetSection = inferSectionFromInstrument(target.instrument);
+
+  if (!leaderSection || !targetSection || targetSection !== leaderSection) {
+    throw new Error("Solo puedes ver integrantes de tu misma sección");
+  }
+
+  return true;
+}
+
+async function getStudentEvaluationCoverage(studentId, grade, filters = {}) {
+  const periodQuery = { isActive: true };
+  if (filters.periodId) {
+    periodQuery._id = filters.periodId;
+  } else if (filters.year) {
+    periodQuery.year = Number(filters.year);
+  }
+
+  const [subjects, periods] = await Promise.all([
+    AcademicSubject.find({
+      isActive: true,
+      ...buildSubjectGradeQuery(grade),
+    })
+      .select("_id")
+      .lean(),
+    AcademicPeriod.find(periodQuery).select("_id").lean(),
+  ]);
+
+  const subjectIds = subjects.map((subject) => String(subject._id));
+  const periodIds = periods.map((period) => String(period._id));
+  const expectedEvaluationsCount = subjectIds.length * periodIds.length;
+
+  if (expectedEvaluationsCount === 0) {
+    return {
+      allEvaluationsSubmitted: false,
+      expectedEvaluationsCount: 0,
+      submittedEvaluationsCount: 0,
+      missingEvaluationsCount: 0,
+    };
+  }
+
+  const evaluations = await AcademicEvaluation.find({
+    student: studentId,
+    subject: { $in: subjectIds },
+    period: { $in: periodIds },
+  })
+    .select("subject period")
+    .lean();
+
+  const submittedKeys = new Set(
+    evaluations.map((evaluation) => `${String(evaluation.subject)}:${String(evaluation.period)}`)
+  );
+  const submittedEvaluationsCount = submittedKeys.size;
+  const missingEvaluationsCount = Math.max(expectedEvaluationsCount - submittedEvaluationsCount, 0);
+
+  return {
+    allEvaluationsSubmitted: expectedEvaluationsCount > 0 && missingEvaluationsCount === 0,
+    expectedEvaluationsCount,
+    submittedEvaluationsCount,
+    missingEvaluationsCount,
+  };
 }
 
 // ─── Subjects ─────────────────────────────────────────────────────────────────
@@ -85,14 +259,7 @@ async function getAcademicSubjects({ grade, isActive } = {}, ctx) {
   const query = {};
   if (isActive !== undefined) query.isActive = isActive;
   if (grade) {
-    // Include subjects that match the grade OR have no grade restrictions
-    // (grades empty array, null, or field missing entirely)
-    query.$or = [
-      { grades: grade },
-      { grades: { $size: 0 } },
-      { grades: { $exists: false } },
-      { grades: null },
-    ];
+    Object.assign(query, buildSubjectGradeQuery(grade));
   }
   return AcademicSubject.find(query).sort({ name: 1 });
 }
@@ -273,17 +440,26 @@ async function deleteOwnPendingEvaluation(id, ctx) {
 }
 
 async function reviewAcademicEvaluation(id, status, reviewComment, ctx) {
-  const admin = requireAdmin(ctx);
-
   if (!["approved", "rejected"].includes(status)) {
     throw new Error("Estado inválido. Use 'approved' o 'rejected'");
   }
 
+  const actor = requireAuth(ctx);
   const evaluation = await AcademicEvaluation.findById(id);
   if (!evaluation) throw new Error("Evaluación no encontrada");
 
+  let reviewer;
+  if (isAdmin(actor)) {
+    reviewer = actor;
+  } else {
+    reviewer = await requireSectionReviewerAccessToStudent(ctx, evaluation.student);
+    if (evaluation.status !== "pending") {
+      throw new Error("Solo puedes revisar evaluaciones pendientes");
+    }
+  }
+
   evaluation.status = status;
-  evaluation.reviewedByAdmin = String(admin._id || admin.id);
+  evaluation.reviewedByAdmin = String(reviewer._id || reviewer.id);
   evaluation.reviewedAt = new Date();
   evaluation.reviewComment = reviewComment || null;
 
@@ -310,7 +486,7 @@ async function getMyEvaluations(filter = {}, ctx) {
 }
 
 async function getStudentEvaluations(studentId, filter = {}, ctx) {
-  requireStudentAccess(ctx, studentId);
+  await requireStudentAccess(ctx, studentId);
 
   const query = { student: studentId };
   if (filter.periodId) query.period = filter.periodId;
@@ -479,7 +655,7 @@ async function getMyPerformance(periodId, year, ctx) {
 }
 
 async function getStudentPerformance(studentId, periodId, year, ctx) {
-  requireStudentAccess(ctx, studentId);
+  await requireStudentAccess(ctx, studentId);
   return calculateStudentPerformance(studentId, { periodId, year });
 }
 
@@ -758,6 +934,76 @@ async function getParentChildrenOverview(periodId, year, ctx) {
   return result;
 }
 
+async function getSectionInstrumentOverview(periodId, year, ctx) {
+  const leader = await requireSectionInstrumentLeader(ctx);
+  const section = inferSectionFromInstrument(leader.instrument);
+  const instrument = String(leader.instrument || "").trim();
+  const instrumentRegex = new RegExp(`^\\s*${escapeRegex(instrument)}\\s*$`, "i");
+
+  let members = await User.find({
+    instrument: instrumentRegex,
+    state: "Estudiante Activo",
+    grade: { $nin: [null, ""] },
+  })
+    .select("name firstSurName secondSurName grade instrument avatar _id")
+    .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
+    .lean();
+
+  if (members.length === 0 && section) {
+    const candidates = await User.find({
+      state: "Estudiante Activo",
+      grade: { $nin: [null, ""] },
+    })
+      .select("name firstSurName secondSurName grade instrument avatar _id")
+      .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
+      .lean();
+
+    members = candidates.filter(
+      (member) => inferSectionFromInstrument(member.instrument) === section
+    );
+  }
+
+  if (members.length === 0) {
+    const leaderFull = await User.findById(leader._id || leader.id)
+      .select("students")
+      .populate({
+        path: "students",
+        match: {
+          state: "Estudiante Activo",
+          grade: { $nin: [null, ""] },
+        },
+        select: "name firstSurName secondSurName grade instrument avatar _id",
+      })
+      .lean();
+
+    members = Array.isArray(leaderFull?.students) ? leaderFull.students : [];
+  }
+
+  if (members.length === 0) return [];
+
+  return Promise.all(
+    members.map(async (member) => {
+      const [coverage, performance] = await Promise.all([
+        getStudentEvaluationCoverage(String(member._id), member.grade, { periodId, year }),
+        calculateStudentPerformance(String(member._id), { periodId, year }),
+      ]);
+
+      return {
+        memberId: String(member._id),
+        memberName: `${member.name} ${member.firstSurName} ${member.secondSurName || ""}`.trim(),
+        memberGrade: member.grade || null,
+        memberInstrument: member.instrument || null,
+        memberAvatar: member.avatar || null,
+        ...coverage,
+        performance: {
+          ...performance,
+          studentName: `${member.name} ${member.firstSurName} ${member.secondSurName || ""}`.trim(),
+        },
+      };
+    })
+  );
+}
+
 async function acknowledgeChildPerformance(childId, periodId, comment, ctx) {
   const user = requireAuth(ctx);
 
@@ -807,5 +1053,6 @@ module.exports = {
   getAdminDashboard,
   getAdminRiskRanking,
   getParentChildrenOverview,
+  getSectionInstrumentOverview,
   acknowledgeChildPerformance,
 };
