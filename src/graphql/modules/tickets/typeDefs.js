@@ -267,6 +267,7 @@ module.exports = gql`
     # Registra un abono y recalcula paid + status
     updatePaymentStatus(ticketId: ID!, amountPaid: Float!): Ticket
     settleTicketPayment(ticketId: ID!): Ticket
+    updateTicketQuantity(ticketId: ID!, ticketQuantity: Int!): Ticket!
 
     # ---- Escaneo QR ----------------------------------------------------------
 

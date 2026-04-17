@@ -122,6 +122,17 @@ module.exports = {
     }
   },
 
+  updateTicketQuantity: async (_, { ticketId, ticketQuantity }, ctx) => {
+    try {
+      return await ticketsService.updateTicketQuantity(
+        { ticketId, ticketQuantity },
+        ctx,
+      );
+    } catch (err) {
+      throw wrapError(err, "Failed to update ticket quantity");
+    }
+  },
+
   validateTicket: async (_, { qrPayload, scannedBy, location, forceEntry }, ctx) => {
     try {
       return await ticketsService.validateTicket(

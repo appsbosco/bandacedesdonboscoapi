@@ -766,25 +766,28 @@ module.exports = {
       if (!event) throw new Error("Event not found");
 
       const [
-        issued,
-        paid,
-        pending,
+        quantityAgg,
         used,
         partiallyUsed,
         cancelled,
         collectedAgg,
       ] = await Promise.all([
-        Ticket.countDocuments({ eventId }),
-        Ticket.countDocuments({
-          eventId,
-          paid: true,
-          status: { $ne: "cancelled" },
-        }),
-        Ticket.countDocuments({
-          eventId,
-          paid: false,
-          status: { $ne: "cancelled" },
-        }),
+        Ticket.aggregate([
+          { $match: { eventId: event._id, status: { $ne: "cancelled" } } },
+          {
+            $group: {
+              _id: null,
+              totalIssued: { $sum: "$ticketQuantity" },
+              totalPaid: {
+                $sum: { $cond: ["$paid", "$ticketQuantity", 0] },
+              },
+              totalPending: {
+                $sum: { $cond: ["$paid", 0, "$ticketQuantity"] },
+              },
+              totalCheckedIn: { $sum: "$scans" },
+            },
+          },
+        ]),
         Ticket.countDocuments({ eventId, status: "fully_used" }),
         Ticket.countDocuments({ eventId, status: "partially_used" }),
         Ticket.countDocuments({ eventId, status: "cancelled" }),
@@ -794,21 +797,17 @@ module.exports = {
         ]),
       ]);
 
-      // checkins = checked_in + partially_used + fully_used
-      const checkedIn = await Ticket.countDocuments({
-        eventId,
-        status: "checked_in",
-      });
+      const quantities = quantityAgg?.[0] || {};
 
       return {
         eventId: event._id,
         eventName: event.name,
         capacity: event.ticketLimit,
-        totalIssued: issued,
-        totalPaid: paid,
+        totalIssued: Number(quantities.totalIssued || 0),
+        totalPaid: Number(quantities.totalPaid || 0),
         totalCollected: Number(collectedAgg?.[0]?.totalCollected || 0),
-        totalPending: pending,
-        totalCheckedIn: checkedIn + partiallyUsed + used,
+        totalPending: Number(quantities.totalPending || 0),
+        totalCheckedIn: Number(quantities.totalCheckedIn || 0),
         totalPartially: partiallyUsed,
         totalUsed: used,
         totalCancelled: cancelled,
@@ -1706,6 +1705,98 @@ module.exports = {
       );
     } catch (err) {
       throw new Error(err?.message || "Failed to settle ticket payment");
+    }
+  },
+
+  async updateTicketQuantity({ ticketId, ticketQuantity }, ctx) {
+    try {
+      requireTicketAdmin(ctx);
+      if (!ticketId) throw new Error("ticketId is required");
+
+      const nextQuantity = assertPositiveInt(ticketQuantity, "ticketQuantity");
+      const ticket = await Ticket.findById(ticketId);
+      if (!ticket) throw new Error("Ticket not found");
+      if (ticket.status === "cancelled") {
+        throw new Error("No se puede editar una entrada cancelada");
+      }
+
+      const previousQuantity = assertPositiveInt(
+        ticket.ticketQuantity || 1,
+        "ticketQuantity",
+      );
+      if (nextQuantity === previousQuantity) return ticket;
+      if (nextQuantity < Number(ticket.scans || 0)) {
+        throw new Error(
+          `No se puede bajar a ${nextQuantity}; ya hay ${ticket.scans} ingreso(s) registrados`,
+        );
+      }
+
+      const event = await EventTicket.findById(ticket.eventId);
+      if (!event) throw new Error("Event not found");
+
+      const delta = nextQuantity - previousQuantity;
+      if (delta > 0) {
+        await ensureEventCapacity(event, delta);
+      }
+
+      if (event.raffleEnabled) {
+        const currentRaffleNumbers = Array.isArray(ticket.raffleNumbers)
+          ? ticket.raffleNumbers
+          : [];
+        if (delta > 0) {
+          const extraNumbers = await generateRaffleNumbers(ticket.eventId, delta);
+          ticket.raffleNumbers = [...currentRaffleNumbers, ...extraNumbers];
+        } else if (delta < 0) {
+          ticket.raffleNumbers = currentRaffleNumbers.slice(0, nextQuantity);
+        }
+      }
+
+      if (ticket.source === "excel_import") {
+        const currentExternalNumbers = Array.isArray(ticket.externalTicketNumbers)
+          ? ticket.externalTicketNumbers
+          : [];
+        if (delta > 0) {
+          const extraExternalNumbers = await generateNextImportedTicketNumbers(
+            ticket.eventId,
+            delta,
+          );
+          ticket.externalTicketNumbers = [
+            ...currentExternalNumbers,
+            ...extraExternalNumbers,
+          ];
+        } else if (delta < 0) {
+          ticket.externalTicketNumbers = currentExternalNumbers.slice(
+            0,
+            nextQuantity,
+          );
+        }
+      }
+
+      ticket.ticketQuantity = nextQuantity;
+
+      const price = safeNumber(event.price || 0, "event.price");
+      const totalDue = nextQuantity * price;
+      if (ticket.type === "courtesy") {
+        ticket.paid = true;
+      } else {
+        ticket.paid = Number(ticket.amountPaid || 0) >= totalDue;
+      }
+      ticket.status = recalculateStatus(ticket);
+
+      await ticket.save();
+      await adjustEventTotalTickets(ticket.eventId, delta);
+
+      await maybeSendImportedPaidTicketEmail({
+        ticket,
+        event,
+        wasPaid: Boolean(ticket.paymentEmailSentAt),
+        previousQuantity,
+        ctx,
+      });
+
+      return ticket;
+    } catch (err) {
+      throw new Error(err?.message || "Failed to update ticket quantity");
     }
   },
 
