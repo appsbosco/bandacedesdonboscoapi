@@ -8,6 +8,7 @@ const { Ticket } = require("../../../../../models/Tickets");
 const { EventTicket } = require("../../../../../models/EventTicket");
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
+const { sendMail } = require("../../../shared/mailer");
 const QRCode = require("qrcode");
 const XLSX = require("xlsx");
 
@@ -254,7 +255,7 @@ function getEmailSender(ctx) {
     ctx?.services?.email?.sendEmail ||
     ctx?.dataSources?.email?.sendEmail ||
     ctx?.resolvers?.Mutation?.sendEmail ||
-    null
+    sendMail
   );
 }
 

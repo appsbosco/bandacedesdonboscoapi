@@ -1,7 +1,6 @@
 /**
  * tickets/emailTemplates/courtesyTicket.js
- * Generado por scaffold-graphql.js
- * (No sobreescribir: editá libremente)
+ * Template dinamico para entradas de cortesía.
  */
 
 "use strict";
@@ -14,294 +13,556 @@ const escapeHtml = (v) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+function formatEventDate(date, locale) {
+  if (!date) return "";
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  return parsed.toLocaleDateString(locale, {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 module.exports = function buildCourtesyTicket({
   ticket,
   event,
   buyerName,
-  buyerEmail, // opcional (no se usa en html, pero lo dejamos por consistencia)
-  qrCodeDataUrl, // "data:image/png;base64,...."
+  buyerEmail,
+  raffleNumbers = [],
+  qrCodeDataUrl,
   locale = "es-CR",
-
-  // opcionales por si querés parametrizar links/textos
-  confirmUrl = "https://wa.link/z7nmqs",
-  instagramUrl = "https://www.instagram.com/bandacedesdonbosco/#",
-  facebookUrl = "https://www.facebook.com/bcdbcr",
-
-  // si luego querés mover estos hardcodes a datos del evento:
-  invitationText = "Te esperamos el sábado 16 de agosto en CEDES Don Bosco, a las 4:30 p.m. Entrada gratuita con previa confirmación.",
+  websiteUrl = "www.bandacedesdonbosco.com",
+  year = new Date().getFullYear(),
 } = {}) {
-  const safeName = escapeHtml(buyerName || "Invitado/a");
-  const year = new Date().getFullYear();
-
-  // por si querés mostrarlo en algún lado en el futuro:
-  const ticketId = ticket?._id?.toString?.() || "";
+  const ticketId = ticket?._id?.toString?.() || ticket?.id || "";
   const safeTicketId = escapeHtml(ticketId);
 
-  // si querés usarlo (ahora el template no lo muestra explícito)
-  const eventDescription = escapeHtml(event?.description ?? "");
+  const rawEventName = event?.name || "Evento BCDB";
+  const rawEventDescription = event?.description || rawEventName;
+  const eventName = escapeHtml(rawEventName);
+  const eventDescription = escapeHtml(rawEventDescription);
+  const eventDate = escapeHtml(formatEventDate(event?.date, locale));
+  const quantity = Number(ticket?.ticketQuantity || 1);
+  const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+  const recipientName = escapeHtml(
+    buyerName || ticket?.buyerName || "Invitado/a",
+  );
+  const recipientEmail = escapeHtml(
+    buyerEmail || ticket?.buyerEmail || "",
+  );
+
+  const ticketRaffleNumbers = Array.isArray(ticket?.raffleNumbers)
+    ? ticket.raffleNumbers
+    : [];
+  const numbers = Array.isArray(raffleNumbers) && raffleNumbers.length
+    ? raffleNumbers
+    : ticketRaffleNumbers;
+  const raffleHtml = numbers.length
+    ? numbers.map((n) => `<div>${escapeHtml(n)}</div>`).join("")
+    : "";
+
+  const pluralSuffix = safeQuantity === 1 ? "" : "s";
+  const subject = `Entrada${pluralSuffix} de cortesía - ${rawEventName}`;
+  const text = `Hola ${buyerName || ticket?.buyerName || "Invitado/a"}, tu entrada de cortesía para ${rawEventName} está lista.`;
 
   return {
-    subject: "🎟 Entrada de cortesía - 60 Aniversario BCDB",
-    text: "Gracias por acompañarnos. Aquí está tu entrada.",
-    html: `
-<html xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" lang="en">
+    subject,
+    text,
+    html: `<html dir="ltr" lang="es">
   <head>
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!--[if mso]>
-      <xml><w:WordDocument xmlns:w="urn:schemas-microsoft-com:office:word"><w:DontUseAdvancedTypographyReadingMail /></w:WordDocument>
-      <o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch><o:AllowPNG /></o:OfficeDocumentSettings></xml>
-    <![endif]-->
-    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@100;200;300;400;500;600;700;800;900" rel="stylesheet" type="text/css" />
-    <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; padding: 0; }
-      a[x-apple-data-detectors] { color: inherit !important; text-decoration: inherit !important; }
-      #MessageViewBody a { color: inherit; text-decoration: none; }
-      p { line-height: inherit; }
-      .desktop_hide, .desktop_hide table { mso-hide: all; display: none; max-height: 0px; overflow: hidden; }
-      .image_block img + div { display: none; }
-      sup, sub { font-size: 75%; line-height: 0; }
-      @media (max-width: 720px) {
-        .mobile_hide { display:none; max-height:0; overflow:hidden; font-size:0px; }
-        .row-content { width: 100% !important; }
-        .stack .column { width: 100%; display: block; }
-      }
-    </style>
+    <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
+    <meta name="x-apple-disable-message-reformatting" />
   </head>
 
-  <body class="body" style="background-color:#293964;margin:0;padding:0;-webkit-text-size-adjust:none;text-size-adjust:none;">
-    <table class="nl-container" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#293964;">
+  <body style="background-color: #ffffff">
+    <table
+      align="center"
+      width="100%"
+      border="0"
+      cellpadding="0"
+      cellspacing="0"
+      role="presentation"
+      style="
+        max-width: 100%;
+        margin: 10px auto;
+        width: 600px;
+        border: 1px solid #e5e5e5;
+      "
+    >
       <tbody>
-        <tr>
+        <tr style="width: 100%">
           <td>
 
-            <!-- HERO -->
-            <table class="row row-1" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding: 22px 40px"
+            >
               <tbody>
                 <tr>
                   <td>
-                    <table class="row-content stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation"
-                      style="background-color:#293964;background-image:url('https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511065/effect_sczdbc.png');background-repeat:no-repeat;color:#000000;width:700px;margin:0 auto;"
-                      width="700">
-                      <tbody>
-                        <tr>
-                          <td class="column column-1" width="100%" style="padding-bottom:5px;padding-top:25px;vertical-align:top;">
-                            <table class="image_block block-1" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-                              <tr>
-                                <td class="pad" style="width:100%;">
-                                  <div class="alignment" align="center">
-                                    <div style="max-width:197px;">
-                                      <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/Logo_BCDB_-_Bg_White_mfxnej.png"
-                                        style="display:block;height:auto;border:0;width:100%;" width="197" alt="BCDB" />
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <div style="height:21px;line-height:21px;font-size:1px;">&#8202;</div>
-
-                            <table class="heading_block block-3" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-                              <tr>
-                                <td class="pad" style="padding:10px;text-align:center;">
-                                  <h3 style="margin:0;color:#fafafa;font-family:'Oswald',Arial,Helvetica,sans-serif;font-size:35px;font-weight:700;line-height:1.2;">
-                                    ¡GRACIAS POR SER PARTE DE ESTA HISTORIA!
-                                  </h3>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <table class="heading_block block-4" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation">
-                              <tr>
-                                <td class="pad">
-                                  <h1 style="margin:0;color:#fafafa;font-family:'Oswald',Arial,Helvetica,sans-serif;font-size:100px;font-weight:700;letter-spacing:-2px;line-height:1.3;text-align:center;">
-                                    CELEBRAMOS<br/>60 AÑOS
-                                  </h1>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <!-- (Opcional) Ticket ID / Evento si querés mostrarlo -->
-                            <!-- <p style="color:#fafafa;text-align:center;font-family:Helvetica,Arial,sans-serif;margin:0;">Entrada: ${safeTicketId}</p> -->
-                            <!-- <p style="color:#fafafa;text-align:center;font-family:Helvetica,Arial,sans-serif;margin:0;">${eventDescription}</p> -->
-
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- BODY -->
-            <table class="row row-2" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-              <tbody>
-                <tr>
-                  <td>
-                    <table class="row-content stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation"
-                      style="background-color:#fafafa;color:#000000;width:700px;margin:0 auto;" width="700">
-                      <tbody>
-                        <tr>
-                          <td class="column column-1" width="100%" style="vertical-align:top;">
-
-                            <table class="image_block block-1" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-                              <tr>
-                                <td class="pad" style="width:100%;">
-                                  <div class="alignment" align="center">
-                                    <div style="max-width:700px;">
-                                      <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511066/DSC08255_ndwf2n.webp"
-                                        style="display:block;height:auto;width:100%;" width="700" alt="BCDB" />
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <table class="paragraph_block block-2" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation" style="word-break:break-word;">
-                              <tr>
-                                <td class="pad" style="padding:10px 60px;">
-                                  <div style="color:#5a3b36;font-family:Helvetica,Arial,sans-serif;font-size:18px;line-height:1.2;text-align:center;">
-                                    <p style="margin:0;">
-                                      Estimado/a <strong>${safeName}</strong>, nos complace invitarte cordialmente a la velada especial del 60 aniversario de la Banda CEDES Don Bosco.
-                                      <br /><br />
-                                      La Banda CEDES Don Bosco cumple 60 años y queremos celebrarlo junto a quienes han sido parte esencial de este legado musical. Te extendemos una cordial invitación para acompañarnos en esta histórica velada.
-                                    </p>
-                                  </div>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <table class="button_block block-3" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation">
-                              <tr>
-                                <td class="pad">
-                                  <div class="alignment" align="center">
-                                    <a href="${escapeHtml(confirmUrl)}" target="_blank"
-                                      style="background:#ffc75e;border:1px solid #ffc75e;border-radius:60px;color:#5a3b36;display:inline-block;font-family:Helvetica,Arial,sans-serif;font-size:18px;font-weight:600;line-height:36px;padding:6px 22px;text-decoration:none;">
-                                      CONFIRMAR ASISTENCIA
-                                    </a>
-                                  </div>
-                                </td>
-                              </tr>
-                            </table>
-
-                            <div style="height:45px;line-height:45px;font-size:1px;">&#8202;</div>
-
-                            <table class="heading_block block-5" width="100%" border="0" cellpadding="10" cellspacing="0" role="presentation">
-                              <tr>
-                                <td class="pad">
-                                  <h2 style="margin:0;color:#293964;font-family:'Oswald',Arial,Helvetica,sans-serif;font-size:60px;font-weight:700;letter-spacing:-2px;line-height:1.2;text-align:center;">
-                                    UNA NOCHE MEMORABLE
-                                  </h2>
-                                </td>
-                              </tr>
-                            </table>
-
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- INVITACIÓN + DETALLE -->
-            <table class="row row-3" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-              <tbody>
-                <tr>
-                  <td>
-                    <table class="row-content stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation"
-                      style="background-color:#fafafa;color:#000000;padding:25px;width:700px;margin:0 auto;" width="700">
-                      <tbody>
-                        <tr>
-                          <td width="50%" style="vertical-align:middle;">
-                            <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511066/DSC07357_sut03v.png"
-                              style="display:block;width:100%;border-radius:12px;" alt="BCDB" />
-                          </td>
-                          <td width="10"></td>
-                          <td width="50%" style="background:#e1e1e1;border-radius:12px;padding:15px;vertical-align:middle;">
-                            <div style="text-align:center;">
-                              <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/ICON2_dxqwae.png" width="77" alt="Ticket" style="display:block;margin:0 auto 10px auto;" />
-                              <h3 style="margin:0;color:#293964;font-family:'Oswald',Arial,Helvetica,sans-serif;font-size:35px;font-weight:700;letter-spacing:-1px;line-height:1.2;">
-                                INVITACIÓN ESPECIAL
-                              </h3>
-                              <p style="margin:10px 0 0 0;color:#5a3b36;font-family:Helvetica,Arial,sans-serif;font-size:18px;line-height:1.2;">
-                                ${escapeHtml(invitationText)}
-                              </p>
-                            </div>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- QR -->
-            <table class="row row-5" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-              <tbody>
-                <tr>
-                  <td>
-                    <table class="row-content stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation"
-                      style="background-color:#ffffff;color:#000000;width:700px;margin:0 auto;" width="700">
-                      <tbody>
-                        <tr>
-                          <td style="padding-top:35px;">
-                            <h3 style="margin:0;color:#293964;font-family:'Oswald',Arial,Helvetica,sans-serif;font-size:28px;font-weight:700;line-height:1.2;text-align:center;">
-                              Al llegar al evento
-                            </h3>
-                            <h2 style="margin:10px 0 0 0;color:#293964;font-family:'Oswald',Arial,Helvetica,sans-serif;font-size:60px;font-weight:700;letter-spacing:-2px;line-height:1.2;text-align:center;">
-                              PRESENTA ESTE QR
-                            </h2>
-
-                            <div style="padding:15px 0;text-align:center;">
-                              <img alt="QR Code" src="cid:qrCode" style="display:block;height:auto;border:0;width:100%;max-width:700px;margin:0 auto;" />
-                            </div>
-
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- FOOTER -->
-            <table class="row row-10" align="center" width="100%" border="0" cellpadding="0" cellspacing="0" role="presentation">
-              <tbody>
-                <tr>
-                  <td>
-                    <table class="row-content stack" align="center" border="0" cellpadding="0" cellspacing="0" role="presentation"
-                      style="background-color:#293964;color:#000000;padding:25px 0;width:700px;margin:0 auto;" width="700">
-                      <tbody>
-                        <tr>
-                          <td style="text-align:center;">
-                            <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/Logo_BCDB_-_Bg_White_mfxnej.png" width="210" alt="BCDB" style="display:block;margin:0 auto 12px auto;" />
-
-                            <div style="margin:10px 0;">
-                              <a href="${escapeHtml(facebookUrl)}" target="_blank" style="display:inline-block;margin:0 10px;">
-                                <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511064/facebook_n4yyp8.png" width="32" alt="Facebook" style="border:0;display:block;" />
-                              </a>
-                              <a href="${escapeHtml(instagramUrl)}" target="_blank" style="display:inline-block;margin:0 10px;">
-                                <img src="https://res.cloudinary.com/dnhhbkmpf/image/upload/v1754511065/instagram_zxhfpb.png" width="32" alt="Instagram" style="border:0;display:block;" />
-                              </a>
-                            </div>
-
-                            <p style="margin:0;color:#fafafa;font-family:Helvetica,Arial,sans-serif;font-size:16px;line-height:1.2;">
-                              San José, Costa Rica | © ${year} Banda CEDES Don Bosco
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <td data-id="__react-email-column">
+                            <p
+                              style="
+                                font-size: 14px;
+                                line-height: 2;
+                                margin: 0;
+                                font-weight: bold;
+                                text-align: center;
+                              "
+                            >
+                              Número de Entrada
                             </p>
-                            <p style="margin:8px 0 0 0;color:#fafafa;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.2;">
-                              Todos los derechos reservados
+                            <p
+                              style="
+                                font-size: 14px;
+                                line-height: 1.4;
+                                margin: 12px 0 0 0;
+                                font-weight: 500;
+                                color: #6f6f6f;
+                                text-align: center;
+                              "
+                            >
+                              ${safeTicketId}
                             </p>
-
                           </td>
                         </tr>
                       </tbody>
                     </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding: 40px 74px; text-align: center"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <img
+                      alt="Banda CEDES Don Bosco"
+                      height="120px"
+                      src="https://res.cloudinary.com/dnv9akklf/image/upload/q_auto,f_auto/v1686511395/LOGO_BCDB_qvjabt.png"
+                      style="
+                        display: block;
+                        outline: none;
+                        border: none;
+                        text-decoration: none;
+                        margin: auto;
+                      "
+                      width="200px"
+                    />
+
+                    <h1
+                      style="
+                        font-size: 32px;
+                        line-height: 1.3;
+                        font-weight: 700;
+                        text-align: center;
+                        letter-spacing: -1px;
+                      "
+                    >
+                      ${eventDescription}
+                    </h1>
+
+                    <p
+                      style="
+                        font-size: 14px;
+                        line-height: 2;
+                        margin: 0;
+                        color: #747474;
+                        font-weight: 500;
+                      "
+                    >
+                      Hola <strong>${recipientName}</strong>, te compartimos tu/s entrada/s de cortesía para <strong>${eventName}</strong>. Utiliza el código QR al presentarlo en la entrada del evento.
+                    </p>
+
+                    ${
+                      eventDate
+                        ? `<p
+                            style="
+                              font-size: 14px;
+                              line-height: 2;
+                              margin: 12px 0 0 0;
+                              color: #747474;
+                              font-weight: 500;
+                            "
+                          >
+                            Fecha del evento: <strong>${eventDate}</strong>
+                          </p>`
+                        : ""
+                    }
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="
+                padding-left: 40px;
+                padding-right: 40px;
+                padding-top: 22px;
+                padding-bottom: 22px;
+              "
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 15px;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                        text-align: center;
+                      "
+                    >
+                      Entrada${pluralSuffix} de cortesía para:
+                    </p>
+                    <p
+                      style="
+                        font-size: 15px;
+                        text-align: center;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                      "
+                    >
+                      ${recipientName}
+                    </p>
+                    ${
+                      recipientEmail
+                        ? `<p
+                            style="
+                              font-size: 13px;
+                              text-align: center;
+                              line-height: 2;
+                              margin: auto;
+                              color: #6f6f6f;
+                            "
+                          >
+                            ${recipientEmail}
+                          </p>`
+                        : ""
+                    }
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 15px;
+                        line-height: 2;
+                        margin: 18px auto 0 auto;
+                        font-weight: bold;
+                        text-align: center;
+                      "
+                    >
+                      Cantidad de entradas
+                    </p>
+                    <p
+                      style="
+                        font-size: 15px;
+                        text-align: center;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                      "
+                    >
+                      ${escapeHtml(safeQuantity)}
+                    </p>
+                  </td>
+                </tr>
+
+                ${
+                  raffleHtml
+                    ? `
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 15px;
+                        line-height: 2;
+                        margin: 18px auto 0 auto;
+                        font-weight: bold;
+                        text-align: center;
+                      "
+                    >
+                      Números de rifa
+                    </p>
+                    <h1
+                      style="
+                        font-size: 32px;
+                        line-height: 1.3;
+                        font-weight: 700;
+                        text-align: center;
+                        letter-spacing: -1px;
+                        margin: 8px 0 0 0;
+                      "
+                    >
+                      ${raffleHtml}
+                    </h1>
+                  </td>
+                </tr>
+                `
+                    : ""
+                }
+
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="
+                padding-left: 40px;
+                padding-right: 40px;
+                padding-top: 40px;
+                padding-bottom: 40px;
+              "
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <table
+                      align="center"
+                      width="100%"
+                      border="0"
+                      cellpadding="0"
+                      cellspacing="0"
+                      role="presentation"
+                    >
+                      <tbody style="width: 100%">
+                        <tr style="width: 100%">
+                          <td data-id="__react-email-column">
+                            <img
+                              alt="QR Code"
+                              src="cid:qrCode"
+                              style="
+                                display: block;
+                                outline: none;
+                                border: none;
+                                text-decoration: none;
+                                margin: auto;
+                              "
+                              width="260px"
+                            />
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="
+                padding-left: 40px;
+                padding-right: 40px;
+                padding-top: 22px;
+                padding-bottom: 22px;
+              "
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 15px;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                        text-align: center;
+                      "
+                    >
+                      Fecha de emisión
+                    </p>
+                    <p
+                      style="
+                        font-size: 15px;
+                        text-align: center;
+                        line-height: 2;
+                        margin: auto;
+                        font-weight: bold;
+                      "
+                    >
+                      ${escapeHtml(new Date().toLocaleDateString(locale))}
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+              "
+            />
+
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding-top: 22px; padding-bottom: 22px"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 32px;
+                        line-height: 1.3;
+                        margin: 16px 0;
+                        font-weight: 700;
+                        text-align: center;
+                        letter-spacing: -1px;
+                      "
+                    >
+                      ${escapeHtml(websiteUrl)}
+                    </p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <hr
+              style="
+                width: 100%;
+                border: none;
+                border-top: 1px solid #eaeaea;
+                border-color: #e5e5e5;
+                margin: 0;
+                margin-top: 12px;
+              "
+            />
+
+            <table
+              align="center"
+              width="100%"
+              border="0"
+              cellpadding="0"
+              cellspacing="0"
+              role="presentation"
+              style="padding-top: 22px; padding-bottom: 22px"
+            >
+              <tbody>
+                <tr>
+                  <td>
+                    <p
+                      style="
+                        font-size: 13px;
+                        line-height: 24px;
+                        margin: 0;
+                        color: #afafaf;
+                        text-align: center;
+                        padding-top: 30px;
+                        padding-bottom: 10px;
+                      "
+                    >
+                      Presenta este código QR en la entrada del evento. Si tienes alguna pregunta, contacta a la organización.
+                    </p>
+
+                    <p
+                      style="
+                        font-size: 13px;
+                        line-height: 24px;
+                        margin: 0;
+                        color: #afafaf;
+                        text-align: center;
+                        padding-bottom: 30px;
+                      "
+                    >
+                      © ${escapeHtml(year)} Banda CEDES Don Bosco, Todos los derechos reservados.
+                    </p>
                   </td>
                 </tr>
               </tbody>
@@ -312,8 +573,7 @@ module.exports = function buildCourtesyTicket({
       </tbody>
     </table>
   </body>
-</html>
-    `,
+</html>`,
     attachments: qrCodeDataUrl
       ? [
           {
