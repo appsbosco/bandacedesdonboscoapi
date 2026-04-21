@@ -24,6 +24,10 @@ const typeResolvers = {
     updatedAt: (p) => isoDate(p.updatedAt),
   },
 
+  AdminAcademicStudent: {
+    id: (p) => String(p._id || p.id),
+  },
+
   AcademicEvaluation: {
     id: (p) => String(p._id || p.id),
     student: (p) => {
@@ -36,6 +40,7 @@ const typeResolvers = {
         email: s.email || null,
         grade: s.grade || null,
         instrument: s.instrument || null,
+        avatar: s.avatar || null,
       };
     },
     subject: (p) => p.subject,
@@ -50,6 +55,7 @@ const typeResolvers = {
         email: a.email || null,
         grade: null,
         instrument: null,
+        avatar: a.avatar || null,
       };
     },
     submittedByStudentAt: (p) => isoDate(p.submittedByStudentAt),

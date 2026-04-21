@@ -21,6 +21,15 @@ module.exports = {
     }
   },
 
+  deleteAcademicSubject: async (_, { id }, ctx) => {
+    try {
+      return await svc.deleteAcademicSubject(id, ctx);
+    } catch (e) {
+      console.error("[mutation:deleteAcademicSubject]", e.message);
+      throw new Error(e.message || "Error al eliminar materia");
+    }
+  },
+
   createAcademicPeriod: async (_, { input }, ctx) => {
     try {
       return await svc.createAcademicPeriod(input, ctx);
@@ -54,6 +63,24 @@ module.exports = {
     } catch (e) {
       console.error("[mutation:updateOwnPendingAcademicEvaluation]", e.message);
       throw new Error(e.message || "Error al actualizar evaluación");
+    }
+  },
+
+  updateAcademicEvaluationAsAdmin: async (_, { id, input }, ctx) => {
+    try {
+      return await svc.updateAcademicEvaluationAsAdmin(id, input, ctx);
+    } catch (e) {
+      console.error("[mutation:updateAcademicEvaluationAsAdmin]", e.message);
+      throw new Error(e.message || "Error al actualizar evaluación");
+    }
+  },
+
+  deleteAcademicEvaluationAsAdmin: async (_, { id }, ctx) => {
+    try {
+      return await svc.deleteAcademicEvaluationAsAdmin(id, ctx);
+    } catch (e) {
+      console.error("[mutation:deleteAcademicEvaluationAsAdmin]", e.message);
+      throw new Error(e.message || "Error al eliminar evaluación");
     }
   },
 

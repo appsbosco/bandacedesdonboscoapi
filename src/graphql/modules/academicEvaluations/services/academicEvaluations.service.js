@@ -284,6 +284,23 @@ async function updateAcademicSubject(id, input, ctx) {
   return subject;
 }
 
+async function deleteAcademicSubject(id, ctx) {
+  requireAdmin(ctx);
+
+  const subject = await AcademicSubject.findById(id);
+  if (!subject) throw new Error("Materia no encontrada");
+
+  const linkedEvaluations = await AcademicEvaluation.exists({ subject: id });
+  if (linkedEvaluations) {
+    throw new Error(
+      "No se puede eliminar la materia porque ya tiene evaluaciones registradas. Puedes desactivarla en su lugar."
+    );
+  }
+
+  await subject.deleteOne();
+  return "Materia eliminada correctamente";
+}
+
 // ─── Periods ──────────────────────────────────────────────────────────────────
 
 async function getAcademicPeriods({ year, isActive } = {}, ctx) {
@@ -424,6 +441,42 @@ async function updateOwnPendingEvaluation(id, input, ctx) {
 
   await evaluation.save();
   return evaluation.populate(["student", "subject", "period", "reviewedByAdmin"]);
+}
+
+async function updateAcademicEvaluationAsAdmin(id, input, ctx) {
+  requireAdmin(ctx);
+
+  const evaluation = await AcademicEvaluation.findById(id);
+  if (!evaluation) throw new Error("Evaluación no encontrada");
+
+  const { scoreRaw, scaleMin, scaleMax } = input;
+
+  const newScaleMin = scaleMin ?? evaluation.scaleMin;
+  const newScaleMax = scaleMax ?? evaluation.scaleMax;
+  const newScoreRaw = scoreRaw ?? evaluation.scoreRaw;
+
+  if (newScaleMax <= newScaleMin) throw new Error("scaleMax debe ser mayor que scaleMin");
+  if (newScoreRaw < newScaleMin || newScoreRaw > newScaleMax) {
+    throw new Error(`La nota debe estar entre ${newScaleMin} y ${newScaleMax}`);
+  }
+
+  evaluation.scoreRaw = newScoreRaw;
+  evaluation.scaleMin = newScaleMin;
+  evaluation.scaleMax = newScaleMax;
+  evaluation.scoreNormalized100 = normalizeScore(newScoreRaw, newScaleMin, newScaleMax);
+
+  await evaluation.save();
+  return evaluation.populate(["student", "subject", "period", "reviewedByAdmin"]);
+}
+
+async function deleteAcademicEvaluationAsAdmin(id, ctx) {
+  requireAdmin(ctx);
+
+  const evaluation = await AcademicEvaluation.findById(id);
+  if (!evaluation) throw new Error("Evaluación no encontrada");
+
+  await evaluation.deleteOne();
+  return "Evaluación eliminada correctamente";
 }
 
 async function deleteOwnPendingEvaluation(id, ctx) {
@@ -824,6 +877,28 @@ async function getAdminPendingEvaluations(filter = {}, ctx) {
   return result;
 }
 
+async function getAdminAcademicStudents(filter = {}, ctx) {
+  requireAdmin(ctx);
+  const { grade, instrument } = filter;
+
+  const query = {
+    grade: { $nin: [null, ""] },
+  };
+
+  if (grade) {
+    query.grade = grade;
+  }
+
+  if (instrument) {
+    query.instrument = new RegExp(escapeRegex(String(instrument).trim()), "i");
+  }
+
+  return User.find(query)
+    .select("name firstSurName secondSurName email grade instrument avatar")
+    .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
+    .lean();
+}
+
 async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
   requireAdmin(ctx);
   const { periodId, year, grade, instrument } = filter;
@@ -1036,14 +1111,18 @@ async function acknowledgeChildPerformance(childId, periodId, comment, ctx) {
 module.exports = {
   getAcademicSubjects,
   getAdminPendingEvaluations,
+  getAdminAcademicStudents,
   getParentChildEvaluations,
   createAcademicSubject,
   updateAcademicSubject,
+  deleteAcademicSubject,
   getAcademicPeriods,
   createAcademicPeriod,
   updateAcademicPeriod,
   submitAcademicEvaluation,
   updateOwnPendingEvaluation,
+  updateAcademicEvaluationAsAdmin,
+  deleteAcademicEvaluationAsAdmin,
   deleteOwnPendingEvaluation,
   reviewAcademicEvaluation,
   getMyEvaluations,

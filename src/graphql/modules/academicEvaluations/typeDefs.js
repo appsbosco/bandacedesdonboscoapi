@@ -57,6 +57,18 @@ module.exports = gql`
     email: String
     grade: String
     instrument: String
+    avatar: String
+  }
+
+  type AdminAcademicStudent {
+    id: ID!
+    name: String!
+    firstSurName: String!
+    secondSurName: String
+    email: String
+    grade: String
+    instrument: String
+    avatar: String
   }
 
   type AcademicEvaluation {
@@ -234,6 +246,7 @@ module.exports = gql`
     adminAcademicDashboard(filter: AcademicDashboardFilter): AdminAcademicDashboard!
     adminAcademicRiskRanking(filter: AcademicDashboardFilter, limit: Int): [StudentPerformance!]!
     adminPendingEvaluations(filter: AcademicDashboardFilter): [AcademicEvaluation!]!
+    adminAcademicStudents(filter: AcademicDashboardFilter): [AdminAcademicStudent!]!
 
     parentChildrenAcademicOverview(periodId: ID, year: Int): [ParentChildAcademicData!]!
     parentChildEvaluations(childId: ID!, filter: AcademicDashboardFilter): [AcademicEvaluation!]!
@@ -246,12 +259,15 @@ module.exports = gql`
   extend type Mutation {
     createAcademicSubject(input: AcademicSubjectInput!): AcademicSubject!
     updateAcademicSubject(id: ID!, input: AcademicSubjectInput!): AcademicSubject!
+    deleteAcademicSubject(id: ID!): String!
 
     createAcademicPeriod(input: AcademicPeriodInput!): AcademicPeriod!
     updateAcademicPeriod(id: ID!, input: AcademicPeriodInput!): AcademicPeriod!
 
     submitAcademicEvaluation(input: SubmitAcademicEvaluationInput!): AcademicEvaluation!
     updateOwnPendingAcademicEvaluation(id: ID!, input: UpdateAcademicEvaluationInput!): AcademicEvaluation!
+    updateAcademicEvaluationAsAdmin(id: ID!, input: UpdateAcademicEvaluationInput!): AcademicEvaluation!
+    deleteAcademicEvaluationAsAdmin(id: ID!): String!
     deleteOwnPendingAcademicEvaluation(id: ID!): String!
 
     reviewAcademicEvaluation(id: ID!, status: EvaluationStatus!, reviewComment: String): AcademicEvaluation!

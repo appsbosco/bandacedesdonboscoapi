@@ -75,6 +75,15 @@ module.exports = {
     }
   },
 
+  adminAcademicStudents: async (_, { filter }, ctx) => {
+    try {
+      return await svc.getAdminAcademicStudents(filter || {}, ctx);
+    } catch (e) {
+      console.error("[query:adminAcademicStudents]", e.message);
+      throw new Error(e.message || "Error al obtener estudiantes académicos");
+    }
+  },
+
   adminAcademicRiskRanking: async (_, { filter, limit }, ctx) => {
     try {
       return await svc.getAdminRiskRanking(filter || {}, limit || 20, ctx);
