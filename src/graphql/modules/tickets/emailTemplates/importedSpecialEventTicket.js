@@ -46,8 +46,9 @@ module.exports = function buildImportedSpecialEventTicket({
   buyerEmail,
   qrCodeDataUrl,
   locale = "es-CR",
+  force = false,
 } = {}) {
-  if (!isComedyGen2026Event(event)) return null;
+  if (!force && !isComedyGen2026Event(event)) return null;
 
   const recipientName = escapeHtml(
     buyerName || ticket?.buyerName || "Invitado",

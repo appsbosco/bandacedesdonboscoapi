@@ -488,6 +488,58 @@ function buildImportedTicketEmail(ticket, event, qrCodeDataUrl) {
   };
 }
 
+function getStrictTicketEmailTemplate(data) {
+  const specialEventBuilt = normalizeTemplateResult(
+    importedSpecialEventTicketTemplate,
+    data,
+  );
+  if (specialEventBuilt?.html) return specialEventBuilt;
+
+  const assignedBuilt = normalizeTemplateResult(assignedTicketTemplate, data);
+  if (assignedBuilt?.html) return assignedBuilt;
+
+  throw new Error("No hay template de entradas disponible para reenviar");
+}
+
+function buildStrictResendTicketEmail({
+  ticket,
+  event,
+  user,
+  to,
+  recipientName,
+  qrCodeDataUrl,
+}) {
+  const name =
+    recipientName ||
+    user?.name ||
+    ticket?.buyerName ||
+    "Asistente";
+  const emailData = {
+    ticket,
+    event,
+    user,
+    buyerName: name,
+    buyerEmail: to,
+    ticketQuantity: ticket.ticketQuantity,
+    raffleNumbers: ticket.raffleNumbers || [],
+    qrCode: qrCodeDataUrl,
+    qrCodeDataUrl,
+    date: new Date().toLocaleDateString("es-CR"),
+    recipient: { name, type: "user" },
+    force: true,
+  };
+  const built = getStrictTicketEmailTemplate(emailData);
+
+  return {
+    to,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    context: built.context,
+    attachments: built.attachments || buildQrAttachment(qrCodeDataUrl),
+  };
+}
+
 async function maybeSendImportedPaidTicketEmail({
   ticket,
   event,
@@ -528,7 +580,25 @@ async function resendImportedTicketEmailById(ticketId, ctx) {
   const event = await EventTicket.findById(ticket.eventId);
   if (!event) throw new Error("Event not found");
 
-  await sendEmail(ctx, buildImportedTicketEmail(ticket, event, ticket.qrCode));
+  if (!ticket.qrCode) {
+    const qrPayload = buildQrPayload({
+      ticketId: ticket._id,
+      eventId: ticket.eventId,
+    });
+    ticket.qrCode = await buildQrDataUrl(qrPayload);
+  }
+
+  await sendEmail(
+    ctx,
+    buildStrictResendTicketEmail({
+      ticket,
+      event,
+      user: null,
+      to: ticket.buyerEmail,
+      recipientName: ticket.buyerName,
+      qrCodeDataUrl: ticket.qrCode,
+    }),
+  );
   ticket.paymentEmailSentAt = new Date();
   ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
   await ticket.save();
@@ -564,68 +634,19 @@ async function sendTicketEmailById(ticketId, ctx) {
     throw new Error("El ticket no tiene correo destino");
   }
 
-  if (!user && ticket.source === "excel_import") {
-    await sendEmail(ctx, buildImportedTicketEmail(ticket, event, ticket.qrCode));
-    ticket.paymentEmailSentAt = new Date();
-    ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
-    await ticket.save();
-    return true;
-  }
-
   const recipientName =
     user?.name || ticket.buyerName || ticket.userId?.name || "Asistente";
-  const baseEmailData = {
-    ticket,
-    event,
-    user,
-    buyerName: ticket.buyerName,
-    buyerEmail: ticket.buyerEmail,
-    raffleNumbers: ticket.raffleNumbers || [],
-    ticketQuantity: ticket.ticketQuantity,
-    qrCode: ticket.qrCode,
-    qrCodeDataUrl: ticket.qrCode,
-    date: new Date().toLocaleDateString("es-CR"),
-  };
-
-  const built =
-    !user && ticket.type === "purchased"
-      ? buildPurchasedEmailContent(baseEmailData)
-      : buildEmailFromTemplateOrFallback(
-          {
-            template:
-              !user && ticket.type === "courtesy"
-                ? courtesyTicketTemplate
-                : assignedTicketTemplate,
-            fallbackSubject:
-              !user && ticket.type === "courtesy"
-                ? "Entrada de cortesía"
-                : "Entradas asignadas",
-            fallbackText: "Aquí están tus entradas.",
-            fallbackHtml: `<p>Ticket: ${ticket._id}</p>`,
-          },
-          {
-            ...baseEmailData,
-            recipient: { name: recipientName, type: "user" },
-          },
-        );
-
-  await sendEmail(ctx, {
-    to: recipientEmail,
-    subject: built.subject,
-    text: built.text,
-    html: built.html,
-    context: built.context || {
-      ticketNumber: ticket._id.toString(),
-      eventDescription: event.description,
-      ticketQuantity: ticket.ticketQuantity,
-      raffleNumbers: (ticket.raffleNumbers || []).join(", "),
+  await sendEmail(
+    ctx,
+    buildStrictResendTicketEmail({
+      ticket,
+      event,
+      user,
+      to: recipientEmail,
       recipientName,
-      orderNumber: ticket._id.toString(),
-      orderDate: baseEmailData.date,
-      QR_CODE_URL: ticket.qrCode,
-    },
-    attachments: built.attachments || buildQrAttachment(ticket.qrCode),
-  });
+      qrCodeDataUrl: ticket.qrCode,
+    }),
+  );
 
   ticket.paymentEmailSentAt = new Date();
   ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
