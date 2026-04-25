@@ -1,4 +1,4 @@
-/**
+*/**
  * tickets/emailTemplates/assignedTicket.js
  * Generado por scaffold-graphql.js
  * (No sobreescribir: editá libremente)
