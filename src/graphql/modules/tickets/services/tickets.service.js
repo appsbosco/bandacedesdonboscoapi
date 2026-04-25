@@ -536,6 +536,106 @@ async function resendImportedTicketEmailById(ticketId, ctx) {
   return true;
 }
 
+async function sendTicketEmailById(ticketId, ctx) {
+  const ticket = await Ticket.findById(ticketId).populate({
+    path: "userId",
+    select: "name firstSurName secondSurName email",
+  });
+  if (!ticket) throw new Error("Ticket not found");
+  if (ticket.status === "cancelled") {
+    throw new Error("No se puede reenviar una entrada cancelada");
+  }
+
+  const event = await EventTicket.findById(ticket.eventId);
+  if (!event) throw new Error("Event not found");
+
+  if (!ticket.qrCode) {
+    const qrPayload = buildQrPayload({
+      ticketId: ticket._id,
+      eventId: ticket.eventId,
+    });
+    ticket.qrCode = await buildQrDataUrl(qrPayload);
+    await ticket.save();
+  }
+
+  if (ticket.source === "excel_import") {
+    if (!ticket.buyerEmail) {
+      throw new Error("El ticket no tiene correo destino");
+    }
+    await sendEmail(ctx, buildImportedTicketEmail(ticket, event, ticket.qrCode));
+    ticket.paymentEmailSentAt = new Date();
+    ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
+    await ticket.save();
+    return true;
+  }
+
+  const user = ticket.userId || null;
+  const recipientEmail = user?.email || ticket.buyerEmail;
+  if (!recipientEmail) {
+    throw new Error("El ticket no tiene correo destino");
+  }
+
+  const recipientName =
+    user?.name || ticket.buyerName || ticket.userId?.name || "Asistente";
+  const baseEmailData = {
+    ticket,
+    event,
+    user,
+    buyerName: ticket.buyerName,
+    buyerEmail: ticket.buyerEmail,
+    raffleNumbers: ticket.raffleNumbers || [],
+    ticketQuantity: ticket.ticketQuantity,
+    qrCode: ticket.qrCode,
+    qrCodeDataUrl: ticket.qrCode,
+    date: new Date().toLocaleDateString("es-CR"),
+  };
+
+  const built =
+    ticket.type === "purchased"
+      ? buildPurchasedEmailContent(baseEmailData)
+      : buildEmailFromTemplateOrFallback(
+          {
+            template:
+              ticket.type === "courtesy"
+                ? courtesyTicketTemplate
+                : assignedTicketTemplate,
+            fallbackSubject:
+              ticket.type === "courtesy"
+                ? "Entrada de cortesía"
+                : "Entradas asignadas",
+            fallbackText: "Aquí están tus entradas.",
+            fallbackHtml: `<p>Ticket: ${ticket._id}</p>`,
+          },
+          {
+            ...baseEmailData,
+            recipient: { name: recipientName, type: "user" },
+          },
+        );
+
+  await sendEmail(ctx, {
+    to: recipientEmail,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    context: built.context || {
+      ticketNumber: ticket._id.toString(),
+      eventDescription: event.description,
+      ticketQuantity: ticket.ticketQuantity,
+      raffleNumbers: (ticket.raffleNumbers || []).join(", "),
+      recipientName,
+      orderNumber: ticket._id.toString(),
+      orderDate: baseEmailData.date,
+      QR_CODE_URL: ticket.qrCode,
+    },
+    attachments: built.attachments || buildQrAttachment(ticket.qrCode),
+  });
+
+  ticket.paymentEmailSentAt = new Date();
+  ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
+  await ticket.save();
+  return true;
+}
+
 // =============================================================================
 // HELPERS — CAPACIDAD Y NÚMEROS DE RIFA
 // =============================================================================
@@ -1617,6 +1717,15 @@ module.exports = {
       return await resendImportedTicketEmailById(ticketId, ctx);
     } catch (err) {
       throw new Error(err?.message || "Error resending imported ticket email");
+    }
+  },
+
+  async resendTicketEmail({ ticketId }, ctx) {
+    try {
+      requireTicketAdmin(ctx);
+      return await sendTicketEmailById(ticketId, ctx);
+    } catch (err) {
+      throw new Error(err?.message || "Error resending ticket email");
     }
   },
 

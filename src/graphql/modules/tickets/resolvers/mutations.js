@@ -103,6 +103,14 @@ module.exports = {
     }
   },
 
+  resendTicketEmail: async (_, { ticketId }, ctx) => {
+    try {
+      return await ticketsService.resendTicketEmail({ ticketId }, ctx);
+    } catch (err) {
+      throw wrapError(err, "Failed to resend ticket email");
+    }
+  },
+
   updatePaymentStatus: async (_, { ticketId, amountPaid }, ctx) => {
     try {
       return await ticketsService.updatePaymentStatus(

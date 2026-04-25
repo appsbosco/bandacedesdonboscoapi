@@ -261,6 +261,7 @@ module.exports = gql`
     importTicketsFromExcel(input: TicketExcelImportInput!): TicketExcelImportResult!
     addImportedTicketRecipient(input: ImportedTicketManualInput!): Ticket!
     resendImportedTicketEmail(ticketId: ID!): Boolean!
+    resendTicketEmail(ticketId: ID!): Boolean!
 
     # ---- Pago ----------------------------------------------------------------
 
