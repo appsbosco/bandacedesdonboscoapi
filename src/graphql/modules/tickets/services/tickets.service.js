@@ -558,21 +558,18 @@ async function sendTicketEmailById(ticketId, ctx) {
     await ticket.save();
   }
 
-  if (ticket.source === "excel_import") {
-    if (!ticket.buyerEmail) {
-      throw new Error("El ticket no tiene correo destino");
-    }
+  const user = ticket.userId || null;
+  const recipientEmail = user?.email || ticket.buyerEmail;
+  if (!recipientEmail) {
+    throw new Error("El ticket no tiene correo destino");
+  }
+
+  if (!user && ticket.source === "excel_import") {
     await sendEmail(ctx, buildImportedTicketEmail(ticket, event, ticket.qrCode));
     ticket.paymentEmailSentAt = new Date();
     ticket.paymentEmailSentForQuantity = ticket.ticketQuantity;
     await ticket.save();
     return true;
-  }
-
-  const user = ticket.userId || null;
-  const recipientEmail = user?.email || ticket.buyerEmail;
-  if (!recipientEmail) {
-    throw new Error("El ticket no tiene correo destino");
   }
 
   const recipientName =
