@@ -591,16 +591,16 @@ async function sendTicketEmailById(ticketId, ctx) {
   };
 
   const built =
-    ticket.type === "purchased"
+    !user && ticket.type === "purchased"
       ? buildPurchasedEmailContent(baseEmailData)
       : buildEmailFromTemplateOrFallback(
           {
             template:
-              ticket.type === "courtesy"
+              !user && ticket.type === "courtesy"
                 ? courtesyTicketTemplate
                 : assignedTicketTemplate,
             fallbackSubject:
-              ticket.type === "courtesy"
+              !user && ticket.type === "courtesy"
                 ? "Entrada de cortesía"
                 : "Entradas asignadas",
             fallbackText: "Aquí están tus entradas.",
