@@ -67,6 +67,15 @@ module.exports = {
     }
   },
 
+  updateTourParticipantVisaStatus: async (_, { participantId, input }, ctx) => {
+    try {
+      return await tourService.updateTourParticipantVisaStatus(participantId, input, ctx);
+    } catch (error) {
+      console.error("[mutation:updateTourParticipantVisaStatus]", error.message);
+      throw new Error(error.message || "No se pudo actualizar el estado de visa");
+    }
+  },
+
   removeTourParticipant: async (_, { id }, ctx) => {
     try {
       return await tourService.removeTourParticipant(id, ctx);

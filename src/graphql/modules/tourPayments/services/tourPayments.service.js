@@ -781,21 +781,39 @@ async function getFinancialTable(tourId, ctx) {
     isDefault: true,
   });
 
+  // Obtener todos los participantes de la gira para que la tabla refleje
+  // también a quienes aún no tienen cuenta financiera creada.
+  const participants = await TourParticipant.find({
+    tour: tourId,
+    isRemoved: { $ne: true },
+  })
+    .populate("linkedUser", "name firstSurName secondSurName email")
+    .populate("removedBy", "name firstSurName")
+    .lean();
+
   // Obtener todas las cuentas con sus participantes
   const accounts = await ParticipantFinancialAccount.find({ tour: tourId })
     .populate("participant")
+    .populate("participant.linkedUser", "name firstSurName secondSurName email")
+    .populate("participant.removedBy", "name firstSurName")
     .lean();
 
-  const rows = await Promise.all(
-    accounts.map(async (account) => {
-      const participant = account.participant;
+  const accountsByParticipantId = new Map(
+    accounts.map((account) => [account.participant?._id?.toString(), account]),
+  );
 
-      const installments = await ParticipantInstallment.find({
-        participant: participant._id,
-        tour: tourId,
-      })
-        .sort({ order: 1 })
-        .lean();
+  const rows = await Promise.all(
+    participants.map(async (participant) => {
+      const account = accountsByParticipantId.get(participant._id?.toString()) || null;
+
+      const installments = account
+        ? await ParticipantInstallment.find({
+            participant: participant._id,
+            tour: tourId,
+          })
+            .sort({ order: 1 })
+            .lean()
+        : [];
 
       const installmentColumns = installments.map((inst) => ({
         installmentId: inst._id.toString(),
@@ -810,19 +828,44 @@ async function getFinancialTable(tourId, ctx) {
 
       console.log("accounts", account);
 
+      const activeLinkedUserName = participant.linkedUser
+        ? [
+            participant.linkedUser.name,
+            participant.linkedUser.firstSurName,
+            participant.linkedUser.secondSurName,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        : null;
+
       return {
-        accountId: account._id.toString(),
+        accountId: account?._id?.toString() || `participant:${participant._id.toString()}`,
         participantId: participant._id?.toString() || participant.toString(),
+        hasFinancialAccount: Boolean(account),
         fullName: participant.firstName
-          ? `${participant.firstName} ${participant.firstSurname}`
+          ? [participant.firstName, participant.firstSurname, participant.secondSurname]
+              .filter(Boolean)
+              .join(" ")
           : "–",
         identification: participant.identification || "–",
         instrument: participant.instrument || "–",
-        finalAmount: account.finalAmount,
-        totalPaid: account.totalPaid,
-        balance: account.balance,
-        overpayment: account.overpayment,
-        financialStatus: account.financialStatus,
+        visaStatus: participant.visaStatus || "UNKNOWN",
+        visaDeniedCount: participant.visaDeniedCount || 0,
+        linkedUserName: activeLinkedUserName || participant.linkedUserSnapshotName || null,
+        linkedUserEmail: participant.linkedUser?.email || participant.linkedUserSnapshotEmail || null,
+        isRemoved: Boolean(participant.isRemoved),
+        removedAt: participant.removedAt || null,
+        removedByName: participant.removedBy
+          ? [participant.removedBy.name, participant.removedBy.firstSurName]
+              .filter(Boolean)
+              .join(" ")
+          : null,
+        removalHadPayments: Boolean(participant.removalHadPayments),
+        finalAmount: account?.finalAmount ?? 0,
+        totalPaid: account?.totalPaid ?? 0,
+        balance: account?.balance ?? 0,
+        overpayment: account?.overpayment ?? 0,
+        financialStatus: account?.financialStatus || "PENDING",
         installments: installmentColumns,
       };
     }),

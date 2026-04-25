@@ -22,7 +22,16 @@ module.exports = {
     birthDate:      (parent) => toISO(parent.birthDate),
     passportExpiry: (parent) => toISO(parent.passportExpiry),
     visaExpiry:     (parent) => toISO(parent.visaExpiry),
+    visaDecisionDate: (parent) => toISO(parent.visaDecisionDate),
+    visaLastDeniedAt: (parent) => toISO(parent.visaLastDeniedAt),
+    visaBlockedAt: (parent) => toISO(parent.visaBlockedAt),
+    removedAt:      (parent) => toISO(parent.removedAt),
     createdAt:      (parent) => toISO(parent.createdAt),
     updatedAt:      (parent) => toISO(parent.updatedAt),
+  },
+
+  TourParticipantVisaHistoryEntry: {
+    id: (parent) => parent._id?.toString() ?? parent.id,
+    decidedAt: (parent) => toISO(parent.decidedAt),
   },
 };

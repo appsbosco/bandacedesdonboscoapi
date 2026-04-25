@@ -52,6 +52,41 @@ const TourParticipantSchema = new Schema(
     passportExpiry: { type: Date },
     hasVisa: { type: Boolean, default: false },
     visaExpiry: { type: Date },
+    visaStatus: {
+      type: String,
+      enum: ["PENDING", "APPROVED", "DENIED", "EXPIRED", "UNKNOWN"],
+      default: "UNKNOWN",
+      index: true,
+    },
+    visaDecisionDate: { type: Date, default: null },
+    visaDeniedCount: { type: Number, default: 0, min: 0 },
+    visaLastDeniedAt: { type: Date, default: null },
+    visaLastDeniedReason: { type: String, trim: true },
+    visaBlockedAt: { type: Date, default: null },
+    visaBlockedBy: { type: ObjectId, ref: "User", default: null },
+    visaNotes: { type: String, trim: true },
+    visaHistory: [
+      new Schema(
+        {
+          status: {
+            type: String,
+            enum: ["PENDING", "APPROVED", "DENIED", "EXPIRED", "UNKNOWN"],
+            required: true,
+          },
+          reason: { type: String, trim: true },
+          notes: { type: String, trim: true },
+          decidedAt: { type: Date, default: Date.now, required: true },
+          decidedBy: { type: ObjectId, ref: "User", default: null },
+          source: {
+            type: String,
+            enum: ["ADMIN_MANUAL", "DOCUMENT_SYNC", "IMPORT", "SYSTEM"],
+            default: "ADMIN_MANUAL",
+          },
+          denialOrdinal: { type: Number, default: null },
+        },
+        { _id: true },
+      ),
+    ],
     hasExitPermit: { type: Boolean, default: false },
 
     // ── Sexo ──────────────────────────────────────────────────────────────────
@@ -78,6 +113,21 @@ const TourParticipantSchema = new Schema(
 
     // ── Enlace opcional a User del sistema ────────────────────────────────────
     linkedUser: { type: ObjectId, ref: "User", default: null, index: true },
+    linkedUserSnapshotName: { type: String, trim: true },
+    linkedUserSnapshotEmail: { type: String, trim: true, lowercase: true },
+    linkedUserSnapshotId: { type: ObjectId, ref: "User", default: null },
+
+    // ── Baja lógica / auditoría ───────────────────────────────────────────────
+    isRemoved: { type: Boolean, default: false, index: true },
+    removedAt: { type: Date, default: null },
+    removedBy: { type: ObjectId, ref: "User", default: null },
+    removalReason: { type: String, trim: true },
+    removalSource: {
+      type: String,
+      enum: ["ADMIN", "USER_CASCADE", "SYSTEM"],
+      default: undefined,
+    },
+    removalHadPayments: { type: Boolean, default: false },
 
     // ── Metadatos de importación ──────────────────────────────────────────────
     importBatch: { type: ObjectId, ref: "TourImportBatch", default: null },
@@ -94,6 +144,8 @@ const TourParticipantSchema = new Schema(
 
 TourParticipantSchema.index({ tour: 1, fingerprint: 1 }, { unique: true });
 TourParticipantSchema.index({ tour: 1, status: 1 });
+TourParticipantSchema.index({ tour: 1, isRemoved: 1, firstSurname: 1, firstName: 1 });
+TourParticipantSchema.index({ tour: 1, visaStatus: 1, visaDeniedCount: 1 });
 TourParticipantSchema.index(
   { tour: 1, linkedUser: 1 },
   {

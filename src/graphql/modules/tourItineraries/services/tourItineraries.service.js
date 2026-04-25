@@ -14,6 +14,9 @@ const TourItineraryAssignment = require("../../../../../models/TourItineraryAssi
 const TourFlight = require("../../../../../models/TourFlight");
 const TourParticipant = require("../../../../../models/TourParticipant");
 const Tour = require("../../../../../models/Tour");
+const {
+  assertParticipantVisaEligible,
+} = require("../../tours/services/tourVisaStatus.service");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -205,8 +208,9 @@ async function assignPassengersToItinerary(itineraryId, participantIds, ctx) {
   const participants = await TourParticipant.find({
     _id: { $in: participantIds },
     tour: tourId,
+    isRemoved: { $ne: true },
   })
-    .select("_id firstName firstSurname secondSurname")
+    .select("_id firstName firstSurname secondSurname visaStatus hasVisa visaExpiry")
     .lean();
 
   // Already in THIS itinerary → skip silently
@@ -238,6 +242,18 @@ async function assignPassengersToItinerary(itineraryId, participantIds, ctx) {
 
     // Already in this itinerary — silent skip
     if (inThisSet.has(pid)) { skipped++; continue; }
+
+    try {
+      assertParticipantVisaEligible(p);
+    } catch (error) {
+      conflicts.push({
+        participantId: pid,
+        participantName: fullName(p),
+        reason: error.message,
+        conflictingItinerary: "visa bloqueada",
+      });
+      continue;
+    }
 
     // In a different itinerary — ALREADY_ASSIGNED conflict
     const conflictName = conflictMap.get(pid);

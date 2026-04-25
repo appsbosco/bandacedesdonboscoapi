@@ -33,6 +33,14 @@ module.exports = gql`
     UNKNOWN
   }
 
+  enum TourParticipantVisaStatus {
+    PENDING
+    APPROVED
+    DENIED
+    EXPIRED
+    UNKNOWN
+  }
+
   # ─── Types ──────────────────────────────────────────────────────────────────
 
   # Configuración de acceso self-service por módulo (gestionada por Admin)
@@ -80,6 +88,15 @@ module.exports = gql`
     passportExpiry: DateTime
     hasVisa: Boolean!
     visaExpiry: DateTime
+    visaStatus: TourParticipantVisaStatus!
+    visaDecisionDate: DateTime
+    visaDeniedCount: Int!
+    visaLastDeniedAt: DateTime
+    visaLastDeniedReason: String
+    visaBlockedAt: DateTime
+    visaBlockedBy: User
+    visaNotes: String
+    visaHistory: [TourParticipantVisaHistoryEntry!]!
     hasExitPermit: Boolean!
     # Estado
     status: TourParticipantStatus!
@@ -87,10 +104,30 @@ module.exports = gql`
     notes: String
     # Enlace opcional al sistema de usuarios
     linkedUser: User
+    linkedUserSnapshotName: String
+    linkedUserSnapshotEmail: String
+    isRemoved: Boolean!
+    removedAt: DateTime
+    removedBy: User
+    removalReason: String
+    removalSource: String
+    removalHadPayments: Boolean!
     # Auditoría
     addedBy: User
+    updatedBy: User
     createdAt: DateTime!
     updatedAt: DateTime!
+  }
+
+  type TourParticipantVisaHistoryEntry {
+    id: ID!
+    status: TourParticipantVisaStatus!
+    reason: String
+    notes: String
+    decidedAt: DateTime!
+    decidedBy: User
+    source: String
+    denialOrdinal: Int
   }
 
   type TourParticipantBatchResult {
@@ -103,7 +140,9 @@ module.exports = gql`
   type DeleteTourParticipantCascade {
     itineraryAssignments: Int!
     routeAssignments: Int!
-    roomsModified: Int!
+    flightsModified: Int!
+    roomOccupantsModified: Int!
+    roomResponsiblesCleared: Int!
     itinerariesModified: Int!
     payments: Int!
     installments: Int!
@@ -113,7 +152,15 @@ module.exports = gql`
   type DeleteTourParticipantResult {
     success: Boolean!
     deletedId: ID!
+    deletionMode: String!
+    participantStillExists: Boolean!
     cascadeResults: DeleteTourParticipantCascade!
+  }
+
+  input UpdateTourParticipantVisaStatusInput {
+    status: TourParticipantVisaStatus!
+    reason: String
+    notes: String
   }
 
   # ─── Inputs ─────────────────────────────────────────────────────────────────
@@ -178,6 +225,8 @@ module.exports = gql`
   input TourParticipantFilterInput {
     status: TourParticipantStatus
     role: TourParticipantRole
+    includeRemoved: Boolean
+    visaStatus: TourParticipantVisaStatus
   }
 
   input TourSelfServiceAccessInput {
@@ -220,6 +269,10 @@ module.exports = gql`
     createTourParticipant(tourId: ID!, input: CreateTourParticipantInput!): TourParticipant!
     createTourParticipantsBatch(tourId: ID!, participants: [CreateTourParticipantInput!]!): TourParticipantBatchResult!
     updateTourParticipant(id: ID!, input: UpdateTourParticipantInput!): TourParticipant!
+    updateTourParticipantVisaStatus(
+      participantId: ID!
+      input: UpdateTourParticipantVisaStatusInput!
+    ): TourParticipant!
     updateTourParticipantSex(participantId: ID!, sex: Sex!): TourParticipant!
     removeTourParticipant(id: ID!): String!
     deleteTourParticipant(id: ID!): DeleteTourParticipantResult!

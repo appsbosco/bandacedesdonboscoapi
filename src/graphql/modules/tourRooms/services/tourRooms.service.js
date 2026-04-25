@@ -7,6 +7,9 @@
 const TourRoom = require("../../../../../models/TourRoom");
 const TourParticipant = require("../../../../../models/TourParticipant");
 const Tour = require("../../../../../models/Tour");
+const {
+  assertParticipantVisaEligible,
+} = require("../../tours/services/tourVisaStatus.service");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -108,7 +111,22 @@ async function updateTourRoom(id, input, ctx) {
   if (input.capacity !== undefined) allowed.capacity = input.capacity;
   if (input.floor !== undefined) allowed.floor = input.floor;
   if (input.notes !== undefined) allowed.notes = input.notes;
-  if (input.responsibleId !== undefined) allowed.responsible = input.responsibleId || null;
+  if (input.responsibleId !== undefined) {
+    if (input.responsibleId) {
+      const participant = await TourParticipant.findById(input.responsibleId);
+      if (!participant) throw new Error("Participante no encontrado");
+      if (participant.isRemoved) throw new Error("El participante fue eliminado de la gira");
+      assertParticipantVisaEligible(participant);
+
+      const isOccupant = room.occupants.some(
+        (o) => o.participant.toString() === input.responsibleId.toString()
+      );
+      if (!isOccupant) {
+        throw new Error("El participante no es ocupante de esta habitación");
+      }
+    }
+    allowed.responsible = input.responsibleId || null;
+  }
   allowed.updatedBy = user._id || user.id;
 
   const updated = await populateRoom(
@@ -147,6 +165,8 @@ async function assignOccupant(roomId, participantId, ctx) {
 
   const participant = await TourParticipant.findById(participantId);
   if (!participant) throw new Error("Participante no encontrado");
+  if (participant.isRemoved) throw new Error("El participante fue eliminado de la gira");
+  assertParticipantVisaEligible(participant);
 
   if (participant.tour.toString() !== room.tour.toString()) {
     throw new Error("El participante no pertenece a la gira de esta habitación");
@@ -229,6 +249,8 @@ async function setRoomResponsible(roomId, participantId, ctx) {
   if (participantId) {
     const participant = await TourParticipant.findById(participantId);
     if (!participant) throw new Error("Participante no encontrado");
+    if (participant.isRemoved) throw new Error("El participante fue eliminado de la gira");
+    assertParticipantVisaEligible(participant);
 
     // Must be an occupant of this room
     const isOccupant = room.occupants.some(

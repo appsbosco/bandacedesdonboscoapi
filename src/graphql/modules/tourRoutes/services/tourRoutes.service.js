@@ -11,6 +11,9 @@ const TourRouteAssignment = require("../../../../../models/TourRouteAssignment")
 const TourFlight = require("../../../../../models/TourFlight");
 const TourParticipant = require("../../../../../models/TourParticipant");
 const Tour = require("../../../../../models/Tour");
+const {
+  assertParticipantVisaEligible,
+} = require("../../tours/services/tourVisaStatus.service");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -182,8 +185,9 @@ async function assignPassengersToRoute(routeId, participantIds, ctx) {
   const participants = await TourParticipant.find({
     _id: { $in: participantIds },
     tour: tourId,
+    isRemoved: { $ne: true },
   })
-    .select("_id firstName firstSurname secondSurname")
+    .select("_id firstName firstSurname secondSurname visaStatus hasVisa visaExpiry")
     .lean();
 
   // Participants already in THIS route → skip silently
@@ -216,6 +220,18 @@ async function assignPassengersToRoute(routeId, participantIds, ctx) {
 
     if (inRouteSet.has(pid)) {
       skipped++;
+      continue;
+    }
+
+    try {
+      assertParticipantVisaEligible(p);
+    } catch (error) {
+      conflicts.push({
+        participantId: pid,
+        participantName: participantFullName(p),
+        conflictingRoute: "visa bloqueada",
+        reason: error.message,
+      });
       continue;
     }
 

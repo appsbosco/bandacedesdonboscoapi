@@ -5,13 +5,6 @@
 
 const Tour = require("../../../../../models/Tour");
 const TourParticipant = require("../../../../../models/TourParticipant");
-const TourItineraryAssignment = require("../../../../../models/TourItineraryAssignment");
-const TourRouteAssignment = require("../../../../../models/TourRouteAssignment");
-const TourRoom = require("../../../../../models/TourRoom");
-const TourItinerary = require("../../../../../models/TourItinerary");
-const TourPayment = require("../../../../../models/TourPayment");
-const ParticipantFinancialAccount = require("../../../../../models/ParticipantFinancialAccount");
-const ParticipantInstallment = require("../../../../../models/ParticipantInstallment");
 const {
   syncTourDocumentsForOwner,
 } = require("../../tourDocuments/services/tourDocuments.service");
@@ -22,6 +15,12 @@ const {
   getParentChildrenUserIds,
   assertParentCanViewChild,
 } = require("../../../shared/tourAuth");
+const {
+  removeTourParticipantSafely,
+} = require("./tourParticipantRemoval.service");
+const {
+  setTourParticipantVisaStatus,
+} = require("./tourVisaStatus.service");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -55,7 +54,11 @@ function requireAdmin(ctx) {
 function populateParticipant(query) {
   return query
     .populate("linkedUser", "name firstSurName secondSurName email")
-    .populate("addedBy", "name firstSurName");
+    .populate("addedBy", "name firstSurName")
+    .populate("updatedBy", "name firstSurName")
+    .populate("removedBy", "name firstSurName")
+    .populate("visaBlockedBy", "name firstSurName")
+    .populate("visaHistory.decidedBy", "name firstSurName");
 }
 
 function serializeTour(tour) {
@@ -193,8 +196,12 @@ async function getTourParticipants(tourId, filters, ctx) {
   if (!tour) throw new Error("Gira no encontrada");
 
   const query = { tour: tourId };
+  if (filters?.includeRemoved !== true) {
+    query.isRemoved = { $ne: true };
+  }
   if (filters?.status) query.status = filters.status;
   if (filters?.role) query.role = filters.role;
+  if (filters?.visaStatus) query.visaStatus = filters.visaStatus;
 
   return populateParticipant(
     TourParticipant.find(query).sort({ firstSurname: 1, firstName: 1 }),
@@ -228,11 +235,48 @@ async function createTourParticipant(tourId, input, ctx) {
     input.identification,
   );
 
-  const existing = await TourParticipant.findOne({ tour: tourId, fingerprint });
+  const existing = await TourParticipant.findOne({
+    tour: tourId,
+    $or: [
+      { fingerprint },
+      ...(input.linkedUserId
+        ? [
+            { linkedUser: input.linkedUserId },
+            { linkedUserSnapshotId: input.linkedUserId, isRemoved: true },
+          ]
+        : []),
+    ],
+  });
   if (existing) {
-    throw new Error(
-      `Ya existe un participante con los mismos datos de identidad (${input.firstName} ${input.firstSurname}, ${input.identification})`,
-    );
+    if (!existing.isRemoved) {
+      throw new Error(
+        `Ya existe un participante con los mismos datos de identidad (${input.firstName} ${input.firstSurname}, ${input.identification})`,
+      );
+    }
+
+    const { linkedUserId, ...participantData } = input;
+    existing.set({
+      ...participantData,
+      fingerprint,
+      linkedUser: linkedUserId || null,
+      linkedUserSnapshotId: linkedUserId || null,
+      linkedUserSnapshotName: null,
+      linkedUserSnapshotEmail: null,
+      isRemoved: false,
+      removedAt: null,
+      removedBy: null,
+      removalReason: null,
+      removalSource: null,
+      removalHadPayments: false,
+      updatedBy: admin._id || admin.id,
+    });
+    await existing.save();
+    if (linkedUserId) {
+      await syncTourDocumentsForOwner(linkedUserId, {
+        updatedBy: admin._id || admin.id,
+      });
+    }
+    return populateParticipant(TourParticipant.findById(existing._id));
   }
 
   const { linkedUserId, ...participantData } = input;
@@ -345,6 +389,9 @@ async function updateTourParticipant(id, input, ctx) {
 
   const participant = await TourParticipant.findById(id);
   if (!participant) throw new Error("Participante no encontrado");
+  if (participant.isRemoved) {
+    throw new Error("El participante fue eliminado de la gira y no puede editarse");
+  }
 
   const attemptedCanonicalFields = [...CANONICAL_DOCUMENT_FIELDS].filter(
     (field) => input[field] !== undefined,
@@ -437,6 +484,11 @@ async function updateTourParticipantSex(participantId, sex, ctx) {
   return updated;
 }
 
+async function updateTourParticipantVisaStatus(participantId, input, ctx) {
+  const admin = requireAdmin(ctx);
+  return setTourParticipantVisaStatus(participantId, input, admin);
+}
+
 async function removeTourParticipant(id, ctx) {
   requireAdmin(ctx);
 
@@ -461,64 +513,13 @@ async function removeTourParticipant(id, ctx) {
  * - TourParticipant (el documento principal)
  */
 async function deleteTourParticipant(id, ctx) {
-  requireAdmin(ctx);
-
-  if (!id) throw new Error("ID de participante requerido");
-
-  const participant = await TourParticipant.findById(id);
-  if (!participant) throw new Error("Participante no encontrado");
-
-  // a. Itinerary assignments
-  const { deletedCount: itineraryAssignments } = await TourItineraryAssignment.deleteMany({
-    participant: id,
+  const admin = requireAdmin(ctx);
+  return removeTourParticipantSafely({
+    participantId: id,
+    actor: admin,
+    removalSource: "ADMIN",
+    removalReason: "Eliminado manualmente desde Tours",
   });
-
-  // b. Route assignments
-  const { deletedCount: routeAssignments } = await TourRouteAssignment.deleteMany({
-    participant: id,
-  });
-
-  // c. Remove from room occupants arrays
-  const { modifiedCount: roomsModified } = await TourRoom.updateMany(
-    { "occupants.participant": id },
-    { $pull: { occupants: { participant: id } } }
-  );
-
-  // d. Remove from itinerary leaderIds arrays
-  const { modifiedCount: itinerariesModified } = await TourItinerary.updateMany(
-    { leaderIds: id },
-    { $pull: { leaderIds: id } }
-  );
-
-  // e. Tour payments
-  const { deletedCount: payments } = await TourPayment.deleteMany({ participant: id });
-
-  // f. Financial installments
-  const { deletedCount: installments } = await ParticipantInstallment.deleteMany({
-    participant: id,
-  });
-
-  // g. Financial accounts
-  const { deletedCount: financialAccounts } = await ParticipantFinancialAccount.deleteMany({
-    participant: id,
-  });
-
-  // h. Delete the participant
-  await TourParticipant.findByIdAndDelete(id);
-
-  return {
-    success: true,
-    deletedId: id,
-    cascadeResults: {
-      itineraryAssignments,
-      routeAssignments,
-      roomsModified,
-      itinerariesModified,
-      payments,
-      installments,
-      financialAccounts,
-    },
-  };
 }
 
 // ─── Self-service ─────────────────────────────────────────────────────────────
@@ -550,7 +551,11 @@ async function getMyChildrenTourAccess(tourId, ctx) {
   if (childrenIds.length === 0) return [];
 
   return populateParticipant(
-    TourParticipant.find({ tour: tourId, linkedUser: { $in: childrenIds } })
+    TourParticipant.find({
+      tour: tourId,
+      linkedUser: { $in: childrenIds },
+      isRemoved: { $ne: true },
+    })
   );
 }
 
@@ -567,7 +572,11 @@ async function getMyChildTourParticipant(tourId, childUserId, ctx) {
   assertParentCanViewChild({ childUserId, parentChildrenIds: childrenIds });
 
   const participant = await populateParticipant(
-    TourParticipant.findOne({ tour: tourId, linkedUser: childUserId })
+    TourParticipant.findOne({
+      tour: tourId,
+      linkedUser: childUserId,
+      isRemoved: { $ne: true },
+    })
   );
 
   if (!participant) return null;
@@ -625,6 +634,7 @@ module.exports = {
   createTourParticipantsBatch,
   updateTourParticipant,
   updateTourParticipantSex,
+  updateTourParticipantVisaStatus,
   removeTourParticipant,
   deleteTourParticipant,
   // Self-service

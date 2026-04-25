@@ -11,6 +11,9 @@
 const TourFlight = require("../../../../../models/TourFlight");
 const TourParticipant = require("../../../../../models/TourParticipant");
 const Tour = require("../../../../../models/Tour");
+const {
+  assertParticipantVisaEligible,
+} = require("../../tours/services/tourVisaStatus.service");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -225,6 +228,8 @@ async function assignPassenger(flightId, participantId, ctx) {
 
   const participant = await TourParticipant.findById(participantId);
   if (!participant) throw new Error("Participante no encontrado");
+  if (participant.isRemoved) throw new Error("El participante fue eliminado de la gira");
+  assertParticipantVisaEligible(participant);
 
   if (participant.tour.toString() !== flight.tour.toString()) {
     throw new Error("El participante no pertenece a la gira de este vuelo");
@@ -281,8 +286,9 @@ async function assignPassengers(flightId, participantIds, ctx) {
   const participants = await TourParticipant.find({
     _id: { $in: participantIds },
     tour: tourId,
+    isRemoved: { $ne: true },
   })
-    .select("_id firstName firstSurname secondSurname tour")
+    .select("_id firstName firstSurname secondSurname tour visaStatus hasVisa visaExpiry")
     .lean();
 
   const foundIds = new Set(participants.map((p) => p._id.toString()));
@@ -322,6 +328,19 @@ async function assignPassengers(flightId, participantIds, ctx) {
 
     // Ya está en este vuelo → skip silencioso
     if (alreadyInFlight.has(pid)) continue;
+
+    try {
+      assertParticipantVisaEligible(p);
+    } catch (error) {
+      conflicts.push({
+        participantId: pid,
+        participantName: participantFullName(p),
+        conflictingFlight: null,
+        conflictingRoute: "visa bloqueada",
+        reason: error.message,
+      });
+      continue;
+    }
 
     const existing = assignmentMap.get(pid);
     if (existing) {

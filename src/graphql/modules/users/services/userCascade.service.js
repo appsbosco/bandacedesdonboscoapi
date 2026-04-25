@@ -44,6 +44,9 @@ const ActivitySettlement = require("../../../../../models/ActivitySettlement");
 const Sale = require("../../../../../models/Sale");
 const Committee = require("../../../../../models/Committee");
 const FormationTemplate = require("../../../../../models/FormationTemplate");
+const {
+  removeTourParticipantSafely,
+} = require("../../tours/services/tourParticipantRemoval.service");
 
 async function loadPracticeModels() {
   const [
@@ -70,6 +73,19 @@ async function deleteUserCascade(userIdInput) {
     await loadPracticeModels();
 
   const inventoryIds = await Inventory.find({ user: userId }).distinct("_id");
+  const linkedTourParticipants = await TourParticipant.find(
+    { linkedUser: userId },
+    { _id: 1 },
+  ).lean();
+
+  for (const participant of linkedTourParticipants) {
+    await removeTourParticipantSafely({
+      participantId: participant._id,
+      actor: null,
+      removalSource: "USER_CASCADE",
+      removalReason: "El User vinculado fue eliminado de la plataforma",
+    });
+  }
 
   await Promise.all([
     User.updateMany({ students: userId }, { $pull: { students: userId } }),
@@ -145,10 +161,6 @@ async function deleteUserCascade(userIdInput) {
     PracticePreset.deleteMany({ user: userId }),
     MetronomeQuickSettings.deleteMany({ user: userId }),
 
-    TourParticipant.updateMany(
-      { linkedUser: userId },
-      { $unset: { linkedUser: 1 } },
-    ),
     TourParticipant.updateMany(
       { addedBy: userId },
       { $unset: { addedBy: 1 } },

@@ -91,6 +91,7 @@ module.exports = {
 
   // ── FinancialTableRow ───────────────────────────────────────────────────────
   FinancialTableRow: {
+    removedAt: (row) => toISO(row.removedAt),
     installments: (row) =>
       (row.installments || []).map((cell) => ({
         ...cell,

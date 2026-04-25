@@ -196,9 +196,18 @@ module.exports = gql`
   type FinancialTableRow {
     accountId: ID!
     participantId: ID!
+    hasFinancialAccount: Boolean!
     fullName: String!
     identification: String!
     instrument: String!
+    visaStatus: TourParticipantVisaStatus!
+    visaDeniedCount: Int!
+    linkedUserName: String
+    linkedUserEmail: String
+    isRemoved: Boolean!
+    removedAt: DateTime
+    removedByName: String
+    removalHadPayments: Boolean!
     finalAmount: Float!
     totalPaid: Float!
     balance: Float!
