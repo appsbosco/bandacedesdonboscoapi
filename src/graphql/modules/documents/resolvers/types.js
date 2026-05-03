@@ -5,20 +5,26 @@
  */
 const { daysUntilExpiration } = require("../../../../../utils/expiration");
 
+function formatDateOnly(value) {
+  if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === "string") {
+    const dateOnly = value.match(/^\d{4}-\d{2}-\d{2}/);
+    return dateOnly ? dateOnly[0] : value;
+  }
+
+  return value;
+}
+
 module.exports = {
   DocumentExtractedData: {
-    dateOfBirth: (parent) =>
-      parent.dateOfBirth instanceof Date
-        ? parent.dateOfBirth.toISOString()
-        : parent.dateOfBirth || null,
-    expirationDate: (parent) =>
-      parent.expirationDate instanceof Date
-        ? parent.expirationDate.toISOString()
-        : parent.expirationDate || null,
-    issueDate: (parent) =>
-      parent.issueDate instanceof Date
-        ? parent.issueDate.toISOString()
-        : parent.issueDate || null,
+    dateOfBirth: (parent) => formatDateOnly(parent.dateOfBirth),
+    expirationDate: (parent) => formatDateOnly(parent.expirationDate),
+    issueDate: (parent) => formatDateOnly(parent.issueDate),
   },
   Document: {
     createdAt: (parent) =>

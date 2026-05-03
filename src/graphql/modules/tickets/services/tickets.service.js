@@ -303,6 +303,10 @@ function normalizeText(value) {
     .replace(/\s+/g, " ");
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function normalizeHeader(value) {
   return normalizeText(value)
     .replace(/[^a-z0-9]+/g, "_")
@@ -637,6 +641,7 @@ function buildStrictResendTicketEmail({
   user,
   to,
   recipientName,
+  recipientType = "user",
   qrCodeDataUrl,
 }) {
   const name =
@@ -655,7 +660,7 @@ function buildStrictResendTicketEmail({
     qrCode: qrCodeDataUrl,
     qrCodeDataUrl,
     date: new Date().toLocaleDateString("es-CR"),
-    recipient: { name, type: "user" },
+    recipient: { name, type: recipientType },
     force: true,
   };
   const built = getStrictTicketEmailTemplate(emailData);
@@ -706,6 +711,9 @@ async function resendImportedTicketEmailById(ticketId, ctx) {
   if (!ticket.buyerEmail) {
     throw new Error("El ticket no tiene correo destino");
   }
+  if (!ticket.paid && ticket.type !== "courtesy") {
+    throw new Error("Solo se pueden reenviar entradas pagadas");
+  }
 
   const event = await EventTicket.findById(ticket.eventId);
   if (!event) throw new Error("Event not found");
@@ -745,6 +753,9 @@ async function sendTicketEmailById(ticketId, ctx) {
   if (ticket.status === "cancelled") {
     throw new Error("No se puede reenviar una entrada cancelada");
   }
+  if (!ticket.paid && ticket.type !== "courtesy") {
+    throw new Error("Solo se pueden reenviar entradas pagadas");
+  }
 
   const event = await EventTicket.findById(ticket.eventId);
   if (!event) throw new Error("Event not found");
@@ -759,23 +770,56 @@ async function sendTicketEmailById(ticketId, ctx) {
   }
 
   const user = ticket.userId || null;
-  const recipientEmail = user?.email || ticket.buyerEmail;
-  if (!recipientEmail) {
+  const recipientsByEmail = new Map();
+  const addRecipient = ({ email, name, type }) => {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!normalizedEmail || recipientsByEmail.has(normalizedEmail)) return;
+    recipientsByEmail.set(normalizedEmail, {
+      email: String(email).trim(),
+      name,
+      type,
+    });
+  };
+
+  addRecipient({
+    email: user?.email || ticket.buyerEmail,
+    name: user?.name || ticket.buyerName || ticket.userId?.name || "Asistente",
+    type: "user",
+  });
+
+  if (user?._id) {
+    const parent = await Parent.findOne({ children: user._id }).select(
+      "name email",
+    );
+    if (parent?.email) {
+      addRecipient({
+        email: parent.email,
+        name: parent.name || "Padre/Madre de familia",
+        type: "parent",
+      });
+    }
+  }
+
+  const recipients = Array.from(recipientsByEmail.values());
+  if (!recipients.length) {
     throw new Error("El ticket no tiene correo destino");
   }
 
-  const recipientName =
-    user?.name || ticket.buyerName || ticket.userId?.name || "Asistente";
-  await sendEmail(
-    ctx,
-    buildStrictResendTicketEmail({
-      ticket,
-      event,
-      user,
-      to: recipientEmail,
-      recipientName,
-      qrCodeDataUrl: ticket.qrCode,
-    }),
+  await Promise.all(
+    recipients.map((recipient) =>
+      sendEmail(
+        ctx,
+        buildStrictResendTicketEmail({
+          ticket,
+          event,
+          user,
+          to: recipient.email,
+          recipientName: recipient.name,
+          recipientType: recipient.type,
+          qrCodeDataUrl: ticket.qrCode,
+        }),
+      ),
+    ),
   );
 
   ticket.paymentEmailSentAt = new Date();
@@ -953,8 +997,17 @@ module.exports = {
       const currentUser = requireAuth(ctx);
       const userId = currentUser?.id || currentUser?._id;
       if (!userId) throw new Error("No autenticado");
+      const userEmail = String(currentUser?.email || "").trim().toLowerCase();
+      const query = {
+        $or: [{ userId }],
+      };
+      if (userEmail) {
+        query.$or.push({
+          buyerEmail: new RegExp(`^${escapeRegExp(userEmail)}$`, "i"),
+        });
+      }
 
-      return await Ticket.find({ userId })
+      return await Ticket.find(query)
         .populate({
           path: "userId",
           select: "name firstSurName secondSurName email",

@@ -126,6 +126,10 @@ function baseDocumentPopulate(q) {
   return q.populate("owner").populate("createdBy").populate("updatedBy");
 }
 
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * validateTicket
  */
@@ -439,17 +443,30 @@ async function getAllDocuments(filters, pagination, ctx) {
     mongo["extracted.expirationDate"] = { $lt: new Date() };
   }
 
-  // Búsqueda por nombre: busca los IDs de usuarios que coincidan
-  if (f.ownerName && f.ownerName.trim()) {
-    const regex = new RegExp(f.ownerName.trim(), "i");
-    const matchingUsers = await User.find({
-      $or: [
-        { name: regex },
-        { firstSurName: regex },
-        { secondSurName: regex },
-        { email: regex },
-      ],
-    })
+  // Búsqueda por datos del propietario: nombre, apellidos, correo e instrumento.
+  if ((f.ownerName && f.ownerName.trim()) || (f.ownerInstrument && f.ownerInstrument.trim())) {
+    const userQuery = {};
+
+    if (f.ownerName && f.ownerName.trim()) {
+      const terms = f.ownerName.trim().split(/\s+/).filter(Boolean);
+      userQuery.$and = terms.map((term) => {
+        const regex = new RegExp(escapeRegex(term), "i");
+        return {
+          $or: [
+            { name: regex },
+            { firstSurName: regex },
+            { secondSurName: regex },
+            { email: regex },
+          ],
+        };
+      });
+    }
+
+    if (f.ownerInstrument && f.ownerInstrument.trim()) {
+      userQuery.instrument = new RegExp(escapeRegex(f.ownerInstrument.trim()), "i");
+    }
+
+    const matchingUsers = await User.find(userQuery)
       .select("_id")
       .lean();
 

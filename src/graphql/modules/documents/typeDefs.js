@@ -203,6 +203,7 @@ const typeDefs = gql`
 
   input DocumentFiltersInput {
     ownerName: String
+    ownerInstrument: String
     type: DocumentType
     status: DocumentStatus
     expirationBefore: String
