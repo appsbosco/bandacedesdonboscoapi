@@ -64,8 +64,8 @@ const TEMPLATES = {
     const placePart = payload.place ? ` · ${payload.place}` : "";
 
     return {
-      title: `BCDB — ${label}: ${payload.title}`,
-      body: `${bandPart}${dateStr}${placePart}`,
+      title: `${payload.title}`,
+      body: `Tienes una nueva presentación: ${bandPart}${dateStr}${placePart}`,
       link: `${FRONTEND_URL}/events/${payload.eventId}`,
       data: {
         kind: EVENTS.EVENT_PUBLISHED,
