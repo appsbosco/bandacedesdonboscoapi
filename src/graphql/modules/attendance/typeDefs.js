@@ -78,10 +78,18 @@ module.exports = gql`
     late: Int!
     excusedBefore: Int!
     excusedAfter: Int!
+    unjustifiedWithdrawals: Int!
+    justifiedWithdrawals: Int!
+    missingAsUnjustified: Int!
+    unjustifiedCount: Int!
+    justifiedCount: Int!
     # Métrica calculada: 2 justificadas = 1 injustificada
     equivalentAbsences: Float!
+    attendanceCredits: Float!
     # Porcentaje de asistencia
     attendancePercentage: Float!
+    strictAttendancePercentage: Float!
+    hasThreeUnjustified: Boolean!
     # Alerta si supera el límite
     exceedsLimit: Boolean!
   }

@@ -16,8 +16,9 @@ function requireAuth(ctx) {
 
 function requireAdmin(ctx) {
   const user = requireAuth(ctx);
+  const role = String(user?.role || "").toUpperCase();
 
-  if (!user || user.role !== "Admin") {
+  if (!user || role !== "ADMIN") {
     throw new Error("Se requieren permisos de administrador");
   }
   return user;
@@ -27,12 +28,13 @@ function requireSectionLeader(ctx, allowedSections = []) {
   const user = requireAuth(ctx);
   if (!user) throw new Error("No autenticado");
 
-  const validRoles = ["Admin", "Principal de sección", "Asistente de sección"];
-  if (!validRoles.includes(user.role)) {
+  const validRoles = ["ADMIN", "PRINCIPAL DE SECCIÓN", "ASISTENTE DE SECCIÓN"];
+  const role = String(user.role || "").toUpperCase();
+  if (!validRoles.includes(role)) {
     throw new Error("No tienes permisos para pasar lista");
   }
 
-  const isAdmin = user.role === "Admin";
+  const isAdmin = role === "ADMIN";
 
   // Admin puede pasar lista de cualquier sección
   if (!isAdmin && allowedSections.length > 0) {
@@ -246,7 +248,7 @@ async function takeAttendance(date, section, attendances, ctx) {
       session.takenBy &&
       session.takenBy.toString() !== user?._id?.toString()
     ) {
-      const isAdmin = user?.role === "Admin";
+      const isAdmin = String(user?.role || "").toUpperCase() === "ADMIN";
       if (!isAdmin) {
         throw new Error(
           "La lista ya fue pasada por otro encargado. Solo administradores pueden editar.",
@@ -316,7 +318,7 @@ async function updateAttendance(id, status, notes, ctx) {
   if (!attendance) throw new Error("Registro de asistencia no encontrado");
 
   attendance.status = status;
-  attendance.notes = notes || attendance.notes;
+  attendance.notes = notes ?? attendance.notes;
   attendance.updatedAt = new Date();
   await attendance.save();
 
@@ -479,6 +481,8 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
       late: 0,
       absentUnjustified: 0,
       absentJustified: 0,
+      excusedBefore: 0,
+      excusedAfter: 0,
       unjustifiedWithdrawals: 0,
       justifiedWithdrawals: 0,
       missingAsUnjustified: 0,
@@ -592,6 +596,8 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
     // Compatibilidad
     absentUnjustified: unjustifiedCount,
     absentJustified: justifiedCount,
+    excusedBefore: 0,
+    excusedAfter: 0,
 
     unjustifiedWithdrawals: counters.unjustifiedWithdrawals,
     justifiedWithdrawals: counters.justifiedWithdrawals,

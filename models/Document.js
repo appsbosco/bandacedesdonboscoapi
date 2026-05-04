@@ -13,7 +13,7 @@ const captureMetaSchema = new mongoose.Schema(
     torchUsed: Boolean,
     ts: Date,
   },
-  { _id: false }
+  { _id: false },
 );
 
 const documentImageSchema = new mongoose.Schema(
@@ -23,50 +23,54 @@ const documentImageSchema = new mongoose.Schema(
       enum: ["RAW", "NORMALIZED", "MRZ_ROI"],
       default: "RAW",
     },
-    url:       { type: String, required: true },
-    provider:  { type: String, enum: ["CLOUDINARY", "S3"], default: "CLOUDINARY" },
-    publicId:  String,
-    width:     Number,
-    height:    Number,
-    bytes:     Number,
-    mimeType:  String,
-    sha256:    String,
+    url: { type: String, required: true },
+    provider: {
+      type: String,
+      enum: ["CLOUDINARY", "S3"],
+      default: "CLOUDINARY",
+    },
+    publicId: String,
+    width: Number,
+    height: Number,
+    bytes: Number,
+    mimeType: String,
+    sha256: String,
     captureMeta: captureMetaSchema,
     uploadedAt: { type: Date, default: Date.now },
   },
-  { _id: true }
+  { _id: true },
 );
 
 const extractedDataSchema = new mongoose.Schema(
   {
-    fullName:       String,
-    givenNames:     String,
-    surname:        String,
-    nationality:    String,
+    fullName: String,
+    givenNames: String,
+    surname: String,
+    nationality: String,
     issuingCountry: String,
     // Encrypted
     documentNumber: String,
     passportNumber: String,
     // End encrypted
-    visaType:          String,
+    visaType: String,
     visaControlNumber: String,
-    dateOfBirth:       Date,
-    sex:               { type: String, enum: ["M", "F", "X", null] },
-    expirationDate:    Date,
-    issueDate:         Date,
+    dateOfBirth: Date,
+    sex: { type: String, enum: ["M", "F", "X", null] },
+    expirationDate: Date,
+    issueDate: Date,
     // Permiso de salida
-    destination:     String,
-    authorizerName:  String,
+    destination: String,
+    authorizerName: String,
     // MRZ
-    mrzRaw:    String,   // Encrypted
-    mrzValid:  Boolean,
+    mrzRaw: String, // Encrypted
+    mrzValid: Boolean,
     mrzFormat: { type: String, enum: ["TD1", "TD2", "TD3", null] },
-    reasonCodes:   [String],
+    reasonCodes: [String],
     // OCR
-    ocrText:       String,
+    ocrText: String,
     ocrConfidence: Number,
   },
-  { _id: false }
+  { _id: false },
 );
 
 const documentSchema = new mongoose.Schema(
@@ -98,20 +102,24 @@ const documentSchema = new mongoose.Schema(
       default: "UPLOADED",
     },
     source: { type: String, enum: ["MANUAL", "OCR"], default: "MANUAL" },
-    images:   [documentImageSchema],
+    images: [documentImageSchema],
     extracted: extractedDataSchema,
-    notes:    String,
+    notes: String,
     retentionUntil: Date,
     lastAccessedAt: Date,
-    ocrAttempts:    { type: Number, default: 0 },
-    ocrLastError:   String,
-    ocrUpdatedAt:   Date,
-    isDeleted:      { type: Boolean, default: false },
-    deletedAt:      Date,
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    ocrAttempts: { type: Number, default: 0 },
+    ocrLastError: String,
+    ocrUpdatedAt: Date,
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: Date,
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 documentSchema.index({ owner: 1, type: 1, "extracted.expirationDate": 1 });
@@ -126,9 +134,13 @@ documentSchema.virtual("isExpired").get(function () {
 documentSchema.methods.encryptSensitiveFields = function () {
   if (this.extracted) {
     if (this.extracted.documentNumber)
-      this.extracted.documentNumber = encryptField(this.extracted.documentNumber);
+      this.extracted.documentNumber = encryptField(
+        this.extracted.documentNumber,
+      );
     if (this.extracted.passportNumber)
-      this.extracted.passportNumber = encryptField(this.extracted.passportNumber);
+      this.extracted.passportNumber = encryptField(
+        this.extracted.passportNumber,
+      );
     if (this.extracted.mrzRaw)
       this.extracted.mrzRaw = encryptField(this.extracted.mrzRaw);
   }
@@ -155,7 +167,7 @@ documentSchema.pre("save", function (next) {
 });
 
 documentSchema.post("find", function (docs) {
-  if (docs?.length) docs.forEach(d => d.decryptSensitiveFields?.());
+  if (docs?.length) docs.forEach((d) => d.decryptSensitiveFields?.());
 });
 
 documentSchema.post("findOne", function (doc) {
