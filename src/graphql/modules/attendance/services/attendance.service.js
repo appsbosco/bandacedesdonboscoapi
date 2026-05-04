@@ -2,6 +2,7 @@ const Attendance = require("../../../../../models/Attendance");
 const RehearsalSession = require("../../../../../models/RehearsalSession");
 const User = require("../../../../../models/User");
 const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
+const { inferSectionFromInstrument } = require("../../../../../utils/sections");
 // ============================================
 // HELPERS DE AUTENTICACIÓN Y PERMISOS
 // ============================================
@@ -38,8 +39,9 @@ function requireSectionLeader(ctx, allowedSections = []) {
 
   // Admin puede pasar lista de cualquier sección
   if (!isAdmin && allowedSections.length > 0) {
-    if (!user.section) throw new Error("Tu usuario no tiene sección asignada");
-    if (!allowedSections.includes(user.section)) {
+    const userSection = user.section || inferSectionFromInstrument(user.instrument);
+    if (!userSection) throw new Error("Tu usuario no tiene sección asignada");
+    if (!allowedSections.includes(userSection)) {
       throw new Error("No puedes pasar lista de esta sección");
     }
   }
@@ -450,11 +452,12 @@ async function getUserAttendanceStats(userId, startDate, endDate, ctx) {
 
   const user = await User.findById(userId);
   if (!user) throw new Error("Usuario no existe");
-  if (!user.section) throw new Error("El usuario no tiene sección asignada");
+  const userSection = user.section || inferSectionFromInstrument(user.instrument);
+  if (!userSection) throw new Error("El usuario no tiene sección asignada");
 
   // 1) Sesiones válidas para calcular asistencia (solo de su sección)
   const sessionQuery = {
-    section: user.section,
+    section: userSection,
     status: { $in: ["IN_PROGRESS", "CLOSED"] },
   };
 
