@@ -83,9 +83,9 @@ module.exports = {
     }
   },
 
-  assignDefaultPlanToAll: async (_, { tourId }, ctx) => {
+  assignDefaultPlanToAll: async (_, { tourId, planId }, ctx) => {
     try {
-      return await svc.assignDefaultPlanToAll(tourId, ctx);
+      return await svc.assignDefaultPlanToAll(tourId, ctx, planId);
     } catch (err) {
       console.error("[mutation:assignDefaultPlanToAll]", err.message);
       throw new Error(err.message || "No se pudo asignar el plan por defecto");

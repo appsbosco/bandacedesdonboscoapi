@@ -19,6 +19,23 @@ const SENSITIVE_DOCUMENT_TYPES = new Set([
   "PERMISO_SALIDA",
 ]);
 const DOCUMENT_SETTINGS_KEY = "default";
+const OTHER_INSTRUMENT_FILTER = "__OTHER__";
+const DOCUMENT_INSTRUMENT_FILTER_VALUES = [
+  "No Aplica",
+  "Flauta",
+  "Clarinete",
+  "Saxofón",
+  "Trompeta",
+  "Trombón",
+  "Tuba",
+  "Eufonio",
+  "Corno Francés",
+  "Mallets",
+  "Percusión",
+  "Color Guard",
+  "Danza",
+  "Staff",
+];
 
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
@@ -128,6 +145,10 @@ function baseDocumentPopulate(q) {
 
 function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function exactTextRegex(value) {
+  return new RegExp(`^\\s*${escapeRegex(value)}\\s*$`, "i");
 }
 
 /**
@@ -463,7 +484,25 @@ async function getAllDocuments(filters, pagination, ctx) {
     }
 
     if (f.ownerInstrument && f.ownerInstrument.trim()) {
-      userQuery.instrument = new RegExp(escapeRegex(f.ownerInstrument.trim()), "i");
+      const ownerInstrument = f.ownerInstrument.trim();
+
+      if (ownerInstrument === OTHER_INSTRUMENT_FILTER) {
+        userQuery.$and = [
+          ...(userQuery.$and || []),
+          { instrument: { $exists: true, $nin: [null, ""] } },
+          { role: { $not: exactTextRegex("Staff") } },
+          ...DOCUMENT_INSTRUMENT_FILTER_VALUES.map((instrument) => ({
+            instrument: { $not: exactTextRegex(instrument) },
+          })),
+        ];
+      } else if (ownerInstrument === "Staff") {
+        userQuery.$or = [
+          { instrument: exactTextRegex("Staff") },
+          { role: exactTextRegex("Staff") },
+        ];
+      } else {
+        userQuery.instrument = exactTextRegex(ownerInstrument);
+      }
     }
 
     const matchingUsers = await User.find(userQuery)

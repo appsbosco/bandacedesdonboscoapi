@@ -388,8 +388,8 @@ module.exports = gql`
       planId: ID!
     ): [ParticipantInstallment!]!
 
-    # Bulk: asignar plan por defecto a todos los participantes sin cuotas
-    assignDefaultPlanToAll(tourId: ID!): AssignPlanResult!
+    # Bulk: asignar plan a todos los participantes sin cuotas
+    assignDefaultPlanToAll(tourId: ID!, planId: ID): AssignPlanResult!
 
     # Installment edits
     updateInstallment(

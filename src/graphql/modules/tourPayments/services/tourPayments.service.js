@@ -330,10 +330,18 @@ async function createFinancialAccount(input, ctx) {
   const discount = input.discount ?? 0;
   const scholarship = input.scholarship ?? 0;
 
+  if (input.paymentPlanId) {
+    const plan = await TourPaymentPlan.findOne({
+      _id: input.paymentPlanId,
+      tour: input.tourId,
+    });
+    if (!plan) throw new Error("El plan de pagos no pertenece a esta gira");
+  }
+
   const account = new ParticipantFinancialAccount({
     tour: input.tourId,
     participant: input.participantId,
-    paymentPlan: input.paymentPlanId || null,
+    paymentPlan: null,
     currency: input.currency || "USD",
     baseAmount,
     discount,
@@ -345,6 +353,11 @@ async function createFinancialAccount(input, ctx) {
   account.recalculateBalance();
 
   await account.save();
+
+  if (input.paymentPlanId) {
+    await assignPaymentPlan(input.participantId, input.tourId, input.paymentPlanId, ctx);
+  }
+
   return populateAccount(ParticipantFinancialAccount.findById(account._id));
 }
 
@@ -388,8 +401,25 @@ async function updateFinancialAccount(id, input, ctx) {
   if (input.discount !== undefined) allowed.discount = input.discount;
   if (input.scholarship !== undefined) allowed.scholarship = input.scholarship;
   if (input.currency !== undefined) allowed.currency = input.currency;
-  if (input.paymentPlanId !== undefined)
-    allowed.paymentPlan = input.paymentPlanId || null;
+  const requestedPlanId = input.paymentPlanId || null;
+
+  if (requestedPlanId) {
+    const [plan, paymentsCount] = await Promise.all([
+      TourPaymentPlan.findOne({ _id: requestedPlanId, tour: account.tour }),
+      TourPayment.countDocuments({
+        participant: account.participant,
+        tour: account.tour,
+      }),
+    ]);
+
+    if (!plan) throw new Error("El plan de pagos no pertenece a esta gira");
+    if (paymentsCount > 0) {
+      throw new Error(
+        "No se puede reasignar el plan: el participante ya tiene pagos registrados. " +
+          "Edita las cuotas individualmente.",
+      );
+    }
+  }
 
   // Manejar ajuste adicional
   if (input.adjustment) {
@@ -416,6 +446,11 @@ async function updateFinancialAccount(id, input, ctx) {
   account.financialStatus = deriveFinancialStatus(account, installments);
 
   await account.save();
+
+  if (requestedPlanId) {
+    await assignPaymentPlan(account.participant, account.tour, requestedPlanId, ctx);
+  }
+
   return populateAccount(ParticipantFinancialAccount.findById(id));
 }
 
@@ -508,11 +543,19 @@ async function assignPaymentPlan(participantId, tourId, planId, ctx) {
  * que tienen cuenta financiera pero no tienen cuotas asignadas.
  * Útil después de importación masiva.
  */
-async function assignDefaultPlanToAll(tourId, ctx) {
+async function assignDefaultPlanToAll(tourId, ctx, planId = null) {
   requireAdmin(ctx);
 
-  const plan = await TourPaymentPlan.findOne({ tour: tourId, isDefault: true });
-  if (!plan) throw new Error("No existe un plan por defecto para esta gira");
+  const plan = planId
+    ? await TourPaymentPlan.findOne({ _id: planId, tour: tourId })
+    : await TourPaymentPlan.findOne({ tour: tourId, isDefault: true });
+  if (!plan) {
+    throw new Error(
+      planId
+        ? "El plan de pagos seleccionado no pertenece a esta gira"
+        : "No existe un plan por defecto para esta gira",
+    );
+  }
 
   const accounts = await ParticipantFinancialAccount.find({ tour: tourId });
   let assigned = 0;
@@ -608,6 +651,16 @@ async function registerPayment(input, ctx) {
     );
   if (participant.tour.toString() !== input.tourId.toString()) {
     throw new Error("El participante no pertenece a esta gira");
+  }
+
+  const installmentsCount = await ParticipantInstallment.countDocuments({
+    participant: input.participantId,
+    tour: input.tourId,
+  });
+  if (installmentsCount === 0) {
+    throw new Error(
+      "El participante no tiene cuotas configuradas. Asigná un plan de pagos antes de registrar pagos.",
+    );
   }
 
   // Distribuir el pago entre cuotas pendientes
@@ -719,6 +772,11 @@ async function createFinancialAccountsForAll(
     throw new Error("No hay participantes activos en esta gira");
   }
 
+  if (planId) {
+    const plan = await TourPaymentPlan.findOne({ _id: planId, tour: tourId });
+    if (!plan) throw new Error("El plan de pagos seleccionado no pertenece a esta gira");
+  }
+
   let created = 0;
   let skipped = 0;
   const errors = [];
@@ -738,7 +796,7 @@ async function createFinancialAccountsForAll(
       const account = new ParticipantFinancialAccount({
         tour: tourId,
         participant: participant._id,
-        paymentPlan: planId || null,
+        paymentPlan: null,
         currency: "USD",
         baseAmount: baseAmountInput,
         discount: 0,
@@ -747,6 +805,9 @@ async function createFinancialAccountsForAll(
       account.recalculateFinalAmount();
       account.recalculateBalance();
       await account.save();
+      if (planId) {
+        await assignPaymentPlan(participant._id, tourId, planId, ctx);
+      }
       created++;
     } catch (err) {
       errors.push({
