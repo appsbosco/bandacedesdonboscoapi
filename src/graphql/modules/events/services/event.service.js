@@ -39,10 +39,18 @@ function normalizeBusCapacities(busCapacities = []) {
       busNumber: Number(entry?.busNumber),
       capacity: Number(entry?.capacity),
     }))
-    .filter((entry) => Number.isInteger(entry.busNumber) && entry.busNumber >= 1 && entry.busNumber <= 6)
+    .filter(
+      (entry) =>
+        Number.isInteger(entry.busNumber) &&
+        entry.busNumber >= 1 &&
+        entry.busNumber <= 6,
+    )
     .filter((entry) => Number.isInteger(entry.capacity) && entry.capacity > 0)
     .sort((a, b) => a.busNumber - b.busNumber)
-    .filter((entry, index, array) => array.findIndex((item) => item.busNumber === entry.busNumber) === index);
+    .filter(
+      (entry, index, array) =>
+        array.findIndex((item) => item.busNumber === entry.busNumber) === index,
+    );
 }
 
 // ─── CRUD ────────────────────────────────────────────────────────────────────
@@ -54,7 +62,12 @@ async function createEvent(input, ctx) {
   if (!input.title) throw new Error("El título es requerido");
   if (!input.date) throw new Error("La fecha es requerida");
 
-  const { notificationMode = "NONE", audience = [], busCapacities = [], ...rest } = input;
+  const {
+    notificationMode = "NONE",
+    audience = [],
+    busCapacities = [],
+    ...rest
+  } = input;
 
   // Normalizar date: acepta ms string o ISO string
   const parsedDate = parseDate(input.date);
@@ -94,7 +107,8 @@ async function updateEvent(id, input, ctx) {
   if (input.date) updateData.date = parseDate(input.date);
   if (notificationMode) updateData.notificationMode = notificationMode;
   if (audience?.length) updateData.audience = audience;
-  if (Array.isArray(busCapacities)) updateData.busCapacities = normalizeBusCapacities(busCapacities);
+  if (Array.isArray(busCapacities))
+    updateData.busCapacities = normalizeBusCapacities(busCapacities);
   if (input.transportPaymentEnabled !== undefined) {
     updateData.transportPaymentEnabled = Boolean(input.transportPaymentEnabled);
   }
@@ -218,9 +232,6 @@ async function handleNotification(event, mode, ctx) {
   if (mode === "LIVE") {
     try {
       await dispatch(EVENTS.EVENT_PUBLISHED, payload);
-      console.log(
-        `[eventService] LIVE — notificación enviada para evento: ${event}`,
-      );
     } catch (err) {
       // Nunca propagar: la creación del evento no debe fallar por notificaciones
       console.error(

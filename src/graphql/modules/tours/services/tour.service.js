@@ -18,9 +18,7 @@ const {
 const {
   removeTourParticipantSafely,
 } = require("./tourParticipantRemoval.service");
-const {
-  setTourParticipantVisaStatus,
-} = require("./tourVisaStatus.service");
+const { setTourParticipantVisaStatus } = require("./tourVisaStatus.service");
 
 // ─── Auth guards ─────────────────────────────────────────────────────────────
 
@@ -97,7 +95,6 @@ async function getTours(filters, ctx) {
     .populate("createdBy", "name firstSurName")
     .populate("updatedBy", "name firstSurName");
 
-  console.log(tours);
   return tours.map(serializeTour);
 }
 
@@ -291,7 +288,9 @@ async function createTourParticipant(tourId, input, ctx) {
 
   const participant = await TourParticipant.create(data);
   if (linkedUserId) {
-    await syncTourDocumentsForOwner(linkedUserId, { updatedBy: admin._id || admin.id });
+    await syncTourDocumentsForOwner(linkedUserId, {
+      updatedBy: admin._id || admin.id,
+    });
   }
   return populateParticipant(TourParticipant.findById(participant._id));
 }
@@ -357,7 +356,10 @@ async function createTourParticipantsBatch(tourId, participantsInput, ctx) {
     const linkedOwners = [
       ...new Set(
         inserted
-          .map((participant) => participant.linkedUser?.toString?.() || participant.linkedUser)
+          .map(
+            (participant) =>
+              participant.linkedUser?.toString?.() || participant.linkedUser,
+          )
           .filter(Boolean),
       ),
     ];
@@ -390,7 +392,9 @@ async function updateTourParticipant(id, input, ctx) {
   const participant = await TourParticipant.findById(id);
   if (!participant) throw new Error("Participante no encontrado");
   if (participant.isRemoved) {
-    throw new Error("El participante fue eliminado de la gira y no puede editarse");
+    throw new Error(
+      "El participante fue eliminado de la gira y no puede editarse",
+    );
   }
 
   const attemptedCanonicalFields = [...CANONICAL_DOCUMENT_FIELDS].filter(
@@ -458,7 +462,9 @@ async function updateTourParticipant(id, input, ctx) {
 
   if (!updated) throw new Error("No se pudo actualizar el participante");
   if (allowed.linkedUser) {
-    await syncTourDocumentsForOwner(allowed.linkedUser, { updatedBy: allowed.updatedBy });
+    await syncTourDocumentsForOwner(allowed.linkedUser, {
+      updatedBy: allowed.updatedBy,
+    });
     return populateParticipant(TourParticipant.findById(id));
   }
   return updated;
@@ -544,7 +550,8 @@ async function getMyTourParticipant(tourId, ctx) {
  */
 async function getMyChildrenTourAccess(tourId, ctx) {
   requireAuth(ctx);
-  if (!isParentActor(ctx)) throw new Error("Esta consulta es exclusiva para padres de familia");
+  if (!isParentActor(ctx))
+    throw new Error("Esta consulta es exclusiva para padres de familia");
   if (!tourId) throw new Error("ID de gira requerido");
 
   const childrenIds = await getParentChildrenUserIds(ctx);
@@ -555,7 +562,7 @@ async function getMyChildrenTourAccess(tourId, ctx) {
       tour: tourId,
       linkedUser: { $in: childrenIds },
       isRemoved: { $ne: true },
-    })
+    }),
   );
 }
 
@@ -564,7 +571,8 @@ async function getMyChildrenTourAccess(tourId, ctx) {
  */
 async function getMyChildTourParticipant(tourId, childUserId, ctx) {
   requireAuth(ctx);
-  if (!isParentActor(ctx)) throw new Error("Esta consulta es exclusiva para padres de familia");
+  if (!isParentActor(ctx))
+    throw new Error("Esta consulta es exclusiva para padres de familia");
   if (!tourId) throw new Error("ID de gira requerido");
   if (!childUserId) throw new Error("ID de hijo requerido");
 
@@ -576,7 +584,7 @@ async function getMyChildTourParticipant(tourId, childUserId, ctx) {
       tour: tourId,
       linkedUser: childUserId,
       isRemoved: { $ne: true },
-    })
+    }),
   );
 
   if (!participant) return null;
@@ -598,7 +606,14 @@ async function updateTourSelfServiceAccess(tourId, input, ctx) {
   if (!tour) throw new Error("Gira no encontrada");
 
   // Actualizar solo los campos que llegan en el input
-  const allowed = ["enabled", "documents", "payments", "rooms", "itinerary", "flights"];
+  const allowed = [
+    "enabled",
+    "documents",
+    "payments",
+    "rooms",
+    "itinerary",
+    "flights",
+  ];
   const update = {};
   for (const key of allowed) {
     if (input[key] !== undefined) {

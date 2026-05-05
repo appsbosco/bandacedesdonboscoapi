@@ -355,7 +355,12 @@ async function createFinancialAccount(input, ctx) {
   await account.save();
 
   if (input.paymentPlanId) {
-    await assignPaymentPlan(input.participantId, input.tourId, input.paymentPlanId, ctx);
+    await assignPaymentPlan(
+      input.participantId,
+      input.tourId,
+      input.paymentPlanId,
+      ctx,
+    );
   }
 
   return populateAccount(ParticipantFinancialAccount.findById(account._id));
@@ -448,7 +453,12 @@ async function updateFinancialAccount(id, input, ctx) {
   await account.save();
 
   if (requestedPlanId) {
-    await assignPaymentPlan(account.participant, account.tour, requestedPlanId, ctx);
+    await assignPaymentPlan(
+      account.participant,
+      account.tour,
+      requestedPlanId,
+      ctx,
+    );
   }
 
   return populateAccount(ParticipantFinancialAccount.findById(id));
@@ -774,7 +784,8 @@ async function createFinancialAccountsForAll(
 
   if (planId) {
     const plan = await TourPaymentPlan.findOne({ _id: planId, tour: tourId });
-    if (!plan) throw new Error("El plan de pagos seleccionado no pertenece a esta gira");
+    if (!plan)
+      throw new Error("El plan de pagos seleccionado no pertenece a esta gira");
   }
 
   let created = 0;
@@ -865,7 +876,8 @@ async function getFinancialTable(tourId, ctx) {
 
   const rows = await Promise.all(
     participants.map(async (participant) => {
-      const account = accountsByParticipantId.get(participant._id?.toString()) || null;
+      const account =
+        accountsByParticipantId.get(participant._id?.toString()) || null;
 
       const installments = account
         ? await ParticipantInstallment.find({
@@ -887,8 +899,6 @@ async function getFinancialTable(tourId, ctx) {
         status: inst.status,
       }));
 
-      console.log("accounts", account);
-
       const activeLinkedUserName = participant.linkedUser
         ? [
             participant.linkedUser.name,
@@ -900,11 +910,17 @@ async function getFinancialTable(tourId, ctx) {
         : null;
 
       return {
-        accountId: account?._id?.toString() || `participant:${participant._id.toString()}`,
+        accountId:
+          account?._id?.toString() ||
+          `participant:${participant._id.toString()}`,
         participantId: participant._id?.toString() || participant.toString(),
         hasFinancialAccount: Boolean(account),
         fullName: participant.firstName
-          ? [participant.firstName, participant.firstSurname, participant.secondSurname]
+          ? [
+              participant.firstName,
+              participant.firstSurname,
+              participant.secondSurname,
+            ]
               .filter(Boolean)
               .join(" ")
           : "–",
@@ -912,8 +928,12 @@ async function getFinancialTable(tourId, ctx) {
         instrument: participant.instrument || "–",
         visaStatus: participant.visaStatus || "UNKNOWN",
         visaDeniedCount: participant.visaDeniedCount || 0,
-        linkedUserName: activeLinkedUserName || participant.linkedUserSnapshotName || null,
-        linkedUserEmail: participant.linkedUser?.email || participant.linkedUserSnapshotEmail || null,
+        linkedUserName:
+          activeLinkedUserName || participant.linkedUserSnapshotName || null,
+        linkedUserEmail:
+          participant.linkedUser?.email ||
+          participant.linkedUserSnapshotEmail ||
+          null,
         isRemoved: Boolean(participant.isRemoved),
         removedAt: participant.removedAt || null,
         removedByName: participant.removedBy
@@ -1119,7 +1139,7 @@ async function getMyTourPaymentAccount(tourId, ctx) {
   if (!participant) {
     throw new Error(
       "Tu perfil aún no ha sido vinculado como participante de esta gira. " +
-      "Contacta al administrador."
+        "Contacta al administrador.",
     );
   }
 
@@ -1127,7 +1147,11 @@ async function getMyTourPaymentAccount(tourId, ctx) {
   if (!isPrivilegedTourViewer(user)) {
     const tour = await Tour.findById(tourId);
     if (!tour) throw new Error("Gira no encontrada");
-    assertTourSelfServiceEnabled({ tour, moduleKey: "payments", currentUser: user });
+    assertTourSelfServiceEnabled({
+      tour,
+      moduleKey: "payments",
+      currentUser: user,
+    });
   }
 
   // No usar .lean() — los field resolvers de TourPaymentPlan usan inst.toObject()
@@ -1145,7 +1169,8 @@ async function getMyTourPaymentAccount(tourId, ctx) {
  */
 async function getMyChildTourPaymentAccount(tourId, childUserId, ctx) {
   requireAuth(ctx);
-  if (!isParentActor(ctx)) throw new Error("Esta consulta es exclusiva para padres de familia");
+  if (!isParentActor(ctx))
+    throw new Error("Esta consulta es exclusiva para padres de familia");
   if (!tourId) throw new Error("ID de gira requerido");
   if (!childUserId) throw new Error("ID de hijo requerido");
 
@@ -1156,10 +1181,17 @@ async function getMyChildTourPaymentAccount(tourId, childUserId, ctx) {
   // Verify self-service is enabled (pass a dummy privileged=false user)
   const tour = await Tour.findById(tourId);
   if (!tour) throw new Error("Gira no encontrada");
-  assertTourSelfServiceEnabled({ tour, moduleKey: "payments", currentUser: { role: "Parent" } });
+  assertTourSelfServiceEnabled({
+    tour,
+    moduleKey: "payments",
+    currentUser: { role: "Parent" },
+  });
 
   // Find participant linked to the child user
-  const participant = await TourParticipant.findOne({ tour: tourId, linkedUser: childUserId });
+  const participant = await TourParticipant.findOne({
+    tour: tourId,
+    linkedUser: childUserId,
+  });
   if (!participant) return null;
 
   // No .lean() — field resolvers use inst.toObject()

@@ -118,7 +118,10 @@ function uniqueBusNumbers(values = []) {
 }
 
 function getPlannedBusNumbers(entry) {
-  if (Array.isArray(entry?.plannedBusNumbers) && entry.plannedBusNumbers.length > 0) {
+  if (
+    Array.isArray(entry?.plannedBusNumbers) &&
+    entry.plannedBusNumbers.length > 0
+  ) {
     return uniqueBusNumbers(entry.plannedBusNumbers);
   }
   if (entry?.busNumber) return [entry.busNumber];
@@ -126,24 +129,34 @@ function getPlannedBusNumbers(entry) {
 }
 
 function getActiveTransportEntries(roster = []) {
-  return roster.filter((entry) => !entry.excludedFromEvent && !entry.excludedFromTransport);
+  return roster.filter(
+    (entry) => !entry.excludedFromEvent && !entry.excludedFromTransport,
+  );
 }
 
 async function removeOrphanEventRosterEntries(eventId) {
   if (!eventId) return 0;
 
-  const rosterEntries = await EventRoster.find({ event: eventId }).select("_id user").lean();
+  const rosterEntries = await EventRoster.find({ event: eventId })
+    .select("_id user")
+    .lean();
   if (rosterEntries.length === 0) return 0;
 
-  const referencedUserIds = rosterEntries.map((entry) => String(entry.user || "")).filter(Boolean);
+  const referencedUserIds = rosterEntries
+    .map((entry) => String(entry.user || ""))
+    .filter(Boolean);
 
   if (referencedUserIds.length === 0) {
     const result = await EventRoster.deleteMany({ event: eventId });
     return result.deletedCount || 0;
   }
 
-  const existingUsers = await User.find({ _id: { $in: referencedUserIds } }).select("_id").lean();
-  const existingUserIds = new Set(existingUsers.map((user) => String(user._id)));
+  const existingUsers = await User.find({ _id: { $in: referencedUserIds } })
+    .select("_id")
+    .lean();
+  const existingUserIds = new Set(
+    existingUsers.map((user) => String(user._id)),
+  );
 
   const orphanEntryIds = rosterEntries
     .filter((entry) => !existingUserIds.has(String(entry.user || "")))
@@ -200,7 +213,10 @@ function buildPlannedBusSummary(roster = []) {
       transportPlan.secondaryBus &&
       transportPlan.primaryCapacity
     ) {
-      const primaryCount = Math.min(entries.length, transportPlan.primaryCapacity);
+      const primaryCount = Math.min(
+        entries.length,
+        transportPlan.primaryCapacity,
+      );
       const secondaryCount = Math.max(entries.length - primaryCount, 0);
       if (buses[transportPlan.primaryBus]) {
         buses[transportPlan.primaryBus].plannedCount += primaryCount;
@@ -220,7 +236,8 @@ function buildPlannedBusSummary(roster = []) {
     plannedBusNumbers.forEach((bus, index) => {
       if (!buses[bus]) return;
       const remaining = entries.length - evenSplit * index;
-      if (remaining > 0) buses[bus].plannedCount += Math.min(evenSplit, remaining);
+      if (remaining > 0)
+        buses[bus].plannedCount += Math.min(evenSplit, remaining);
     });
   });
 
@@ -304,7 +321,8 @@ async function initializeEventRoster(eventId, ctx) {
     currentUserRole: currentUser?.role || null,
   });
 
-  const removedOrphansBeforeInit = await removeOrphanEventRosterEntries(eventId);
+  const removedOrphansBeforeInit =
+    await removeOrphanEventRosterEntries(eventId);
 
   const allUsers = await User.find({}).select("_id state instrument role");
   const users = allUsers;
@@ -322,20 +340,6 @@ async function initializeEventRoster(eventId, ctx) {
   }, {});
 
   const excludedUsers = [];
-
-  console.log("[presentations.initializeEventRoster] user diagnostics", {
-    totalUsersInCollection: allUsers.length,
-    includedUsers: users.length,
-    excludedUsers: excludedUsers.length,
-    stateCounts,
-    roleCounts,
-    excludedSample: excludedUsers.slice(0, 20).map((user) => ({
-      id: user._id,
-      state: user.state || null,
-      role: user.role || null,
-      instrument: user.instrument || null,
-    })),
-  });
 
   const bulkOps = users.map((user) => ({
     updateOne: {
@@ -355,7 +359,9 @@ async function initializeEventRoster(eventId, ctx) {
           transportPaid: false,
           transportAmountPaid: 0,
           transportExempt: STAFF_ROLES.has(user.role),
-          transportExemptReason: STAFF_ROLES.has(user.role) ? "Staff no paga transporte" : "",
+          transportExemptReason: STAFF_ROLES.has(user.role)
+            ? "Staff no paga transporte"
+            : "",
           createdBy: currentUser?._id || null,
         },
       },
@@ -366,13 +372,6 @@ async function initializeEventRoster(eventId, ctx) {
   await EventRoster.bulkWrite(bulkOps);
 
   const totalRoster = await EventRoster.countDocuments({ event: eventId });
-
-  console.log("[presentations.initializeEventRoster] completed", {
-    eventId,
-    activeUsersFound: users.length,
-    totalRoster,
-    removedOrphansBeforeInit,
-  });
 
   return getEventRoster(eventId, {}, ctx);
 }
@@ -412,7 +411,9 @@ async function getEventRoster(eventId, filter = {}, ctx) {
   console.log("[presentations.getEventRoster] result", {
     eventId,
     count: roster.length,
-    sampleUserIds: roster.slice(0, 5).map((entry) => entry.user?._id || entry.user || null),
+    sampleUserIds: roster
+      .slice(0, 5)
+      .map((entry) => entry.user?._id || entry.user || null),
   });
 
   return roster;
@@ -473,7 +474,7 @@ async function clearGroupBus(eventId, assignmentGroup, ctx) {
         plannedBusNumbers: [],
         transportPlan: null,
       },
-    }
+    },
   );
 
   return getEventRoster(eventId, { assignmentGroup }, ctx);
@@ -557,14 +558,20 @@ async function moveUsersToBus(eventId, userIds, busNumber, ctx) {
     throw new Error("eventId, userIds y busNumber son requeridos");
   }
 
-  const entries = await EventRoster.find({ event: eventId, user: { $in: userIds } }).select(
-    "_id plannedBusNumbers",
-  );
+  const entries = await EventRoster.find({
+    event: eventId,
+    user: { $in: userIds },
+  }).select("_id plannedBusNumbers");
 
   for (const entry of entries) {
     const plannedBusNumbers = getPlannedBusNumbers(entry);
-    if (plannedBusNumbers.length > 0 && !plannedBusNumbers.includes(busNumber)) {
-      throw new Error(`El usuario ${entry._id} no puede ser ubicado en el bus ${busNumber}`);
+    if (
+      plannedBusNumbers.length > 0 &&
+      !plannedBusNumbers.includes(busNumber)
+    ) {
+      throw new Error(
+        `El usuario ${entry._id} no puede ser ubicado en el bus ${busNumber}`,
+      );
     }
   }
 
@@ -652,7 +659,9 @@ async function bulkMarkAttendance(eventId, entries, ctx) {
     excludedFromEvent: false,
   }).select("_id user busNumber plannedBusNumbers");
 
-  const rosterMap = new Map(rosterEntries.map((entry) => [String(entry.user), entry]));
+  const rosterMap = new Map(
+    rosterEntries.map((entry) => [String(entry.user), entry]),
+  );
 
   const bulkOps = entries
     .filter((entry) => validStatuses.includes(entry.attendanceStatus))
@@ -676,7 +685,9 @@ async function bulkMarkAttendance(eventId, entries, ctx) {
         plannedBusNumbers.length > 1 &&
         !resolvedBusNumber
       ) {
-        throw new Error("Hay personas con varios buses posibles y sin bus confirmado");
+        throw new Error(
+          "Hay personas con varios buses posibles y sin bus confirmado",
+        );
       }
 
       if (
@@ -689,14 +700,19 @@ async function bulkMarkAttendance(eventId, entries, ctx) {
 
       return {
         updateOne: {
-          filter: { event: eventId, user: entry.userId, excludedFromEvent: false },
+          filter: {
+            event: eventId,
+            user: entry.userId,
+            excludedFromEvent: false,
+          },
           update: {
             $set: {
               attendanceStatus: entry.attendanceStatus,
               attendanceMarkedBy: currentUser._id,
               attendanceMarkedAt: new Date(),
               busNumber:
-                entry.attendanceStatus === "ABSENT" || entry.attendanceStatus === "PENDING"
+                entry.attendanceStatus === "ABSENT" ||
+                entry.attendanceStatus === "PENDING"
                   ? null
                   : resolvedBusNumber,
             },
@@ -711,7 +727,13 @@ async function bulkMarkAttendance(eventId, entries, ctx) {
   return getEventRoster(eventId, {}, ctx);
 }
 
-async function setTransportPayment(eventId, userId, paid, paymentInput = {}, ctx) {
+async function setTransportPayment(
+  eventId,
+  userId,
+  paid,
+  paymentInput = {},
+  ctx,
+) {
   const currentUser = requireTransportPaymentAccess(ctx);
   if (!eventId || !userId) {
     throw new Error("eventId y userId son requeridos");
@@ -724,7 +746,8 @@ async function setTransportPayment(eventId, userId, paid, paymentInput = {}, ctx
     excludedFromTransport: false,
   });
 
-  if (!rosterEntry) throw new Error("Registro no encontrado o excluido del transporte");
+  if (!rosterEntry)
+    throw new Error("Registro no encontrado o excluido del transporte");
   if (rosterEntry.isStaff) {
     throw new Error("Staff no paga transporte");
   }
@@ -733,10 +756,15 @@ async function setTransportPayment(eventId, userId, paid, paymentInput = {}, ctx
   const method = paymentInput?.method || null;
   const exemptionReason = String(paymentInput?.exemptionReason || "").trim();
   const event = await Event.findById(eventId).select("transportFeeAmount");
-  const configuredAmount = Number(event?.transportFeeAmount) > 0 ? Number(event.transportFeeAmount) : 0;
+  const configuredAmount =
+    Number(event?.transportFeeAmount) > 0
+      ? Number(event.transportFeeAmount)
+      : 0;
   const providedAmount = Number(paymentInput?.amount);
   const amount =
-    Number.isFinite(providedAmount) && providedAmount >= 0 ? providedAmount : configuredAmount;
+    Number.isFinite(providedAmount) && providedAmount >= 0
+      ? providedAmount
+      : configuredAmount;
 
   if (!exempt && paid && !["CASH", "SINPE"].includes(method)) {
     throw new Error("Debe indicar si el pago fue en efectivo o SINPE");
