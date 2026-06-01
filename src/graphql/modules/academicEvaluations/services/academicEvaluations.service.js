@@ -1,11 +1,13 @@
 "use strict";
 
+const mongoose = require("mongoose");
 const AcademicSubject = require("../../../../../models/academic/AcademicSubject");
 const AcademicPeriod = require("../../../../../models/academic/AcademicPeriod");
 const AcademicEvaluation = require("../../../../../models/academic/AcademicEvaluation");
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
 const { inferSectionFromInstrument } = require("../../../../../utils/sections");
+const { buildThumbnailUrl, buildPreviewUrl } = require("../../../../../utils/cloudinaryTransform");
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -386,6 +388,8 @@ async function submitAcademicEvaluation(input, ctx) {
     evidencePublicId,
     evidenceResourceType,
     evidenceOriginalName,
+    evidenceThumbnailUrl: buildThumbnailUrl(evidencePublicId, evidenceResourceType),
+    evidencePreviewUrl: buildPreviewUrl(evidencePublicId, evidenceResourceType),
     status: "pending",
     submittedByStudentAt: new Date(),
   });
@@ -426,7 +430,12 @@ async function updateOwnPendingEvaluation(id, input, ctx) {
   evaluation.scaleMax = newScaleMax;
   evaluation.scoreNormalized100 = normalizeScore(newScoreRaw, newScaleMin, newScaleMax);
   if (evidenceUrl) evaluation.evidenceUrl = evidenceUrl;
-  if (evidencePublicId) evaluation.evidencePublicId = evidencePublicId;
+  if (evidencePublicId) {
+    evaluation.evidencePublicId = evidencePublicId;
+    const resType = evidenceResourceType || evaluation.evidenceResourceType;
+    evaluation.evidenceThumbnailUrl = buildThumbnailUrl(evidencePublicId, resType);
+    evaluation.evidencePreviewUrl = buildPreviewUrl(evidencePublicId, resType);
+  }
   if (evidenceResourceType) evaluation.evidenceResourceType = evidenceResourceType;
   if (evidenceOriginalName !== undefined) evaluation.evidenceOriginalName = evidenceOriginalName;
 
@@ -522,70 +531,103 @@ async function reviewAcademicEvaluation(id, status, reviewComment, ctx) {
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
+// Campos de lista: excluye evidenceUrl (imagen original pesada).
+// El frontend usa evidenceThumbnailUrl para el thumbnail en tabla.
+// Para ver la imagen completa, se usa GET_EVALUATION_DETAIL (lazy, solo en modal).
+const EVAL_LIST_SELECT =
+  "student subject period scoreRaw scaleMin scaleMax scoreNormalized100 " +
+  "status submittedByStudentAt reviewedAt reviewComment " +
+  "parentAcknowledged parentAcknowledgedAt parentComment " +
+  "evidenceThumbnailUrl evidencePublicId evidenceResourceType evidenceOriginalName " +
+  "createdAt updatedAt";
+
 async function getMyEvaluations(filter = {}, ctx) {
   const user = requireStudentSelf(ctx);
   const userId = String(user._id || user.id);
 
   const query = { student: userId };
-  if (filter.periodId) query.period = filter.periodId;
-  if (filter.subjectId) query.subject = filter.subjectId;
+  if (filter.periodId) query.period = new mongoose.Types.ObjectId(String(filter.periodId));
+  if (filter.subjectId) query.subject = new mongoose.Types.ObjectId(String(filter.subjectId));
   if (filter.status) query.status = filter.status;
 
   return AcademicEvaluation.find(query)
-    .populate("subject")
-    .populate("period")
-    .populate("reviewedByAdmin", "name firstSurName email")
-    .sort({ createdAt: -1 });
+    .select(EVAL_LIST_SELECT)
+    .populate("subject", "name code isActive _id")
+    .populate("period", "name year order isActive _id")
+    .populate("reviewedByAdmin", "name firstSurName _id")
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
 }
 
 async function getStudentEvaluations(studentId, filter = {}, ctx) {
   await requireStudentAccess(ctx, studentId);
 
   const query = { student: studentId };
-  if (filter.periodId) query.period = filter.periodId;
-  if (filter.subjectId) query.subject = filter.subjectId;
+  if (filter.periodId) query.period = new mongoose.Types.ObjectId(String(filter.periodId));
+  if (filter.subjectId) query.subject = new mongoose.Types.ObjectId(String(filter.subjectId));
   if (filter.status) query.status = filter.status;
 
   return AcademicEvaluation.find(query)
-    .populate("subject")
-    .populate("period")
-    .populate("student", "name firstSurName email grade instrument")
-    .populate("reviewedByAdmin", "name firstSurName email")
-    .sort({ createdAt: -1 });
+    .select(EVAL_LIST_SELECT + " student")
+    .populate("subject", "name code isActive _id")
+    .populate("period", "name year order isActive _id")
+    .populate("student", "name firstSurName email grade instrument _id")
+    .populate("reviewedByAdmin", "name firstSurName _id")
+    .sort({ createdAt: -1 })
+    .limit(200)
+    .lean();
+}
+
+/**
+ * Detalle completo de una evaluación (incluyendo evidenceUrl original).
+ * Solo se llama cuando el usuario abre el modal de detalle.
+ */
+async function getEvaluationDetail(id, ctx) {
+  const user = requireAuth(ctx);
+
+  const evaluation = await AcademicEvaluation.findById(id)
+    .populate("subject", "name code _id")
+    .populate("period", "name year order _id")
+    .populate("student", "name firstSurName email grade instrument avatar _id")
+    .populate("reviewedByAdmin", "name firstSurName email _id")
+    .lean();
+
+  if (!evaluation) throw new Error("Evaluación no encontrada");
+
+  // Verificar acceso
+  const studentId = String(evaluation.student?._id || evaluation.student);
+  if (!isAdmin(user) && user.entityType !== "Parent") {
+    if (String(user._id || user.id) !== studentId) {
+      throw new Error("No autorizado");
+    }
+  }
+
+  return evaluation;
 }
 
 // ─── Performance calculation ──────────────────────────────────────────────────
 
 /**
- * Calcula el rendimiento académico de un estudiante.
- * filters.periodId: limita al período específico
- * filters.year: limita al año específico
+ * Versión SINCRÓNICA de cálculo de rendimiento.
+ * Recibe datos pre-cargados — cero queries adicionales a MongoDB.
+ * Usada por las funciones bulk (dashboard, riskRanking, sectionOverview)
+ * para transformar 150×2=300 queries en 0 queries extras.
  */
-async function calculateStudentPerformance(studentId, filters = {}) {
+function computePerformanceFromData(studentId, approvedEvals, allEvals, filters = {}) {
   const { periodId, year } = filters;
 
-  // Traer TODAS las evaluaciones aprobadas del estudiante (para calcular tendencia)
-  const allApproved = await AcademicEvaluation.find({
-    student: studentId,
-    status: "approved",
-  })
-    .populate("subject", "name _id")
-    .populate("period", "name year order _id")
-    .sort({ createdAt: 1 })
-    .lean();
-
-  // Conteos de todos los estados
-  const allEvals = await AcademicEvaluation.find({ student: studentId }).lean();
   const approvedCount = allEvals.filter((e) => e.status === "approved").length;
   const pendingCount = allEvals.filter((e) => e.status === "pending").length;
   const rejectedCount = allEvals.filter((e) => e.status === "rejected").length;
 
-  // Filtrar por período/año si se especificó
-  let filteredEvals = allApproved;
+  let filteredEvals = approvedEvals;
   if (periodId) {
-    filteredEvals = allApproved.filter((e) => String(e.period?._id) === String(periodId));
+    filteredEvals = approvedEvals.filter(
+      (e) => String(e.period?._id || e.period) === String(periodId)
+    );
   } else if (year) {
-    filteredEvals = allApproved.filter((e) => e.period?.year === Number(year));
+    filteredEvals = approvedEvals.filter((e) => e.period?.year === Number(year));
   }
 
   if (filteredEvals.length === 0) {
@@ -607,11 +649,9 @@ async function calculateStudentPerformance(studentId, filters = {}) {
     };
   }
 
-  // Promedio general
   const avgGeneral =
     filteredEvals.reduce((sum, e) => sum + e.scoreNormalized100, 0) / filteredEvals.length;
 
-  // Promedios por materia
   const subjectMap = {};
   for (const e of filteredEvals) {
     const sid = String(e.subject?._id || e.subject);
@@ -631,22 +671,18 @@ async function calculateStudentPerformance(studentId, filters = {}) {
   const strongestSubjects = sortedByAvg.slice(0, 3);
   const weakestSubjects = sortedByAvg.slice(-3).reverse();
 
-  // Tendencia: comparar último período con el anterior
   let trendDirection = "STABLE";
   let trendDelta = 0;
-
   const byPeriod = {};
-  for (const e of allApproved) {
+  for (const e of approvedEvals) {
     const pid = String(e.period?._id || e.period);
     if (!byPeriod[pid]) byPeriod[pid] = { period: e.period, scores: [] };
     byPeriod[pid].scores.push(e.scoreNormalized100);
   }
-
   const sortedPeriods = Object.values(byPeriod).sort((a, b) => {
     if (a.period?.year !== b.period?.year) return (a.period?.year || 0) - (b.period?.year || 0);
     return (a.period?.order || 0) - (b.period?.order || 0);
   });
-
   if (sortedPeriods.length >= 2) {
     const latest = sortedPeriods[sortedPeriods.length - 1];
     const previous = sortedPeriods[sortedPeriods.length - 2];
@@ -656,13 +692,8 @@ async function calculateStudentPerformance(studentId, filters = {}) {
     trendDirection = trendDelta > 5 ? "UP" : trendDelta < -5 ? "DOWN" : "STABLE";
   }
 
-  // Materias en riesgo
   const riskSubjects = averagesBySubject
-    .filter((s) => {
-      const belowThreshold = s.average < 70;
-      const belowGeneral = avgGeneral - s.average >= 10;
-      return belowThreshold || belowGeneral;
-    })
+    .filter((s) => s.average < 70 || avgGeneral - s.average >= 10)
     .map((s) => ({
       subjectId: s.subjectId,
       subjectName: s.subjectName,
@@ -671,17 +702,10 @@ async function calculateStudentPerformance(studentId, filters = {}) {
     }));
 
   const riskScore = riskSubjects.length;
-
   let riskLevel;
-  if (avgGeneral < 70 || riskScore >= 2 || trendDelta <= -10) {
-    riskLevel = "RED";
-  } else if ((avgGeneral >= 70 && avgGeneral < 80) || riskScore === 1) {
-    riskLevel = "YELLOW";
-  } else {
-    riskLevel = "GREEN";
-  }
-
-  const recentEvaluations = filteredEvals.slice(-5).reverse();
+  if (avgGeneral < 70 || riskScore >= 2 || trendDelta <= -10) riskLevel = "RED";
+  else if ((avgGeneral >= 70 && avgGeneral < 80) || riskScore === 1) riskLevel = "YELLOW";
+  else riskLevel = "GREEN";
 
   return {
     studentId: String(studentId),
@@ -697,8 +721,31 @@ async function calculateStudentPerformance(studentId, filters = {}) {
     riskSubjects,
     riskScore,
     riskLevel,
-    recentEvaluations,
+    recentEvaluations: filteredEvals.slice(-5).reverse(),
   };
+}
+
+/**
+ * Calcula el rendimiento de un estudiante individual (con queries propias).
+ * Solo para contextos donde NO se tiene un dataset pre-cargado
+ * (student detail, parent, section leader per-student).
+ */
+async function calculateStudentPerformance(studentId, filters = {}) {
+  const { periodId, year } = filters;
+
+  const [allApproved, allEvals] = await Promise.all([
+    AcademicEvaluation.find({ student: studentId, status: "approved" })
+      .select("subject period scoreNormalized100 status createdAt")
+      .populate("subject", "name _id")
+      .populate("period", "name year order _id")
+      .sort({ createdAt: 1 })
+      .lean(),
+    AcademicEvaluation.find({ student: studentId })
+      .select("status")
+      .lean(),
+  ]);
+
+  return computePerformanceFromData(studentId, allApproved, allEvals, { periodId, year });
 }
 
 async function getMyPerformance(periodId, year, ctx) {
@@ -716,19 +763,29 @@ async function getStudentPerformance(studentId, periodId, year, ctx) {
 
 async function getAdminDashboard(filter = {}, ctx) {
   requireAdmin(ctx);
+  const t0 = Date.now();
   const { periodId, year, grade, band, instrument } = filter;
 
-  // Obtener todos los IDs de estudiantes con evaluaciones aprobadas
+  // ── OPTIMIZACIÓN: 2 queries en lugar de 150×2=300 ────────────────────────────
+  // Cargamos TODOS los datos una vez y computamos performance en memoria.
   const approvedQuery = { status: "approved" };
-  if (periodId) approvedQuery.period = periodId;
+  if (periodId) approvedQuery.period = new mongoose.Types.ObjectId(String(periodId));
 
-  const approvedEvals = await AcademicEvaluation.find(approvedQuery)
-    .populate("subject", "name _id")
-    .populate("period", "name year order _id")
-    .populate("student", "name firstSurName grade bands instrument _id")
-    .lean();
+  // Query 1: todas las evaluaciones aprobadas con joins necesarios
+  // Query 2: conteos de estado por estudiante (solo _id + status)
+  const [approvedEvals, allEvalsCounts] = await Promise.all([
+    AcademicEvaluation.find(approvedQuery)
+      .select("student subject period scoreNormalized100 createdAt")
+      .populate("subject", "name _id")
+      .populate("period", "name year order _id")
+      .populate("student", "name firstSurName grade bands instrument _id")
+      .lean(),
+    AcademicEvaluation.find({})
+      .select("student status")
+      .lean(),
+  ]);
 
-  // Filtrar por grado/banda/instrumento si se especificó
+  // Aplicar filtros JS solo para campos que no pueden indexarse fácilmente
   let filtered = approvedEvals;
   if (grade) filtered = filtered.filter((e) => e.student?.grade === grade);
   if (band) filtered = filtered.filter((e) => (e.student?.bands || []).includes(band));
@@ -753,17 +810,35 @@ async function getAdminDashboard(filter = {}, ctx) {
     };
   }
 
-  // Calcular performance de cada estudiante (simplificado, sin recentEvaluations para eficiencia)
-  const performances = await Promise.all(
-    studentIds.map(async (sid) => {
-      const perf = await calculateStudentPerformance(sid, { periodId, year });
-      // Agregar nombre del estudiante
-      const studentEval = filtered.find((e) => String(e.student?._id || e.student) === sid);
-      const s = studentEval?.student;
-      perf.studentName = s ? `${s.name} ${s.firstSurName}` : "Desconocido";
-      perf.recentEvaluations = []; // No incluir para el dashboard
-      return perf;
-    })
+  // Agrupar datos por estudiante en O(n) — sin queries adicionales
+  const approvedByStudent = {};
+  const allByStudent = {};
+  for (const e of filtered) {
+    const sid = String(e.student?._id || e.student);
+    if (!approvedByStudent[sid]) approvedByStudent[sid] = [];
+    approvedByStudent[sid].push(e);
+  }
+  for (const e of allEvalsCounts) {
+    const sid = String(e.student);
+    if (studentIds.includes(sid)) {
+      if (!allByStudent[sid]) allByStudent[sid] = [];
+      allByStudent[sid].push(e);
+    }
+  }
+
+  // Computar performance de cada estudiante SINCRÓNICAMENTE — 0 queries extra
+  const performances = studentIds.map((sid) => {
+    const approved = approvedByStudent[sid] || [];
+    const all = allByStudent[sid] || [];
+    const perf = computePerformanceFromData(sid, approved, all, { periodId, year });
+    const studentDoc = approved[0]?.student;
+    perf.studentName = studentDoc ? `${studentDoc.name} ${studentDoc.firstSurName}` : "Desconocido";
+    perf.recentEvaluations = [];
+    return perf;
+  });
+
+  console.log(
+    `[adminDashboard] ${studentIds.length} estudiantes, ${filtered.length} evals, ${Date.now() - t0}ms (2 queries)`
   );
 
   const studentsInGreen = performances.filter((p) => p.riskLevel === "GREEN").length;
@@ -858,23 +933,75 @@ async function getAdminPendingEvaluations(filter = {}, ctx) {
   const { periodId, grade, subjectId, instrument } = filter;
 
   const query = { status: "pending" };
-  if (periodId) query.period = periodId;
-  if (subjectId) query.subject = subjectId;
+  if (periodId) query.period = new mongoose.Types.ObjectId(String(periodId));
+  if (subjectId) query.subject = new mongoose.Types.ObjectId(String(subjectId));
+
+  // Filtro de grado server-side: obtener studentIds primero (evita JS post-filter)
+  if (grade) {
+    const matchingStudents = await User.find({ grade }).select("_id").lean();
+    query.student = { $in: matchingStudents.map((s) => s._id) };
+  }
 
   const evals = await AcademicEvaluation.find(query)
+    .select(EVAL_LIST_SELECT + " student")
     .populate("student", "name firstSurName email grade instrument _id")
-    .populate("subject", "name code grades _id")
+    .populate("subject", "name code _id")
     .populate("period", "name year order _id")
-    .populate("reviewedByAdmin", "name firstSurName email _id")
     .sort({ submittedByStudentAt: 1 })
     .lean();
 
-  let result = evals;
-  if (grade) result = result.filter((e) => e.student?.grade === grade);
-  if (instrument) result = result.filter((e) =>
-    e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
-  );
-  return result;
+  // Filtro de instrumento en JS (no indexable directamente)
+  if (instrument) {
+    return evals.filter((e) =>
+      e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
+    );
+  }
+  return evals;
+}
+
+/**
+ * Versión paginada de evaluaciones pendientes — para admin con muchos pendientes.
+ * Usa cursor pagination basado en submittedByStudentAt.
+ */
+async function getAdminPendingEvaluationsPaginated(filter = {}, pagination = {}, ctx) {
+  requireAdmin(ctx);
+  const { periodId, grade, subjectId, instrument } = filter;
+  const { limit = 25, cursor } = pagination;
+  const pageLimit = Math.min(Number(limit) || 25, 100);
+
+  const query = { status: "pending" };
+  if (periodId) query.period = new mongoose.Types.ObjectId(String(periodId));
+  if (subjectId) query.subject = new mongoose.Types.ObjectId(String(subjectId));
+  if (cursor) query.submittedByStudentAt = { $lte: new Date(cursor) };
+
+  if (grade) {
+    const matchingStudents = await User.find({ grade }).select("_id").lean();
+    query.student = { $in: matchingStudents.map((s) => s._id) };
+  }
+
+  const evals = await AcademicEvaluation.find(query)
+    .select(EVAL_LIST_SELECT + " student")
+    .populate("student", "name firstSurName email grade instrument _id")
+    .populate("subject", "name code _id")
+    .populate("period", "name year order _id")
+    .sort({ submittedByStudentAt: -1 })
+    .limit(pageLimit + 1)
+    .lean();
+
+  let items = evals;
+  if (instrument) {
+    items = items.filter((e) =>
+      e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
+    );
+  }
+
+  const hasNextPage = items.length > pageLimit;
+  const page = hasNextPage ? items.slice(0, pageLimit) : items;
+  const nextCursor = hasNextPage
+    ? page[page.length - 1].submittedByStudentAt?.toISOString() || null
+    : null;
+
+  return { items: page, hasNextPage, nextCursor };
 }
 
 async function getAdminAcademicStudents(filter = {}, ctx) {
@@ -903,13 +1030,19 @@ async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
   requireAdmin(ctx);
   const { periodId, year, grade, instrument } = filter;
 
+  // ── OPTIMIZACIÓN: reutiliza datos del mismo dataset, sin N+1 ─────────────────
   const approvedQuery = { status: "approved" };
-  if (periodId) approvedQuery.period = periodId;
+  if (periodId) approvedQuery.period = new mongoose.Types.ObjectId(String(periodId));
 
-  const approvedEvals = await AcademicEvaluation.find(approvedQuery)
-    .populate("student", "name firstSurName grade bands instrument _id")
-    .populate("period", "year _id")
-    .lean();
+  const [approvedEvals, allEvalsCounts] = await Promise.all([
+    AcademicEvaluation.find(approvedQuery)
+      .select("student subject period scoreNormalized100 createdAt")
+      .populate("subject", "name _id")
+      .populate("period", "name year order _id")
+      .populate("student", "name firstSurName grade bands instrument _id")
+      .lean(),
+    AcademicEvaluation.find({}).select("student status").lean(),
+  ]);
 
   let filtered = approvedEvals;
   if (grade) filtered = filtered.filter((e) => e.student?.grade === grade);
@@ -920,16 +1053,30 @@ async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
 
   const studentIds = [...new Set(filtered.map((e) => String(e.student?._id || e.student)))];
 
-  const performances = await Promise.all(
-    studentIds.map(async (sid) => {
-      const perf = await calculateStudentPerformance(sid, { periodId, year });
-      const studentEval = filtered.find((e) => String(e.student?._id || e.student) === sid);
-      const s = studentEval?.student;
-      perf.studentName = s ? `${s.name} ${s.firstSurName}` : "Desconocido";
-      perf.recentEvaluations = [];
-      return perf;
-    })
-  );
+  const approvedByStudent = {};
+  const allByStudent = {};
+  for (const e of filtered) {
+    const sid = String(e.student?._id || e.student);
+    if (!approvedByStudent[sid]) approvedByStudent[sid] = [];
+    approvedByStudent[sid].push(e);
+  }
+  for (const e of allEvalsCounts) {
+    const sid = String(e.student);
+    if (studentIds.includes(sid)) {
+      if (!allByStudent[sid]) allByStudent[sid] = [];
+      allByStudent[sid].push(e);
+    }
+  }
+
+  const performances = studentIds.map((sid) => {
+    const approved = approvedByStudent[sid] || [];
+    const all = allByStudent[sid] || [];
+    const perf = computePerformanceFromData(sid, approved, all, { periodId, year });
+    const studentDoc = approved[0]?.student;
+    perf.studentName = studentDoc ? `${studentDoc.name} ${studentDoc.firstSurName}` : "Desconocido";
+    perf.recentEvaluations = [];
+    return perf;
+  });
 
   return performances
     .sort((a, b) => a.averageGeneral - b.averageGeneral)
@@ -1111,6 +1258,7 @@ async function acknowledgeChildPerformance(childId, periodId, comment, ctx) {
 module.exports = {
   getAcademicSubjects,
   getAdminPendingEvaluations,
+  getAdminPendingEvaluationsPaginated,
   getAdminAcademicStudents,
   getParentChildEvaluations,
   createAcademicSubject,
@@ -1127,6 +1275,7 @@ module.exports = {
   reviewAcademicEvaluation,
   getMyEvaluations,
   getStudentEvaluations,
+  getEvaluationDetail,
   getMyPerformance,
   getStudentPerformance,
   getAdminDashboard,

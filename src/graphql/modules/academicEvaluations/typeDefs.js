@@ -71,7 +71,38 @@ module.exports = gql`
     avatar: String
   }
 
+  # Tipo de lista — NO incluye evidenceUrl (imagen original pesada).
+  # Para listas/tablas: usa evidenceThumbnailUrl (thumbnail 120×120).
+  # Para ver la evidencia completa: usa query evaluationDetail (carga bajo demanda).
   type AcademicEvaluation {
+    id: ID!
+    student: EvalBasicUser!
+    subject: AcademicSubject!
+    period: AcademicPeriod!
+    scoreRaw: Float!
+    scaleMin: Float!
+    scaleMax: Float!
+    scoreNormalized100: Float!
+    # evidenceUrl omitido intencionalmente en lista — usar evaluationDetail para el modal
+    evidencePublicId: String!
+    evidenceResourceType: String
+    evidenceOriginalName: String
+    evidenceThumbnailUrl: String # 120×120 para lista (puede ser null en datos legacy)
+    status: EvaluationStatus!
+    submittedByStudentAt: String
+    reviewedByAdmin: EvalBasicUser
+    reviewedAt: String
+    reviewComment: String
+    parentAcknowledged: Boolean
+    parentAcknowledgedAt: String
+    parentComment: String
+    createdAt: String
+    updatedAt: String
+  }
+
+  # Tipo de detalle — incluye evidenceUrl y evidencePreviewUrl.
+  # Solo se consulta cuando el usuario abre el modal de detalle (lazy load).
+  type AcademicEvaluationDetail {
     id: ID!
     student: EvalBasicUser!
     subject: AcademicSubject!
@@ -84,16 +115,25 @@ module.exports = gql`
     evidencePublicId: String!
     evidenceResourceType: String
     evidenceOriginalName: String
+    evidenceThumbnailUrl: String
+    evidencePreviewUrl: String # 800w para modal (auto format/quality)
     status: EvaluationStatus!
     submittedByStudentAt: String
     reviewedByAdmin: EvalBasicUser
     reviewedAt: String
     reviewComment: String
-    parentAcknowledged: Boolean!
+    parentAcknowledged: Boolean
     parentAcknowledgedAt: String
     parentComment: String
     createdAt: String
     updatedAt: String
+  }
+
+  # Resultado paginado para evaluaciones pendientes
+  type PendingEvaluationsPage {
+    items: [AcademicEvaluation!]!
+    hasNextPage: Boolean!
+    nextCursor: String
   }
 
   type SubjectAverage {
@@ -231,47 +271,107 @@ module.exports = gql`
     subjectId: ID
   }
 
+  input PaginationCursorInput {
+    limit: Int
+    cursor: String
+  }
+
   # ─── Queries ─────────────────────────────────────────────────────────────────
 
   extend type Query {
     academicSubjects(grade: String, isActive: Boolean): [AcademicSubject!]!
     academicPeriods(year: Int, isActive: Boolean): [AcademicPeriod!]!
 
-    myAcademicEvaluations(filter: AcademicDashboardFilter): [AcademicEvaluation!]!
+    myAcademicEvaluations(
+      filter: AcademicDashboardFilter
+    ): [AcademicEvaluation!]!
     myAcademicPerformance(periodId: ID, year: Int): StudentPerformance!
 
-    studentAcademicEvaluations(studentId: ID!, filter: AcademicDashboardFilter): [AcademicEvaluation!]!
-    studentAcademicPerformance(studentId: ID!, periodId: ID, year: Int): StudentPerformance!
+    studentAcademicEvaluations(
+      studentId: ID!
+      filter: AcademicDashboardFilter
+    ): [AcademicEvaluation!]!
+    studentAcademicPerformance(
+      studentId: ID!
+      periodId: ID
+      year: Int
+    ): StudentPerformance!
 
-    adminAcademicDashboard(filter: AcademicDashboardFilter): AdminAcademicDashboard!
-    adminAcademicRiskRanking(filter: AcademicDashboardFilter, limit: Int): [StudentPerformance!]!
-    adminPendingEvaluations(filter: AcademicDashboardFilter): [AcademicEvaluation!]!
-    adminAcademicStudents(filter: AcademicDashboardFilter): [AdminAcademicStudent!]!
+    # Detalle completo de una evaluación — incluye evidenceUrl y evidencePreviewUrl.
+    # Llamar solo al abrir modal (lazy load). No usar en listas.
+    evaluationDetail(id: ID!): AcademicEvaluationDetail!
 
-    parentChildrenAcademicOverview(periodId: ID, year: Int): [ParentChildAcademicData!]!
-    parentChildEvaluations(childId: ID!, filter: AcademicDashboardFilter): [AcademicEvaluation!]!
+    adminAcademicDashboard(
+      filter: AcademicDashboardFilter
+    ): AdminAcademicDashboard!
+    adminAcademicRiskRanking(
+      filter: AcademicDashboardFilter
+      limit: Int
+    ): [StudentPerformance!]!
+    adminPendingEvaluations(
+      filter: AcademicDashboardFilter
+    ): [AcademicEvaluation!]!
+    # Versión paginada — preferir esta en producción
+    adminPendingEvaluationsPaginated(
+      filter: AcademicDashboardFilter
+      pagination: PaginationCursorInput
+    ): PendingEvaluationsPage!
+    adminAcademicStudents(
+      filter: AcademicDashboardFilter
+    ): [AdminAcademicStudent!]!
 
-    sectionInstrumentAcademicOverview(periodId: ID, year: Int): [SectionAcademicMember!]!
+    parentChildrenAcademicOverview(
+      periodId: ID
+      year: Int
+    ): [ParentChildAcademicData!]!
+    parentChildEvaluations(
+      childId: ID!
+      filter: AcademicDashboardFilter
+    ): [AcademicEvaluation!]!
+
+    sectionInstrumentAcademicOverview(
+      periodId: ID
+      year: Int
+    ): [SectionAcademicMember!]!
   }
 
   # ─── Mutations ───────────────────────────────────────────────────────────────
 
   extend type Mutation {
     createAcademicSubject(input: AcademicSubjectInput!): AcademicSubject!
-    updateAcademicSubject(id: ID!, input: AcademicSubjectInput!): AcademicSubject!
+    updateAcademicSubject(
+      id: ID!
+      input: AcademicSubjectInput!
+    ): AcademicSubject!
     deleteAcademicSubject(id: ID!): String!
 
     createAcademicPeriod(input: AcademicPeriodInput!): AcademicPeriod!
     updateAcademicPeriod(id: ID!, input: AcademicPeriodInput!): AcademicPeriod!
 
-    submitAcademicEvaluation(input: SubmitAcademicEvaluationInput!): AcademicEvaluation!
-    updateOwnPendingAcademicEvaluation(id: ID!, input: UpdateAcademicEvaluationInput!): AcademicEvaluation!
-    updateAcademicEvaluationAsAdmin(id: ID!, input: UpdateAcademicEvaluationInput!): AcademicEvaluation!
+    submitAcademicEvaluation(
+      input: SubmitAcademicEvaluationInput!
+    ): AcademicEvaluation!
+    updateOwnPendingAcademicEvaluation(
+      id: ID!
+      input: UpdateAcademicEvaluationInput!
+    ): AcademicEvaluation!
+    updateAcademicEvaluationAsAdmin(
+      id: ID!
+      input: UpdateAcademicEvaluationInput!
+    ): AcademicEvaluation!
     deleteAcademicEvaluationAsAdmin(id: ID!): String!
     deleteOwnPendingAcademicEvaluation(id: ID!): String!
 
-    reviewAcademicEvaluation(id: ID!, status: EvaluationStatus!, reviewComment: String): AcademicEvaluation!
+    reviewAcademicEvaluation(
+      id: ID!
+      status: EvaluationStatus!
+      reviewComment: String
+    ): AcademicEvaluation!
 
-    acknowledgeChildAcademicPerformance(childId: ID!, periodId: ID, comment: String): AcknowledgeAcademicResult!
+    acknowledgeChildAcademicPerformance(
+      childId: ID!
+      periodId: ID
+      comment: String
+    ): AcknowledgeAcademicResult!
   }
 `;

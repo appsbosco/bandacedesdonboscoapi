@@ -66,12 +66,30 @@ module.exports = {
     }
   },
 
+  evaluationDetail: async (_, { id }, ctx) => {
+    try {
+      return await svc.getEvaluationDetail(id, ctx);
+    } catch (e) {
+      console.error("[query:evaluationDetail]", e.message);
+      throw new Error(e.message || "Error al obtener detalle de evaluación");
+    }
+  },
+
   adminPendingEvaluations: async (_, { filter }, ctx) => {
     try {
       return await svc.getAdminPendingEvaluations(filter || {}, ctx);
     } catch (e) {
       console.error("[query:adminPendingEvaluations]", e.message);
       throw new Error(e.message || "Error al obtener evaluaciones pendientes");
+    }
+  },
+
+  adminPendingEvaluationsPaginated: async (_, { filter, pagination }, ctx) => {
+    try {
+      return await svc.getAdminPendingEvaluationsPaginated(filter || {}, pagination || {}, ctx);
+    } catch (e) {
+      console.error("[query:adminPendingEvaluationsPaginated]", e.message);
+      throw new Error(e.message || "Error al obtener evaluaciones pendientes paginadas");
     }
   },
 

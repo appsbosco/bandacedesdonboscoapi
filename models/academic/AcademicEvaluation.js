@@ -41,6 +41,10 @@ const AcademicEvaluationSchema = new mongoose.Schema(
     evidencePublicId: { type: String, required: true },
     evidenceResourceType: { type: String, default: "image" },
     evidenceOriginalName: { type: String },
+    // Derivados de Cloudinary — generados via script de migración o al crear/actualizar
+    // Si null → el cliente usa evidenceUrl como fallback (retrocompatibilidad total)
+    evidenceThumbnailUrl: { type: String, default: null }, // 120×120 para listas
+    evidencePreviewUrl: { type: String, default: null },   // 800w para modal
 
     // Estado del ciclo de revisión
     status: {
@@ -70,11 +74,22 @@ const AcademicEvaluationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ─── Índices ───────────────────────────────────────────────────────────────────
+// Simple — para lookups directos por campo
 AcademicEvaluationSchema.index({ student: 1 });
-AcademicEvaluationSchema.index({ subject: 1 });
 AcademicEvaluationSchema.index({ period: 1 });
-AcademicEvaluationSchema.index({ student: 1, subject: 1, period: 1 });
 AcademicEvaluationSchema.index({ status: 1 });
-AcademicEvaluationSchema.index({ student: 1, status: 1 });
+
+// Compuestos — cubren los patrones de query más frecuentes
+// Cubre: getMyEvaluations, getStudentEvaluations con filtros de período/estado
+AcademicEvaluationSchema.index({ student: 1, period: 1, status: 1 });
+// Cubre: getAdminPendingEvaluations (pending + period, ordenado por submittedByStudentAt)
+AcademicEvaluationSchema.index({ status: 1, period: 1, submittedByStudentAt: -1 });
+// Cubre: calculateStudentPerformance (approved + student, ordenado por createdAt)
+AcademicEvaluationSchema.index({ student: 1, status: 1, createdAt: 1 });
+// Cubre: parent acknowledgement queries
+AcademicEvaluationSchema.index({ student: 1, status: 1, parentAcknowledged: 1 });
+// Cubre: conteos globales por student (dashboard bulk load)
+AcademicEvaluationSchema.index({ status: 1, student: 1 });
 
 module.exports = mongoose.model("AcademicEvaluation", AcademicEvaluationSchema);

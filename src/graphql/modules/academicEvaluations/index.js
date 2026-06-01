@@ -65,6 +65,44 @@ const typeResolvers = {
     updatedAt: (p) => isoDate(p.updatedAt),
   },
 
+  // Tipo detalle — mismos resolvers que AcademicEvaluation pero incluye evidenceUrl/evidencePreviewUrl
+  AcademicEvaluationDetail: {
+    id: (p) => String(p._id || p.id),
+    student: (p) => {
+      const s = p.student;
+      if (!s) return null;
+      return {
+        id: String(s._id || s.id || s),
+        name: s.name || "",
+        firstSurName: s.firstSurName || "",
+        email: s.email || null,
+        grade: s.grade || null,
+        instrument: s.instrument || null,
+        avatar: s.avatar || null,
+      };
+    },
+    subject: (p) => p.subject,
+    period: (p) => p.period,
+    reviewedByAdmin: (p) => {
+      const a = p.reviewedByAdmin;
+      if (!a) return null;
+      return {
+        id: String(a._id || a.id || a),
+        name: a.name || "",
+        firstSurName: a.firstSurName || "",
+        email: a.email || null,
+        grade: null,
+        instrument: null,
+        avatar: a.avatar || null,
+      };
+    },
+    submittedByStudentAt: (p) => isoDate(p.submittedByStudentAt),
+    reviewedAt: (p) => isoDate(p.reviewedAt),
+    parentAcknowledgedAt: (p) => isoDate(p.parentAcknowledgedAt),
+    createdAt: (p) => isoDate(p.createdAt),
+    updatedAt: (p) => isoDate(p.updatedAt),
+  },
+
   EvalBasicUser: {
     id: (p) => String(p._id || p.id || p),
   },
