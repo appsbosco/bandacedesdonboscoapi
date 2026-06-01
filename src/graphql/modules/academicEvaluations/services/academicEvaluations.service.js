@@ -595,15 +595,24 @@ async function getEvaluationDetail(id, ctx) {
 
   if (!evaluation) throw new Error("Evaluación no encontrada");
 
-  // Verificar acceso
   const studentId = String(evaluation.student?._id || evaluation.student);
-  if (!isAdmin(user) && user.entityType !== "Parent") {
-    if (String(user._id || user.id) !== studentId) {
-      throw new Error("No autorizado");
-    }
+
+  // Admin: acceso total
+  if (isAdmin(user)) return evaluation;
+
+  // Padre: acceso a sus hijos
+  if (user.entityType === "Parent") {
+    await requireParentChildAccess(ctx, studentId);
+    return evaluation;
   }
 
-  return evaluation;
+  // El mismo estudiante
+  if (String(user._id || user.id) === studentId) return evaluation;
+
+  // Principal de sección con acceso al estudiante
+  if (await hasSectionStudentAccess(user, studentId)) return evaluation;
+
+  throw new Error("No autorizado");
 }
 
 // ─── Performance calculation ──────────────────────────────────────────────────
