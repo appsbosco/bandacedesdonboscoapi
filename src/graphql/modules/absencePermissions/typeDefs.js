@@ -23,6 +23,12 @@ module.exports = gql`
     PERFORMANCE
   }
 
+  enum AbsencePermissionType {
+    ABSENCE
+    LATE_ARRIVAL
+    EARLY_WITHDRAWAL
+  }
+
   enum AbsenceRequesterType {
     PARENT
     USER
@@ -38,6 +44,7 @@ module.exports = gql`
     requesterType: AbsenceRequesterType!
     requestedByParent: Parent
     requestedByUser: User
+    permissionType: AbsencePermissionType!
     targetType: AbsenceTargetType!
     rehearsalSession: RehearsalSession
     event: Event
@@ -68,6 +75,7 @@ module.exports = gql`
   type AbsencePermissionSummary {
     id: ID!
     studentId: ID!
+    permissionType: AbsencePermissionType!
     requestStatus: AbsenceRequestStatus!
     justificationStatus: AbsenceJustificationStatus!
     reason: String!
@@ -88,6 +96,7 @@ module.exports = gql`
 
   input CreateAbsencePermissionInput {
     studentId: ID!
+    permissionType: AbsencePermissionType = ABSENCE
     targetType: AbsenceTargetType!
     rehearsalSessionId: ID
     eventId: ID
@@ -104,6 +113,7 @@ module.exports = gql`
   input AbsencePermissionFilterInput {
     requestStatus: AbsenceRequestStatus
     justificationStatus: AbsenceJustificationStatus
+    permissionType: AbsencePermissionType
     targetType: AbsenceTargetType
     eventId: ID
     studentId: ID
@@ -156,6 +166,11 @@ module.exports = gql`
     # (PENDING or APPROVED) to inform list-taking
     getPermissionsForSession(
       sessionId: ID!
+    ): [AbsencePermissionSummary!]!
+
+    # Rehearsal list-taking starts before a section session necessarily exists.
+    getPermissionsForRehearsalDate(
+      date: String!
     ): [AbsencePermissionSummary!]!
 
     # Presentations integration: permissions linked to an event

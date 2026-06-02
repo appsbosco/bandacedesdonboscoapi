@@ -4,8 +4,14 @@ const Parent = require("../../../../../models/Parents");
 const RehearsalSession = require("../../../../../models/RehearsalSession");
 const Event = require("../../../../../models/Events");
 const { inferSectionFromInstrument } = require("../../../../../utils/sections");
+const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
 
 const ADMIN_ROLES = new Set(["ADMIN", "DIRECTOR", "DIRECCIÓN LOGÍSTICA"]);
+const PERMISSION_TYPES = new Set([
+  "ABSENCE",
+  "LATE_ARRIVAL",
+  "EARLY_WITHDRAWAL",
+]);
 
 // ============================================
 // AUTH HELPERS
@@ -109,6 +115,14 @@ function validateAttachments(attachments) {
   });
 }
 
+function validatePermissionType(permissionType) {
+  const normalized = permissionType || "ABSENCE";
+  if (!PERMISSION_TYPES.has(normalized)) {
+    throw new Error("permissionType inválido");
+  }
+  return normalized;
+}
+
 async function validateTargetExists(targetType, rehearsalSessionId, eventId) {
   if (targetType === "REHEARSAL") {
     if (eventId) {
@@ -180,16 +194,18 @@ async function createAbsencePermissionRequest(input, ctx) {
   const actor = requireAuth(ctx);
   const {
     studentId,
+    permissionType,
     targetType,
     rehearsalSessionId,
     eventId,
     reason,
     attachments,
   } = input;
+  const validatedPermissionType = validatePermissionType(permissionType);
 
   if (!reason || reason.trim().length < 5) {
     throw new Error(
-      "El motivo de la ausencia debe tener al menos 5 caracteres",
+      "El motivo de la solicitud debe tener al menos 5 caracteres",
     );
   }
   const validatedAttachments = validateAttachments(attachments);
@@ -225,7 +241,7 @@ async function createAbsencePermissionRequest(input, ctx) {
     if (!student) throw new Error("Estudiante no encontrado");
   } else {
     throw new Error(
-      "Solo padres de familia, exalumnos o administradores pueden solicitar permisos de ausencia",
+      "Solo padres de familia, exalumnos o administradores pueden solicitar permisos",
     );
   }
 
@@ -242,6 +258,7 @@ async function createAbsencePermissionRequest(input, ctx) {
     requesterType,
     requestedByParent,
     requestedByUser,
+    permissionType: validatedPermissionType,
     targetType,
     rehearsalSession: session ? session._id : null,
     event: event ? event._id : null,
@@ -514,6 +531,14 @@ async function getAbsencePermissionsAdmin(
   if (filter.requestStatus) query.requestStatus = filter.requestStatus;
   if (filter.justificationStatus)
     query.justificationStatus = filter.justificationStatus;
+  if (filter.permissionType === "ABSENCE") {
+    query.$or = [
+      { permissionType: "ABSENCE" },
+      { permissionType: { $exists: false } },
+    ];
+  } else if (filter.permissionType) {
+    query.permissionType = filter.permissionType;
+  }
   if (filter.targetType) query.targetType = filter.targetType;
   if (filter.eventId) query.event = filter.eventId;
   if (filter.studentId) query.student = filter.studentId;
@@ -620,6 +645,15 @@ async function getAbsencePermissionsForSection(
 
 function suggestAttendanceStatus(permission) {
   if (permission.requestStatus === "APPROVED") {
+    const permissionType = permission.permissionType || "ABSENCE";
+    if (permissionType === "LATE_ARRIVAL") return "LATE";
+    if (permissionType === "EARLY_WITHDRAWAL") {
+      if (permission.justificationStatus === "JUSTIFIED")
+        return "JUSTIFIED_WITHDRAWAL";
+      if (permission.justificationStatus === "NOT_JUSTIFIED")
+        return "UNJUSTIFIED_WITHDRAWAL";
+      return null;
+    }
     if (permission.justificationStatus === "JUSTIFIED")
       return "ABSENT_JUSTIFIED";
     if (permission.justificationStatus === "NOT_JUSTIFIED")
@@ -629,27 +663,77 @@ function suggestAttendanceStatus(permission) {
   return null;
 }
 
-async function getPermissionsForSession(sessionId, ctx) {
-  requireAuth(ctx);
-
-  const permissions = await AbsencePermission.find({
-    rehearsalSession: sessionId,
-    requestStatus: { $in: ["PENDING", "APPROVED"] },
-  })
-    .select(
-      "_id student requestStatus justificationStatus reason requesterType",
-    )
-    .lean();
-
-  return permissions.map((p) => ({
+function mapPermissionSummary(p) {
+  return {
     id: p._id,
     studentId: p.student,
+    permissionType: p.permissionType || "ABSENCE",
     requestStatus: p.requestStatus,
     justificationStatus: p.justificationStatus,
     reason: p.reason,
     requesterType: p.requesterType,
     suggestedAttendanceStatus: suggestAttendanceStatus(p),
-  }));
+  };
+}
+
+async function getPermissionsForSession(sessionId, ctx) {
+  requireAuth(ctx);
+
+  const session = await RehearsalSession.findById(sessionId).select(
+    "dateNormalized",
+  );
+  if (!session) throw new Error("Sesión de ensayo no encontrada");
+
+  const date = normalizeDateToStartOfDayCR(session.dateNormalized);
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const rehearsalEvents = await Event.find({
+    category: "rehearsal",
+    date: { $gte: date, $lt: nextDate },
+  }).select("_id");
+
+  const permissions = await AbsencePermission.find({
+    $or: [
+      { rehearsalSession: sessionId },
+      { event: { $in: rehearsalEvents.map((event) => event._id) } },
+    ],
+    requestStatus: { $in: ["PENDING", "APPROVED"] },
+  })
+    .select(
+      "_id student permissionType requestStatus justificationStatus reason requesterType",
+    )
+    .lean();
+
+  return permissions.map(mapPermissionSummary);
+}
+
+async function getPermissionsForRehearsalDate(dateInput, ctx) {
+  requireAuth(ctx);
+
+  const date = normalizeDateToStartOfDayCR(dateInput);
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const rehearsalEvents = await Event.find({
+    category: "rehearsal",
+    date: { $gte: date, $lt: nextDate },
+  }).select("_id");
+  const sessions = await RehearsalSession.find({
+    dateNormalized: { $gte: date, $lt: nextDate },
+  }).select("_id");
+
+  const permissions = await AbsencePermission.find({
+    $or: [
+      { event: { $in: rehearsalEvents.map((event) => event._id) } },
+      { rehearsalSession: { $in: sessions.map((session) => session._id) } },
+    ],
+    requestStatus: { $in: ["PENDING", "APPROVED"] },
+  })
+    .select(
+      "_id student permissionType requestStatus justificationStatus reason requesterType",
+    )
+    .lean();
+
+  return permissions.map(mapPermissionSummary);
 }
 
 async function getPermissionsForEvent(eventId, ctx) {
@@ -660,19 +744,11 @@ async function getPermissionsForEvent(eventId, ctx) {
     requestStatus: { $in: ["PENDING", "APPROVED"] },
   })
     .select(
-      "_id student requestStatus justificationStatus reason requesterType",
+      "_id student permissionType requestStatus justificationStatus reason requesterType",
     )
     .lean();
 
-  return permissions.map((p) => ({
-    id: p._id,
-    studentId: p.student,
-    requestStatus: p.requestStatus,
-    justificationStatus: p.justificationStatus,
-    reason: p.reason,
-    requesterType: p.requesterType,
-    suggestedAttendanceStatus: suggestAttendanceStatus(p),
-  }));
+  return permissions.map(mapPermissionSummary);
 }
 
 async function getAbsencePermission(id, ctx) {
@@ -726,6 +802,7 @@ module.exports = {
   getAbsencePermissionsAdmin,
   getAbsencePermissionsForSection,
   getPermissionsForSession,
+  getPermissionsForRehearsalDate,
   getPermissionsForEvent,
   getAbsencePermission,
 };

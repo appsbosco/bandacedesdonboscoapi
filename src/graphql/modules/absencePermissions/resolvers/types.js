@@ -5,6 +5,8 @@ module.exports = {
   AbsencePermission: {
     id: (parent) => parent._id || parent.id,
 
+    permissionType: (parent) => parent.permissionType || "ABSENCE",
+
     absenceDate: (parent) =>
       parent.absenceDate ? parent.absenceDate.toISOString() : null,
 
@@ -70,5 +72,6 @@ module.exports = {
   AbsencePermissionSummary: {
     id: (entry) => String(entry.id || entry._id),
     studentId: (entry) => String(entry.studentId),
+    permissionType: (entry) => entry.permissionType || "ABSENCE",
   },
 };

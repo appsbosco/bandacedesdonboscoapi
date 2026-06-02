@@ -20,7 +20,7 @@ const StatusHistoryEntrySchema = new mongoose.Schema(
 
 const AbsencePermissionSchema = new mongoose.Schema(
   {
-    // ─── Who will be absent ───────────────────────────────────────────────
+    // ─── Who the attendance exception applies to ─────────────────────────
     student: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -43,7 +43,14 @@ const AbsencePermissionSchema = new mongoose.Schema(
       ref: "User",
     },
 
-    // ─── What event the absence applies to ───────────────────────────────
+    // ─── What event the request applies to ───────────────────────────────
+    permissionType: {
+      type: String,
+      enum: ["ABSENCE", "LATE_ARRIVAL", "EARLY_WITHDRAWAL"],
+      default: "ABSENCE",
+      required: true,
+      index: true,
+    },
     targetType: {
       type: String,
       enum: ["REHEARSAL", "PERFORMANCE"],
@@ -138,5 +145,6 @@ AbsencePermissionSchema.index({ student: 1, absenceDate: -1 });
 AbsencePermissionSchema.index({ rehearsalSession: 1, requestStatus: 1 });
 AbsencePermissionSchema.index({ event: 1, requestStatus: 1 });
 AbsencePermissionSchema.index({ targetType: 1, absenceDate: -1 });
+AbsencePermissionSchema.index({ permissionType: 1, absenceDate: -1 });
 
 module.exports = mongoose.model("AbsencePermission", AbsencePermissionSchema);

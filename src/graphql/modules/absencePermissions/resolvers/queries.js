@@ -82,6 +82,14 @@ module.exports = {
     }
   },
 
+  getPermissionsForRehearsalDate: async (_, { date }, ctx) => {
+    try {
+      return await service.getPermissionsForRehearsalDate(date, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
   getPermissionsForEvent: async (_, { eventId }, ctx) => {
     try {
       return await service.getPermissionsForEvent(eventId, ctx);
