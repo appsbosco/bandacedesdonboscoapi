@@ -425,6 +425,19 @@ async function updateOwnPendingEvaluation(id, input, ctx) {
     throw new Error(`La nota debe estar entre ${newScaleMin} y ${newScaleMax}`);
   }
 
+  const hasCorrections =
+    newScoreRaw !== evaluation.scoreRaw ||
+    newScaleMin !== evaluation.scaleMin ||
+    newScaleMax !== evaluation.scaleMax ||
+    (evidenceUrl && evidenceUrl !== evaluation.evidenceUrl) ||
+    (evidencePublicId && evidencePublicId !== evaluation.evidencePublicId) ||
+    (evidenceResourceType && evidenceResourceType !== evaluation.evidenceResourceType) ||
+    (evidenceOriginalName !== undefined && evidenceOriginalName !== evaluation.evidenceOriginalName);
+
+  if (evaluation.status === "rejected" && !hasCorrections) {
+    throw new Error("Corrige la nota o reemplaza la evidencia antes de reenviar la evaluación");
+  }
+
   evaluation.scoreRaw = newScoreRaw;
   evaluation.scaleMin = newScaleMin;
   evaluation.scaleMax = newScaleMax;
