@@ -16,19 +16,7 @@ require("dotenv").config({ path: "./config/.env" });
 
 // ── 2. Conexión a MongoDB ────────────────────────────────────────────────────
 const mongoose = require("mongoose");
-
-async function connectDB() {
-  const uri =
-    process.env.MONGODB_URI ||
-    process.env.MONGO_URI ||
-    process.env.DATABASE_URL;
-  if (!uri)
-    throw new Error(
-      "No se encontró variable de entorno para MongoDB (MONGODB_URI / MONGO_URI / DATABASE_URL)",
-    );
-  await mongoose.connect(uri);
-  console.log("✓ MongoDB conectado:", mongoose.connection.host);
-}
+const { connectDB, disconnectDB } = require("../config/database");
 
 // ── 3. Argumentos CLI ────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -130,9 +118,12 @@ async function main() {
 main()
   .then(() => {
     console.log("\n✓ Script finalizado.");
-    process.exit(0);
   })
   .catch((err) => {
     console.error("\n✗ Error fatal:", err);
-    process.exit(1);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await disconnectDB();
+    process.exit(process.exitCode || 0);
   });

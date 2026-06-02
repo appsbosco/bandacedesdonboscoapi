@@ -387,9 +387,8 @@ async function main() {
   );
   console.log(`📂  Archivo: ${EXCEL_PATH}\n`);
 
-  const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
-  if (!MONGO_URI) throw new Error("Falta MONGO_URI / MONGODB_URI en .env");
-  await mongoose.connect(MONGO_URI);
+  const { connectDB } = require("../config/database");
+  await connectDB();
   console.log("✅  Conectado a MongoDB\n");
 
   const excelRows = readExcel(EXCEL_PATH);

@@ -164,15 +164,8 @@ async function fixFeb16ToFeb14(db) {
 }
 
 async function main() {
-  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
-  const dbName = process.env.DB_NAME;
-
-  if (!uri) {
-    console.error("❌ Falta MONGODB_URI (o MONGO_URI)");
-    process.exit(1);
-  }
-
-  await mongoose.connect(uri, dbName ? { dbName } : {});
+  const { connectDB } = require("../config/database");
+  await connectDB();
   const db = mongoose.connection.db;
 
   console.log("✅ Conectado a MongoDB");

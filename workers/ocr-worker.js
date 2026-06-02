@@ -1,6 +1,7 @@
 'use strict';
 require('dotenv').config();
 const mongoose = require('mongoose');
+const { connectDB, disconnectDB } = require('../config/database');
 const cloudinary = require('cloudinary').v2;
 
 const Document = require('../models/Document');
@@ -259,10 +260,7 @@ async function poll() {
 // ─── startup ────────────────────────────────────────────────────────────────
 
 async function main() {
-  await mongoose.connect(process.env.MONGODB_URI || process.env.DB_MONGO, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
+  await connectDB();
   console.log('[OCR Worker] Connected to MongoDB. Poll interval:', POLL_MS, 'ms');
 
   cloudinary.config({
@@ -280,7 +278,13 @@ async function main() {
 
 process.on('SIGTERM', async () => {
   console.log('[OCR Worker] Shutting down...');
-  await mongoose.disconnect();
+  await disconnectDB();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('[OCR Worker] Shutting down...');
+  await disconnectDB();
   process.exit(0);
 });
 

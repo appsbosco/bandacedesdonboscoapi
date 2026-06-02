@@ -413,12 +413,25 @@ if (require.main === module) {
   const port = process.env.PORT || 4000;
   initOnce()
     .then(() => {
-      app.listen(port, "0.0.0.0", () => {
+      const server = app.listen(port, "0.0.0.0", () => {
         console.log(`Server running on http://localhost:${port}/api/graphql`);
         console.log(
           `Server running on http://192.168.1.202:${port}/api/graphql`,
         );
       });
+
+      const shutdown = async (signal) => {
+        console.log(`[${signal}] Cerrando servidor...`);
+        server.close(async () => {
+          const mongoose = require("mongoose");
+          await mongoose.disconnect().catch(() => {});
+          console.log("[MongoDB] Conexión cerrada limpiamente.");
+          process.exit(0);
+        });
+      };
+
+      process.on("SIGINT", () => shutdown("SIGINT"));
+      process.on("SIGTERM", () => shutdown("SIGTERM"));
     })
     .catch((err) => console.error(err));
 }

@@ -1,9 +1,10 @@
 // scripts/migrateAttendanceStatuses.js
 const mongoose = require("mongoose");
 require("dotenv").config();
+const { connectDB, disconnectDB } = require("../config/database");
 
 async function migrateStatuses() {
-  await mongoose.connect(process.env.MONGO_URI);
+  await connectDB();
 
   const Attendance = mongoose.model(
     "Attendance",
@@ -39,7 +40,7 @@ async function migrateStatuses() {
   console.log("\n📊 Estados después de migración:");
   console.log(finalStatuses);
 
-  await mongoose.disconnect();
+  await disconnectDB();
 }
 
 migrateStatuses().catch(console.error);
