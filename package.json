@@ -7,7 +7,11 @@
     "start": "node .",
     "dev": "nodemon .",
     "worker:ocr": "node workers/ocr-worker.js",
-    "sync:tour-documents": "node scripts/resync-tour-document-projection.js"
+    "sync:tour-documents": "node scripts/resync-tour-document-projection.js",
+    "tour-documents:missing-report": "node scripts/missingTourDocumentsReport.js",
+    "tickets:resend-paid": "node scripts/resendPaidTicketEmails.js",
+    "test:push:user": "node scripts/test-push-user.js",
+    "users:export-by-instrument": "node scripts/export_users_by_instrument.js"
   },
   "engines": {
     "node": "22.x"

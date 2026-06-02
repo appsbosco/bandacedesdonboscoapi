@@ -28,4 +28,5 @@ module.exports = [
   require("./tourImports"),
   require("./formations"),
   require("./academicEvaluations"),
+  require("./absencePermissions"),
 ];

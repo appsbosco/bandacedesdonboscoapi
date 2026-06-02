@@ -119,7 +119,7 @@ async function validateChildren(childIds) {
   }
 
   const nonStudents = users.filter(
-    (u) => u.state !== "Estudiante Activo" && u.state !== "Exalumno",
+    (u) => !["Estudiante Activo", "Activo", "Exalumno"].includes(u.state),
   );
   if (nonStudents.length > 0) {
     throw new Error(

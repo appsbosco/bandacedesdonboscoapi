@@ -170,7 +170,7 @@ async function initOnce() {
 
           if (userId) {
             const dbUser = await User.findById(userId)
-              .select("_id email role name section instrument")
+              .select("_id email role name state section instrument")
               .lean();
 
             if (dbUser) {
@@ -180,6 +180,7 @@ async function initOnce() {
                 email: dbUser.email,
                 role: dbUser.role || "Usuario",
                 name: dbUser.name,
+                state: dbUser.state || null,
                 section: dbUser.section || null,
               };
             }
@@ -312,7 +313,7 @@ async function initOnce() {
             if (!userId) return ctx;
 
             let dbUser = await User.findById(userId)
-              .select("_id email role name students instrument section")
+              .select("_id email role name state students instrument section")
               .lean();
 
             let entityType = "User";
@@ -351,6 +352,7 @@ async function initOnce() {
               email: dbUser.email,
               role: dbUser.role || "Parent",
               name: dbUser.name,
+              state: dbUser.state || null,
               section,
               entityType,
             };

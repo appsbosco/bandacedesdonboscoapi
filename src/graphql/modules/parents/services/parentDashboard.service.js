@@ -340,7 +340,9 @@ async function getParentDashboard(ctx, dateRangeInput, childIdFilter) {
     .lean();
 
   children.forEach((child) => {
-    if (child.state !== "Estudiante Activo" && child.state !== "Exalumno") {
+    if (
+      !["Estudiante Activo", "Activo", "Exalumno"].includes(child.state)
+    ) {
       throw new Error(
         `Usuario ${child._id} no es estudiante y no puede ser hijo`,
       );
