@@ -96,6 +96,6 @@ module.exports = gql`
 
     upgradeUserGrades: Boolean!
     updateUserState: Boolean!
-    updateNotificationToken(userId: ID!, token: String!): User
+    updateNotificationToken(userId: ID!, token: String!): Boolean!
   }
 `;

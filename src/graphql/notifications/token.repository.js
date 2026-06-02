@@ -2,6 +2,7 @@
 "use strict";
 
 const User = require("../../../models/User");
+const Parent = require("../../../models/Parents");
 
 /**
  * Devuelve todos los tokens únicos de usuarios que tengan al menos uno.
@@ -17,11 +18,11 @@ async function getAllTokens() {
   // token → Set<userId>  para deduplicar
   const tokenToUsers = new Map();
 
-  for (const user of users) {
-    const unique = [...new Set(user.notificationTokens)];
+  for (const recipient of users) {
+    const unique = [...new Set(recipient.notificationTokens)];
     for (const token of unique) {
       if (!tokenToUsers.has(token)) tokenToUsers.set(token, []);
-      tokenToUsers.get(token).push(user._id.toString());
+      tokenToUsers.get(token).push(recipient._id.toString());
     }
   }
 
@@ -38,10 +39,16 @@ async function getAllTokens() {
 async function removeInvalidTokens(invalidTokens) {
   if (!invalidTokens.length) return;
 
-  await User.updateMany(
-    { notificationTokens: { $in: invalidTokens } },
-    { $pull: { notificationTokens: { $in: invalidTokens } } },
-  );
+  await Promise.all([
+    User.updateMany(
+      { notificationTokens: { $in: invalidTokens } },
+      { $pull: { notificationTokens: { $in: invalidTokens } } },
+    ),
+    Parent.updateMany(
+      { notificationTokens: { $in: invalidTokens } },
+      { $pull: { notificationTokens: { $in: invalidTokens } } },
+    ),
+  ]);
 
   console.log(
     `[tokenRepository] Tokens inválidos eliminados: ${invalidTokens.length}`,
@@ -59,4 +66,22 @@ async function getTokensByUserId(userId) {
   return [...new Set(user.notificationTokens || [])];
 }
 
-module.exports = { getAllTokens, removeInvalidTokens, getTokensByUserId };
+async function getTokensByRecipientIds(userIds = [], parentIds = []) {
+  const [users, parents] = await Promise.all([
+    User.find({ _id: { $in: userIds.filter(Boolean) } }, { notificationTokens: 1 }).lean(),
+    Parent.find({ _id: { $in: parentIds.filter(Boolean) } }, { notificationTokens: 1 }).lean(),
+  ]);
+
+  return [
+    ...new Set(
+      [...users, ...parents].flatMap((recipient) => recipient.notificationTokens || []),
+    ),
+  ];
+}
+
+module.exports = {
+  getAllTokens,
+  removeInvalidTokens,
+  getTokensByUserId,
+  getTokensByRecipientIds,
+};

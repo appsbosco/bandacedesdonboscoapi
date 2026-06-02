@@ -24,8 +24,8 @@ module.exports = {
   resetPassword: async (_, { token, newPassword }) =>
     userService.resetPassword(token, newPassword),
 
-  updateNotificationToken: async (_, { userId, token }) =>
-    userService.updateNotificationToken(userId, token),
+  updateNotificationToken: async (_, { userId, token }, ctx) =>
+    userService.updateNotificationToken(userId, token, ctx),
 
   upgradeUserGrades: async () => userService.upgradeUserGrades(),
 

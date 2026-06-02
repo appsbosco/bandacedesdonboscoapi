@@ -5,6 +5,9 @@ const RehearsalSession = require("../../../../../models/RehearsalSession");
 const Event = require("../../../../../models/Events");
 const { inferSectionFromInstrument } = require("../../../../../utils/sections");
 const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
+const { dispatchToTokens } = require("../../../notifications/notification.dispatcher");
+const { EVENTS } = require("../../../notifications/notification.templates");
+const { getTokensByRecipientIds } = require("../../../notifications/token.repository");
 
 const ADMIN_ROLES = new Set(["ADMIN", "DIRECTOR", "DIRECCIÓN LOGÍSTICA"]);
 const PERMISSION_TYPES = new Set([
@@ -62,6 +65,54 @@ function requireReviewer(ctx) {
     throw new Error("No tienes permisos para revisar solicitudes de permiso");
   }
   return actor;
+}
+
+function getActorSection(actor) {
+  return actor.section || inferSectionFromInstrument(actor.instrument);
+}
+
+async function assertSectionReviewerCanAccessPermission(actor, permission) {
+  if (isAdmin(actor)) return;
+
+  const actorSection = getActorSection(actor);
+  if (!actorSection) {
+    throw new Error("Tu usuario no tiene una sección asignada");
+  }
+
+  const student = await User.findById(permission.student).select("instrument section");
+  const studentSection = student?.section || inferSectionFromInstrument(student?.instrument);
+  if (studentSection !== actorSection) {
+    throw new Error("Solo puedes revisar solicitudes de tu sección");
+  }
+}
+
+async function notifyPermissionStatusChanged(permission) {
+  try {
+    const tokens = await getTokensByRecipientIds(
+      [permission.student, permission.requestedByUser],
+      [permission.requestedByParent],
+    );
+    if (!tokens.length) return;
+
+    const student = await User.findById(permission.student).select(
+      "name firstSurName",
+    );
+    const studentName = [student?.name, student?.firstSurName]
+      .filter(Boolean)
+      .join(" ");
+
+    await dispatchToTokens(EVENTS.ABSENCE_PERMISSION_STATUS_CHANGED, tokens, {
+      permissionId: permission._id,
+      requestStatus: permission.requestStatus,
+      justificationStatus: permission.justificationStatus,
+      studentName,
+    });
+  } catch (error) {
+    console.error(
+      "[absencePermissions] Error best-effort enviando notificación:",
+      error.message,
+    );
+  }
 }
 
 // ============================================
@@ -298,6 +349,7 @@ async function reviewAbsencePermissionRequest(id, input, ctx) {
 
   const permission = await AbsencePermission.findById(id);
   if (!permission) throw new Error("Solicitud de permiso no encontrada");
+  await assertSectionReviewerCanAccessPermission(actor, permission);
 
   if (permission.requestStatus === "CANCELLED") {
     throw new Error("No se puede revisar una solicitud cancelada");
@@ -321,6 +373,7 @@ async function reviewAbsencePermissionRequest(id, input, ctx) {
   });
 
   await permission.save();
+  await notifyPermissionStatusChanged(permission);
 
   return await AbsencePermission.findById(id)
     .populate("student")
@@ -372,6 +425,7 @@ async function cancelAbsencePermissionRequest(id, ctx) {
   });
 
   await permission.save();
+  await notifyPermissionStatusChanged(permission);
 
   return await AbsencePermission.findById(id)
     .populate("student")
@@ -411,6 +465,7 @@ async function reopenAbsencePermissionRequest(id, ctx) {
   });
 
   await permission.save();
+  await notifyPermissionStatusChanged(permission);
 
   return await AbsencePermission.findById(id)
     .populate("student")
@@ -600,10 +655,18 @@ async function getAbsencePermissionsForSection(
     throw new Error("No tienes permisos para ver esta información");
   }
 
+  if (!isAdmin(actor)) {
+    const actorSection = getActorSection(actor);
+    if (!actorSection) {
+      throw new Error("Tu usuario no tiene una sección asignada");
+    }
+    if (actorSection !== section) {
+      throw new Error("Solo puedes consultar solicitudes de tu sección");
+    }
+  }
+
   // Find all students in this section
-  const allStudents = await User.find({
-    state: { $in: ["Estudiante Activo", "Activo"] },
-  }).select("_id instrument section");
+  const allStudents = await User.find({}).select("_id instrument section");
   const sectionStudentIds = allStudents
     .filter((u) => {
       const s = u.section || inferSectionFromInstrument(u.instrument);
@@ -613,13 +676,17 @@ async function getAbsencePermissionsForSection(
 
   const query = {
     student: { $in: sectionStudentIds },
-    requestStatus: { $in: ["PENDING", "APPROVED"] },
+    requestStatus: { $in: ["PENDING", "APPROVED", "REJECTED"] },
   };
 
   if (startDate || endDate) {
     query.absenceDate = {};
     if (startDate) query.absenceDate.$gte = new Date(startDate);
-    if (endDate) query.absenceDate.$lte = new Date(endDate);
+    if (endDate) {
+      const endExclusive = new Date(endDate);
+      endExclusive.setDate(endExclusive.getDate() + 1);
+      query.absenceDate.$lt = endExclusive;
+    }
   }
 
   const [items, totalCount] = await Promise.all([
@@ -779,6 +846,9 @@ async function getAbsencePermission(id, ctx) {
 
   if (!isOwner && !isAdmin(actor) && !isSectionPrincipal(actor)) {
     throw new Error("No tienes acceso a esta solicitud");
+  }
+  if (!isOwner && isSectionPrincipal(actor)) {
+    await assertSectionReviewerCanAccessPermission(actor, permission);
   }
 
   return permission;

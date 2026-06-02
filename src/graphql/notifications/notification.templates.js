@@ -13,6 +13,7 @@ const EVENTS = {
   EVENT_PUBLISHED: "EVENT_PUBLISHED",
   EVENT_UPDATED: "EVENT_UPDATED",
   EVENT_REMINDER: "EVENT_REMINDER",
+  ABSENCE_PERMISSION_STATUS_CHANGED: "ABSENCE_PERMISSION_STATUS_CHANGED",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -39,6 +40,16 @@ function categoryLabel(category) {
     other: "Evento",
   };
   return map[category] ?? "Evento";
+}
+
+function absencePermissionStatusLabel(status) {
+  const map = {
+    PENDING: "pendiente de revisión",
+    APPROVED: "aprobada",
+    REJECTED: "rechazada",
+    CANCELLED: "cancelada",
+  };
+  return map[status] ?? "actualizada";
 }
 
 // ─── Plantillas ───────────────────────────────────────────────────────────────
@@ -107,6 +118,23 @@ const TEMPLATES = {
         kind: EVENTS.EVENT_REMINDER,
         eventId: String(payload.eventId ?? ""),
         url: `/events/${payload.eventId}`,
+      },
+    };
+  },
+
+  [EVENTS.ABSENCE_PERMISSION_STATUS_CHANGED]: (payload) => {
+    const status = absencePermissionStatusLabel(payload.requestStatus);
+    const studentPart = payload.studentName ? ` de ${payload.studentName}` : "";
+    return {
+      title: "BCDB — Solicitud de permiso actualizada",
+      body: `La solicitud de permiso${studentPart} fue ${status}.`,
+      link: `${FRONTEND_URL}/absence-permissions`,
+      data: {
+        kind: EVENTS.ABSENCE_PERMISSION_STATUS_CHANGED,
+        permissionId: String(payload.permissionId ?? ""),
+        requestStatus: String(payload.requestStatus ?? ""),
+        justificationStatus: String(payload.justificationStatus ?? ""),
+        url: "/absence-permissions",
       },
     };
   },

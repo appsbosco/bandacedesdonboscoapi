@@ -335,20 +335,25 @@ async function resetPassword(token, newPassword) {
   return true;
 }
 
-async function updateNotificationToken(userId, token) {
+async function updateNotificationToken(userId, token, ctx) {
   if (!userId || !token) throw new Error("userId y token son requeridos");
 
-  const user = await User.findById(userId);
-  if (!user) throw new Error("El usuario no existe");
-
-  user.notificationTokens = user.notificationTokens || [];
-
-  if (!user.notificationTokens.includes(token)) {
-    user.notificationTokens.push(token);
-    await user.save();
+  const actorId = ctx?.user?.id || ctx?.user?._id;
+  if (!actorId || String(actorId) !== String(userId)) {
+    throw new Error("No autorizado");
   }
 
-  return user;
+  const recipient = (await User.findById(userId)) || (await Parent.findById(userId));
+  if (!recipient) throw new Error("El usuario no existe");
+
+  recipient.notificationTokens = recipient.notificationTokens || [];
+
+  if (!recipient.notificationTokens.includes(token)) {
+    recipient.notificationTokens.push(token);
+    await recipient.save();
+  }
+
+  return true;
 }
 
 async function upgradeUserGrades() {

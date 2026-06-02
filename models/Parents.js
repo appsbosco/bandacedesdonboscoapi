@@ -35,6 +35,7 @@ const ParentSchema = new mongoose.Schema({
   avatar: {
     type: String,
   },
+  notificationTokens: [{ type: String, required: false }],
   children: [
     {
       type: mongoose.Schema.Types.ObjectId,
