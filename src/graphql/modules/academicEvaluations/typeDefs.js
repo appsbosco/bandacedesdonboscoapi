@@ -69,6 +69,34 @@ module.exports = gql`
     grade: String
     instrument: String
     avatar: String
+    allEvaluationsSubmitted: Boolean!
+    expectedEvaluationsCount: Int!
+    submittedEvaluationsCount: Int!
+    missingEvaluationsCount: Int!
+    coverageByPeriod: [AcademicPeriodCoverage!]!
+  }
+
+  type MissingAcademicSubject {
+    subjectId: ID!
+    subjectName: String!
+  }
+
+  type AcademicPeriodCoverage {
+    periodId: ID!
+    periodName: String!
+    year: Int!
+    expectedEvaluationsCount: Int!
+    submittedEvaluationsCount: Int!
+    missingEvaluationsCount: Int!
+    missingSubjects: [MissingAcademicSubject!]!
+  }
+
+  type StudentAcademicCoverage {
+    allEvaluationsSubmitted: Boolean!
+    expectedEvaluationsCount: Int!
+    submittedEvaluationsCount: Int!
+    missingEvaluationsCount: Int!
+    coverageByPeriod: [AcademicPeriodCoverage!]!
   }
 
   # Tipo de lista — NO incluye evidenceUrl (imagen original pesada).
@@ -214,6 +242,7 @@ module.exports = gql`
     expectedEvaluationsCount: Int!
     submittedEvaluationsCount: Int!
     missingEvaluationsCount: Int!
+    coverageByPeriod: [AcademicPeriodCoverage!]!
     performance: StudentPerformance!
   }
 
@@ -286,6 +315,7 @@ module.exports = gql`
       filter: AcademicDashboardFilter
     ): [AcademicEvaluation!]!
     myAcademicPerformance(periodId: ID, year: Int): StudentPerformance!
+    myAcademicEvaluationCoverage(year: Int): StudentAcademicCoverage!
 
     studentAcademicEvaluations(
       studentId: ID!

@@ -202,6 +202,21 @@ async function hasSectionStudentAccess(user, studentId) {
 }
 
 async function getStudentEvaluationCoverage(studentId, grade, filters = {}) {
+  const coverageByStudent = await getEvaluationCoverageForStudents(
+    [{ _id: studentId, grade }],
+    filters
+  );
+  return coverageByStudent.get(String(studentId));
+}
+
+function subjectAppliesToGrade(subject, grade) {
+  const grades = Array.isArray(subject.grades) ? subject.grades.filter(Boolean) : [];
+  return grades.length === 0 || grades.includes(grade);
+}
+
+async function getEvaluationCoverageForStudents(students, filters = {}) {
+  if (students.length === 0) return new Map();
+
   const periodQuery = { isActive: true };
   if (filters.periodId) {
     periodQuery._id = filters.periodId;
@@ -212,46 +227,86 @@ async function getStudentEvaluationCoverage(studentId, grade, filters = {}) {
   const [subjects, periods] = await Promise.all([
     AcademicSubject.find({
       isActive: true,
-      ...buildSubjectGradeQuery(grade),
     })
-      .select("_id")
+      .select("_id name grades")
       .lean(),
-    AcademicPeriod.find(periodQuery).select("_id").lean(),
+    AcademicPeriod.find(periodQuery).select("_id name year order").sort({ year: -1, order: 1 }).lean(),
   ]);
 
-  const subjectIds = subjects.map((subject) => String(subject._id));
+  const studentIds = students.map((student) => String(student._id || student.id));
+  const subjectIds = subjects.map((subject) => subject._id);
   const periodIds = periods.map((period) => String(period._id));
-  const expectedEvaluationsCount = subjectIds.length * periodIds.length;
-
-  if (expectedEvaluationsCount === 0) {
-    return {
-      allEvaluationsSubmitted: false,
-      expectedEvaluationsCount: 0,
-      submittedEvaluationsCount: 0,
-      missingEvaluationsCount: 0,
-    };
-  }
 
   const evaluations = await AcademicEvaluation.find({
-    student: studentId,
+    student: { $in: studentIds },
     subject: { $in: subjectIds },
     period: { $in: periodIds },
   })
-    .select("subject period")
+    .select("student subject period")
     .lean();
 
-  const submittedKeys = new Set(
-    evaluations.map((evaluation) => `${String(evaluation.subject)}:${String(evaluation.period)}`)
-  );
-  const submittedEvaluationsCount = submittedKeys.size;
-  const missingEvaluationsCount = Math.max(expectedEvaluationsCount - submittedEvaluationsCount, 0);
+  const submittedByStudent = new Map();
+  for (const evaluation of evaluations) {
+    const studentId = String(evaluation.student);
+    if (!submittedByStudent.has(studentId)) submittedByStudent.set(studentId, new Set());
+    submittedByStudent
+      .get(studentId)
+      .add(`${String(evaluation.subject)}:${String(evaluation.period)}`);
+  }
 
-  return {
-    allEvaluationsSubmitted: expectedEvaluationsCount > 0 && missingEvaluationsCount === 0,
-    expectedEvaluationsCount,
-    submittedEvaluationsCount,
-    missingEvaluationsCount,
-  };
+  return new Map(
+    students.map((student) => {
+      const studentId = String(student._id || student.id);
+      const studentSubjects = subjects.filter((subject) =>
+        subjectAppliesToGrade(subject, student.grade)
+      );
+      const submittedKeys = submittedByStudent.get(studentId) || new Set();
+      const coverageByPeriod = periods.map((period) => {
+        const periodId = String(period._id);
+        const missingSubjects = studentSubjects
+          .filter((subject) => !submittedKeys.has(`${String(subject._id)}:${periodId}`))
+          .map((subject) => ({
+            subjectId: String(subject._id),
+            subjectName: subject.name,
+          }));
+        const expectedEvaluationsCount = studentSubjects.length;
+        const missingEvaluationsCount = missingSubjects.length;
+
+        return {
+          periodId,
+          periodName: period.name,
+          year: period.year,
+          expectedEvaluationsCount,
+          submittedEvaluationsCount: expectedEvaluationsCount - missingEvaluationsCount,
+          missingEvaluationsCount,
+          missingSubjects,
+        };
+      });
+      const expectedEvaluationsCount = coverageByPeriod.reduce(
+        (total, period) => total + period.expectedEvaluationsCount,
+        0
+      );
+      const submittedEvaluationsCount = coverageByPeriod.reduce(
+        (total, period) => total + period.submittedEvaluationsCount,
+        0
+      );
+      const missingEvaluationsCount = coverageByPeriod.reduce(
+        (total, period) => total + period.missingEvaluationsCount,
+        0
+      );
+
+      return [
+        studentId,
+        {
+          allEvaluationsSubmitted: expectedEvaluationsCount > 0 && missingEvaluationsCount === 0,
+          expectedEvaluationsCount,
+          submittedEvaluationsCount,
+          missingEvaluationsCount,
+          coverageByPeriod,
+        },
+      ];
+    })
+  );
 }
 
 // ─── Subjects ─────────────────────────────────────────────────────────────────
@@ -776,6 +831,14 @@ async function getMyPerformance(periodId, year, ctx) {
   return calculateStudentPerformance(userId, { periodId, year });
 }
 
+async function getMyEvaluationCoverage(year, ctx) {
+  const user = requireStudentSelf(ctx);
+  const userId = String(user._id || user.id);
+  const student = await User.findById(userId).select("_id grade").lean();
+  if (!student) throw new Error("Estudiante no encontrado");
+  return getStudentEvaluationCoverage(userId, student.grade, { year });
+}
+
 async function getStudentPerformance(studentId, periodId, year, ctx) {
   await requireStudentAccess(ctx, studentId);
   return calculateStudentPerformance(studentId, { periodId, year });
@@ -1028,7 +1091,7 @@ async function getAdminPendingEvaluationsPaginated(filter = {}, pagination = {},
 
 async function getAdminAcademicStudents(filter = {}, ctx) {
   requireAdmin(ctx);
-  const { grade, instrument } = filter;
+  const { grade, instrument, periodId, year } = filter;
 
   const query = {
     grade: { $nin: [null, ""] },
@@ -1042,10 +1105,16 @@ async function getAdminAcademicStudents(filter = {}, ctx) {
     query.instrument = new RegExp(escapeRegex(String(instrument).trim()), "i");
   }
 
-  return User.find(query)
+  const students = await User.find(query)
     .select("name firstSurName secondSurName email grade instrument avatar")
     .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
     .lean();
+
+  const coverageByStudent = await getEvaluationCoverageForStudents(students, { periodId, year });
+  return students.map((student) => ({
+    ...student,
+    ...coverageByStudent.get(String(student._id)),
+  }));
 }
 
 async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
@@ -1225,12 +1294,12 @@ async function getSectionInstrumentOverview(periodId, year, ctx) {
 
   if (members.length === 0) return [];
 
+  const coverageByStudent = await getEvaluationCoverageForStudents(members, { periodId, year });
+
   return Promise.all(
     members.map(async (member) => {
-      const [coverage, performance] = await Promise.all([
-        getStudentEvaluationCoverage(String(member._id), member.grade, { periodId, year }),
-        calculateStudentPerformance(String(member._id), { periodId, year }),
-      ]);
+      const coverage = coverageByStudent.get(String(member._id));
+      const performance = await calculateStudentPerformance(String(member._id), { periodId, year });
 
       return {
         memberId: String(member._id),
@@ -1299,6 +1368,7 @@ module.exports = {
   getStudentEvaluations,
   getEvaluationDetail,
   getMyPerformance,
+  getMyEvaluationCoverage,
   getStudentPerformance,
   getAdminDashboard,
   getAdminRiskRanking,

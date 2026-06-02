@@ -39,6 +39,15 @@ module.exports = {
     }
   },
 
+  myAcademicEvaluationCoverage: async (_, { year }, ctx) => {
+    try {
+      return await svc.getMyEvaluationCoverage(year, ctx);
+    } catch (e) {
+      console.error("[query:myAcademicEvaluationCoverage]", e.message);
+      throw new Error(e.message || "Error al calcular evaluaciones faltantes");
+    }
+  },
+
   studentAcademicEvaluations: async (_, { studentId, filter }, ctx) => {
     try {
       return await svc.getStudentEvaluations(studentId, filter || {}, ctx);
