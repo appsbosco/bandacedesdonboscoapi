@@ -1,6 +1,10 @@
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
 const { deleteUserCascade } = require("./userCascade.service");
+const {
+  normalizeNotificationToken,
+  removeTokensFromAllAccounts,
+} = require("../../../notifications/token.repository");
 
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -336,7 +340,8 @@ async function resetPassword(token, newPassword) {
 }
 
 async function updateNotificationToken(userId, token, ctx) {
-  if (!userId || !token) throw new Error("userId y token son requeridos");
+  const normalizedToken = normalizeNotificationToken(token);
+  if (!userId || !normalizedToken) throw new Error("userId y token son requeridos");
 
   const actorId = ctx?.user?.id || ctx?.user?._id;
   if (!actorId || String(actorId) !== String(userId)) {
@@ -346,12 +351,12 @@ async function updateNotificationToken(userId, token, ctx) {
   const recipient = (await User.findById(userId)) || (await Parent.findById(userId));
   if (!recipient) throw new Error("El usuario no existe");
 
-  recipient.notificationTokens = recipient.notificationTokens || [];
+  await removeTokensFromAllAccounts([normalizedToken]);
 
-  if (!recipient.notificationTokens.includes(token)) {
-    recipient.notificationTokens.push(token);
-    await recipient.save();
-  }
+  await recipient.constructor.updateOne(
+    { _id: recipient._id },
+    { $addToSet: { notificationTokens: normalizedToken } },
+  );
 
   return true;
 }

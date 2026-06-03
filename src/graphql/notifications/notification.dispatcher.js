@@ -9,6 +9,18 @@ const { getAllTokens } = require("./token.repository");
 const { resolveTemplate } = require("./notification.templates");
 const { sendPushNotification } = require("./notification.service");
 
+function dedupeTokens(tokens = []) {
+  return [...new Set(tokens.filter(Boolean))];
+}
+
+function logTokenDedupe(eventName, tokens, uniqueTokens, suffix = "tokens") {
+  console.log(`[dispatcher] "${eventName}" → ${uniqueTokens.length} ${suffix}`, {
+    raw: tokens.length,
+    unique: uniqueTokens.length,
+    duplicated: tokens.length - uniqueTokens.length,
+  });
+}
+
 /**
  * Dispara notificación a TODOS los tokens registrados.
  *
@@ -18,15 +30,16 @@ const { sendPushNotification } = require("./notification.service");
 async function dispatch(eventName, payload = {}) {
   try {
     const { tokens } = await getAllTokens();
+    const uniqueTokens = dedupeTokens(tokens);
 
-    if (!tokens.length) {
+    if (!uniqueTokens.length) {
       console.log(`[dispatcher] Sin tokens registrados para: "${eventName}"`);
       return;
     }
 
     const template = resolveTemplate(eventName, payload);
-    console.log(`[dispatcher] "${eventName}" → ${tokens.length} tokens`);
-    await sendPushNotification(tokens, template);
+    logTokenDedupe(eventName, tokens, uniqueTokens);
+    await sendPushNotification(uniqueTokens, template);
   } catch (err) {
     console.error(
       `[dispatcher] Error best-effort en "${eventName}":`,
@@ -45,15 +58,15 @@ async function dispatch(eventName, payload = {}) {
  */
 async function dispatchToTokens(eventName, tokens = [], payload = {}) {
   try {
-    if (!tokens.length) {
+    const uniqueTokens = dedupeTokens(tokens);
+
+    if (!uniqueTokens.length) {
       console.log(`[dispatcher] Sin tokens destino para: "${eventName}"`);
       return;
     }
     const template = resolveTemplate(eventName, payload);
-    console.log(
-      `[dispatcher] "${eventName}" → ${tokens.length} tokens específicos`,
-    );
-    await sendPushNotification(tokens, template);
+    logTokenDedupe(eventName, tokens, uniqueTokens, "tokens específicos");
+    await sendPushNotification(uniqueTokens, template);
   } catch (err) {
     console.error(
       `[dispatcher] Error best-effort en dispatchToTokens "${eventName}":`,

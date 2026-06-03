@@ -93,7 +93,7 @@ const TEMPLATES = {
   [EVENTS.EVENT_UPDATED]: (payload) => {
     const label = categoryLabel(payload.category);
     return {
-      title: `BCDB — ${label} actualizado`,
+      title: `${label} actualizado`,
       body: `"${payload.title}" ha sido actualizado. Revisá los detalles.`,
       link: `${FRONTEND_URL}/events/${payload.eventId}`,
       data: {
@@ -126,7 +126,7 @@ const TEMPLATES = {
     const status = absencePermissionStatusLabel(payload.requestStatus);
     const studentPart = payload.studentName ? ` de ${payload.studentName}` : "";
     return {
-      title: "BCDB — Solicitud de permiso actualizada",
+      title: "Solicitud de permiso actualizada",
       body: `La solicitud de permiso${studentPart} fue ${status}.`,
       link: `${FRONTEND_URL}/absence-permissions`,
       data: {

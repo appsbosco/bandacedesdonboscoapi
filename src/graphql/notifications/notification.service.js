@@ -2,7 +2,10 @@
 "use strict";
 
 const { getFirebaseAdmin } = require("./firebaseAdmin");
-const { removeInvalidTokens } = require("./token.repository");
+const {
+  normalizeNotificationTokens,
+  removeTokensFromAllAccounts,
+} = require("./token.repository");
 
 const FCM_BATCH_SIZE = 500; // límite FCM multicast
 
@@ -23,17 +26,25 @@ const INVALID_TOKEN_CODES = new Set([
  * @param {{ title: string, body: string, link: string, data: Record<string,string> }} template
  */
 async function sendPushNotification(tokens, template) {
-  if (!tokens.length) {
+  const uniqueTokens = normalizeNotificationTokens(tokens);
+
+  if (!uniqueTokens.length) {
     console.log("[notificationService] Sin tokens destino, se omite envío.");
-    return;
+    return {
+      successCount: 0,
+      failureCount: 0,
+      invalidTokensRemoved: 0,
+    };
   }
 
   const app = getFirebaseAdmin();
   const messaging = app.messaging();
 
   // Partir en chunks de 500
-  const chunks = chunkArray(tokens, FCM_BATCH_SIZE);
+  const chunks = chunkArray(uniqueTokens, FCM_BATCH_SIZE);
   const invalidTokens = [];
+  let successCount = 0;
+  let failureCount = 0;
 
   for (const [index, chunk] of chunks.entries()) {
     const message = {
@@ -61,11 +72,15 @@ async function sendPushNotification(tokens, template) {
       response = await messaging.sendEachForMulticast(message);
     } catch (err) {
       console.error("[notificationService] Error en sendEachForMulticast:", err.message);
+      failureCount += chunk.length;
       continue; // best-effort: continúa con siguiente chunk
     }
 
+    successCount += response.successCount;
+    failureCount += response.failureCount;
+
     console.log(
-      `[notificationService] Chunk enviado — éxitos: ${response.successCount}, fallos: ${response.failureCount}`
+      `[notificationService] Chunk ${index + 1}/${chunks.length} enviado — éxitos: ${response.successCount}, fallos: ${response.failureCount}`
     );
 
     // Detectar tokens inválidos en este chunk
@@ -75,11 +90,11 @@ async function sendPushNotification(tokens, template) {
         if (INVALID_TOKEN_CODES.has(code)) {
           invalidTokens.push(chunk[idx]);
           console.warn(
-            `[notificationService] Token inválido detectado (${code}): ${chunk[idx].slice(0, 20)}…`
+            `[notificationService] Token inválido detectado (${code}): ${maskToken(chunk[idx])}`
           );
         } else {
           console.warn(
-            `[notificationService] Fallo no-invalidante (${code}): ${chunk[idx].slice(0, 20)}…`
+            `[notificationService] Fallo no-invalidante (${code}): ${maskToken(chunk[idx])}`
           );
         }
       }
@@ -87,11 +102,25 @@ async function sendPushNotification(tokens, template) {
   }
 
   // Limpiar tokens inválidos de MongoDB
-  if (invalidTokens.length) {
-    await removeInvalidTokens(invalidTokens).catch((err) =>
+  const uniqueInvalidTokens = normalizeNotificationTokens(invalidTokens);
+  let invalidTokensRemoved = 0;
+
+  if (uniqueInvalidTokens.length) {
+    const cleanup = await removeTokensFromAllAccounts(uniqueInvalidTokens).catch((err) => {
       console.error("[notificationService] Error limpiando tokens:", err.message)
-    );
+      return null;
+    });
+    invalidTokensRemoved = cleanup?.tokensRemoved || 0;
   }
+
+  const summary = {
+    successCount,
+    failureCount,
+    invalidTokensRemoved,
+  };
+
+  console.log("[notificationService] Envío finalizado", summary);
+  return summary;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -101,6 +130,12 @@ function chunkArray(arr, size) {
     result.push(arr.slice(i, i + size));
   }
   return result;
+}
+
+function maskToken(token) {
+  if (!token || typeof token !== "string") return "<invalid>";
+  if (token.length <= 12) return `${token.slice(0, 4)}...`;
+  return `${token.slice(0, 8)}...${token.slice(-4)}`;
 }
 
 module.exports = { sendPushNotification };
