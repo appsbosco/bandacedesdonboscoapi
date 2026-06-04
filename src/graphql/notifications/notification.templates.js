@@ -55,7 +55,7 @@ function absencePermissionStatusLabel(status) {
 // ─── Plantillas ───────────────────────────────────────────────────────────────
 const TEMPLATES = {
   [EVENTS.STORE_PRODUCT_CREATED]: (payload) => ({
-    title: "Banda CEDES Don Bosco — Nuevo producto disponible",
+    title: "Nuevo producto disponible",
     body: "Se añadió un nuevo producto. Ya podés solicitar tu almuerzo.",
     link: `${FRONTEND_URL}/store`,
     data: {
