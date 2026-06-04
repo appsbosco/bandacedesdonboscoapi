@@ -285,6 +285,31 @@ async function initOnce() {
       // No lleva authMiddleware porque el "auth" es la firma del webhook
       app.post("/api/liveblocks-webhook", liveblocksWebhookHandler);
 
+      // GET /api/cron/birthday-notifications
+      // Invocado automáticamente por Vercel Cron cada día a las 8:00 AM CR (14:00 UTC).
+      // Protegido con CRON_SECRET para que solo Vercel pueda dispararlo.
+      app.get("/api/cron/birthday-notifications", async (req, res) => {
+        const secret = process.env.CRON_SECRET;
+        const authHeader = req.headers["authorization"] || "";
+        if (secret && authHeader !== `Bearer ${secret}`) {
+          console.warn("[cron/birthday] Intento no autorizado rechazado");
+          return res.status(401).json({ error: "No autorizado" });
+        }
+
+        const dryRun = req.query.dry === "1";
+        console.log(`[cron/birthday] Inicio — dryRun=${dryRun}`);
+
+        try {
+          const { sendBirthdayNotificationsForToday } = require("./src/graphql/modules/birthdays/services/birthday.service");
+          const result = await sendBirthdayNotificationsForToday({ dryRun });
+          console.log("[cron/birthday] Completado", result);
+          return res.json({ ok: true, ...result });
+        } catch (err) {
+          console.error("[cron/birthday] Error:", err.message);
+          return res.status(500).json({ ok: false, error: err.message });
+        }
+      });
+
       apollo = new ApolloServer({
         schema,
         typeDefs,
@@ -353,6 +378,7 @@ async function initOnce() {
               role: dbUser.role || "Parent",
               name: dbUser.name,
               state: dbUser.state || null,
+              instrument: dbUser.instrument || null,
               section,
               entityType,
             };

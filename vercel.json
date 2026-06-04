@@ -3,6 +3,13 @@
   "builds": [{ "src": "index.js", "use": "@vercel/node" }],
   "routes": [
     { "src": "/api/graphql", "dest": "index.js" },
+    { "src": "/api/cron/(.*)", "dest": "index.js" },
     { "src": "/(.*)", "dest": "/" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/birthday-notifications",
+      "schedule": "0 14 * * *"
+    }
   ]
 }

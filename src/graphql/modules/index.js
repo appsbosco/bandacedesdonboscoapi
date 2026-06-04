@@ -29,4 +29,5 @@ module.exports = [
   require("./formations"),
   require("./academicEvaluations"),
   require("./absencePermissions"),
+  require("./birthdays"),
 ];

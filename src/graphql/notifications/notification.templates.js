@@ -14,6 +14,7 @@ const EVENTS = {
   EVENT_UPDATED: "EVENT_UPDATED",
   EVENT_REMINDER: "EVENT_REMINDER",
   ABSENCE_PERMISSION_STATUS_CHANGED: "ABSENCE_PERMISSION_STATUS_CHANGED",
+  BIRTHDAY_TODAY: "BIRTHDAY_TODAY",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -138,6 +139,18 @@ const TEMPLATES = {
       },
     };
   },
+
+  [EVENTS.BIRTHDAY_TODAY]: (payload) => ({
+    title: "🎂 Cumpleaños hoy",
+    body: `Hoy cumple años ${payload.fullName}. ¡Felicítenlo!`,
+    link: `${FRONTEND_URL}/calendar`,
+    data: {
+      kind: EVENTS.BIRTHDAY_TODAY,
+      birthdayUserId: String(payload.birthdayUserId ?? ""),
+      instrument: String(payload.instrument ?? ""),
+      url: "/calendar",
+    },
+  }),
 };
 
 /**
