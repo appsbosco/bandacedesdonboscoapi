@@ -4,6 +4,7 @@
  * (No sobreescribir: editá libremente)
  */
 const { daysUntilExpiration } = require("../../../../../utils/expiration");
+const User = require("../../../../../models/User");
 
 function formatDateOnly(value) {
   if (!value) return null;
@@ -42,7 +43,6 @@ module.exports = {
       }
 
       // Si no, buscar el User
-      const User = require("../models/User");
       return await User.findById(parent.owner);
     },
 
@@ -51,7 +51,6 @@ module.exports = {
         return parent.createdBy;
       }
 
-      const User = require("../models/User");
       return await User.findById(parent.createdBy);
     },
 
@@ -62,7 +61,6 @@ module.exports = {
         return parent.updatedBy;
       }
 
-      const User = require("../models/User");
       return await User.findById(parent.updatedBy);
     },
 

@@ -18,6 +18,21 @@ const { normalizeNotificationTokens } = require("../../../notifications/token.re
 
 const TIMEZONE = "America/Costa_Rica";
 const ADMIN_ROLES = new Set(["Admin", "Director", "Subdirector"]);
+const MONTHS_ES = new Map([
+  ["enero", 1],
+  ["febrero", 2],
+  ["marzo", 3],
+  ["abril", 4],
+  ["mayo", 5],
+  ["junio", 6],
+  ["julio", 7],
+  ["agosto", 8],
+  ["septiembre", 9],
+  ["setiembre", 9],
+  ["octubre", 10],
+  ["noviembre", 11],
+  ["diciembre", 12],
+]);
 
 // ─── Date utilities ───────────────────────────────────────────────────────────
 
@@ -51,9 +66,21 @@ function getDateKeyCR(dateOverride) {
   return formatter.format(d);
 }
 
+function isValidDateParts(year, month, day) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+
+  if (!year) {
+    const maxDaysByMonth = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return day <= maxDaysByMonth[month - 1];
+  }
+
+  const d = new Date(Date.UTC(year, month - 1, day));
+  return d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month && d.getUTCDate() === day;
+}
+
 /**
  * Parses a birthday string into { month, day } (1-indexed).
- * Supports: YYYY-MM-DD, DD/MM/YYYY, ISO string.
+ * Supports: YYYY-MM-DD, DD/MM/YYYY, "DD de mes del YYYY", ISO string.
  * Returns null on failure.
  */
 function parseBirthdayString(birthday) {
@@ -67,7 +94,7 @@ function parseBirthdayString(birthday) {
     const month = Number(m[2]);
     const day = Number(m[3]);
     const year = Number(m[1]);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31)
+    if (isValidDateParts(year, month, day))
       return { year, month, day };
   }
 
@@ -77,7 +104,21 @@ function parseBirthdayString(birthday) {
     const day = Number(m[1]);
     const month = Number(m[2]);
     const year = Number(m[3]);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31)
+    if (isValidDateParts(year, month, day))
+      return { year, month, day };
+  }
+
+  // DD de mes del YYYY / DD de mes de YYYY
+  m = s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .match(/^(\d{1,2})\s+de\s+([a-z]+)\s+d(?:e|el)\s+(\d{4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const month = MONTHS_ES.get(m[2]);
+    const year = Number(m[3]);
+    if (month && isValidDateParts(year, month, day))
       return { year, month, day };
   }
 
