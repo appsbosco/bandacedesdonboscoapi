@@ -363,6 +363,11 @@ module.exports = gql`
       periodId: ID
       year: Int
     ): [SectionAcademicMember!]!
+
+    # Evaluaciones pendientes de la propia sección — accesible por Principal de sección.
+    sectionPendingEvaluations(
+      filter: AcademicDashboardFilter
+    ): [AcademicEvaluation!]!
   }
 
   # ─── Mutations ───────────────────────────────────────────────────────────────

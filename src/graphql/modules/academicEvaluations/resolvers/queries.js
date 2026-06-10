@@ -146,4 +146,13 @@ module.exports = {
       throw new Error(e.message || "Error al obtener resumen académico de la sección");
     }
   },
+
+  sectionPendingEvaluations: async (_, { filter }, ctx) => {
+    try {
+      return await svc.getSectionPendingEvaluations(filter || {}, ctx);
+    } catch (e) {
+      console.error("[query:sectionPendingEvaluations]", e.message);
+      throw new Error(e.message || "Error al obtener evaluaciones pendientes de la sección");
+    }
+  },
 };

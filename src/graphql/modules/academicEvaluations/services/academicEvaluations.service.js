@@ -1346,6 +1346,56 @@ async function acknowledgeChildPerformance(childId, periodId, comment, ctx) {
   };
 }
 
+/**
+ * Evaluaciones pendientes de la sección del líder autenticado.
+ * Accessible por rol "Principal de sección" con estado "Exalumno".
+ * Replica la lógica de getAdminPendingEvaluations pero scoped a la sección.
+ */
+async function getSectionPendingEvaluations(filter = {}, ctx) {
+  const leader = await requireSectionInstrumentLeader(ctx);
+  const instrument = String(leader.instrument || "").trim();
+  const instrumentRegex = new RegExp(`^\\s*${escapeRegex(instrument)}\\s*$`, "i");
+
+  // Buscar miembros activos de la sección (misma lógica que getSectionInstrumentOverview)
+  let members = await User.find({
+    instrument: instrumentRegex,
+    state: "Estudiante Activo",
+    grade: { $nin: [null, ""] },
+  })
+    .select("_id")
+    .lean();
+
+  // Fallback por sección si el regex de instrumento no encuentra nada
+  if (members.length === 0 && leader.section) {
+    const candidates = await User.find({
+      state: "Estudiante Activo",
+      grade: { $nin: [null, ""] },
+    })
+      .select("_id instrument")
+      .lean();
+    members = candidates.filter(
+      (m) => inferSectionFromInstrument(m.instrument) === leader.section
+    );
+  }
+
+  if (members.length === 0) return [];
+
+  const memberIds = members.map((m) => m._id);
+
+  const { periodId, subjectId } = filter;
+  const query = { status: "pending", student: { $in: memberIds } };
+  if (periodId) query.period = new mongoose.Types.ObjectId(String(periodId));
+  if (subjectId) query.subject = new mongoose.Types.ObjectId(String(subjectId));
+
+  return AcademicEvaluation.find(query)
+    .select(EVAL_LIST_SELECT + " student")
+    .populate("student", "name firstSurName email grade instrument avatar _id")
+    .populate("subject", "name code _id")
+    .populate("period", "name year order _id")
+    .sort({ submittedByStudentAt: 1 })
+    .lean();
+}
+
 module.exports = {
   getAcademicSubjects,
   getAdminPendingEvaluations,
@@ -1374,5 +1424,6 @@ module.exports = {
   getAdminRiskRanking,
   getParentChildrenOverview,
   getSectionInstrumentOverview,
+  getSectionPendingEvaluations,
   acknowledgeChildPerformance,
 };
