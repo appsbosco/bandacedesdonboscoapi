@@ -63,6 +63,9 @@ module.exports = gql`
     notes: String
     recordedBy: User
     attendanceDate: String
+    userAttendancePercentage: Float
+    userUnjustifiedCount: Int
+    userEquivalentAbsences: Float
     createdAt: String!
     updatedAt: String!
     legacyDate: String

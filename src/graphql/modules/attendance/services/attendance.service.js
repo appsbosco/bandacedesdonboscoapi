@@ -69,6 +69,10 @@ function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function exactCaseInsensitiveRegex(value) {
+  return new RegExp(`^${escapeRegExp(value)}$`, "i");
+}
+
 function getCurrentUserScope(ctx, filter = {}) {
   const currentUser = requireAuth(ctx);
   const role = String(currentUser?.role || "").toUpperCase();
@@ -681,7 +685,9 @@ function buildAttendanceConnectionPipeline(filter = {}, ctx = {}, { includeCurso
   const postLookupMatch = {};
   if (dateRange) postLookupMatch._effectiveDate = dateRange;
   if (filter.section) postLookupMatch["session.section"] = filter.section;
-  if (scopedInstrument) postLookupMatch["user.instrument"] = scopedInstrument;
+  if (scopedInstrument) {
+    postLookupMatch["user.instrument"] = exactCaseInsensitiveRegex(scopedInstrument);
+  }
   if (filter.search && String(filter.search).trim()) {
     const rx = new RegExp(escapeRegExp(String(filter.search).trim()), "i");
     postLookupMatch.$or = [
@@ -757,7 +763,7 @@ function projectAttendanceConnectionNode() {
   };
 }
 
-function buildWorstUsers(rows = [], topN = 8) {
+function buildUserAttendanceStats(rows = []) {
   return rows
     .filter((row) => row?._id && row.total > 0)
     .map((row) => {
@@ -801,7 +807,11 @@ function buildWorstUsers(rows = [], topN = 8) {
         hasThreeUnjustified: unjustifiedCount >= 3,
         exceedsLimit: equivalentAbsences > 6,
       };
-    })
+    });
+}
+
+function buildWorstUsers(rows = [], topN = 8) {
+  return buildUserAttendanceStats(rows)
     .sort((a, b) => {
       if (a.attendancePercentage !== b.attendancePercentage) {
         return a.attendancePercentage - b.attendancePercentage;
@@ -813,58 +823,82 @@ function buildWorstUsers(rows = [], topN = 8) {
 
 async function getAttendancesRehearsalConnection({ limit, filter = {} } = {}, ctx) {
   const safeLimit = clampLimit(limit);
-  const { pipeline } = buildAttendanceConnectionPipeline(filter || {}, ctx);
+  const { pipeline: pagePipeline } = buildAttendanceConnectionPipeline(filter || {}, ctx);
+  const { pipeline: metricsPipeline } = buildAttendanceConnectionPipeline(filter || {}, ctx, {
+    includeCursor: false,
+  });
 
-  const [result = {}] = await Attendance.aggregate([
-    ...pipeline,
-    {
-      $facet: {
-        nodes: [{ $limit: safeLimit + 1 }, projectAttendanceConnectionNode()],
-        totalCount: [{ $count: "count" }],
-        statusCounts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
-        availableFilters: [
-          {
-            $group: {
-              _id: null,
-              instruments: { $addToSet: "$user.instrument" },
-              sections: { $addToSet: "$session.section" },
-            },
-          },
-        ],
-        worstUsers: [
-          { $match: { "user._id": { $ne: null } } },
-          {
-            $group: {
-              _id: { user: "$user._id", status: "$status" },
-              count: { $sum: 1 },
-              user: { $first: "$user" },
-            },
-          },
-          {
-            $group: {
-              _id: "$_id.user",
-              total: { $sum: "$count" },
-              user: { $first: "$user" },
-              statuses: { $push: { status: "$_id.status", count: "$count" } },
-            },
-          },
-        ],
+  const [pageRows, metricsRows] = await Promise.all([
+    Attendance.aggregate([
+      ...pagePipeline,
+      {
+        $facet: {
+          nodes: [{ $limit: safeLimit + 1 }, projectAttendanceConnectionNode()],
+        },
       },
-    },
-  ]).allowDiskUse(false);
+    ]).allowDiskUse(false),
+    Attendance.aggregate([
+      ...metricsPipeline,
+      {
+        $facet: {
+          totalCount: [{ $count: "count" }],
+          statusCounts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+          availableFilters: [
+            {
+              $group: {
+                _id: null,
+                instruments: { $addToSet: "$user.instrument" },
+                sections: { $addToSet: "$session.section" },
+              },
+            },
+          ],
+          userStats: [
+            { $match: { "user._id": { $ne: null } } },
+            {
+              $group: {
+                _id: { user: "$user._id", status: "$status" },
+                count: { $sum: 1 },
+                user: { $first: "$user" },
+              },
+            },
+            {
+              $group: {
+                _id: "$_id.user",
+                total: { $sum: "$count" },
+                user: { $first: "$user" },
+                statuses: { $push: { status: "$_id.status", count: "$count" } },
+              },
+            },
+          ],
+        },
+      },
+    ]).allowDiskUse(false),
+  ]);
 
-  const fetchedNodes = result.nodes || [];
+  const pageResult = pageRows?.[0] || {};
+  const metricsResult = metricsRows?.[0] || {};
+  const fetchedNodes = pageResult.nodes || [];
+  const userStats = buildUserAttendanceStats(metricsResult.userStats || []);
+  const userStatsById = new Map(userStats.map((row) => [row.userId, row]));
   const hasNextPage = fetchedNodes.length > safeLimit;
-  const nodes = hasNextPage ? fetchedNodes.slice(0, safeLimit) : fetchedNodes;
+  const nodes = (hasNextPage ? fetchedNodes.slice(0, safeLimit) : fetchedNodes).map((node) => {
+    const stats = node.user?.id ? userStatsById.get(String(node.user.id)) : null;
+    return {
+      ...node,
+      userAttendancePercentage: stats?.attendancePercentage ?? 0,
+      userUnjustifiedCount: stats?.unjustifiedCount ?? 0,
+      userEquivalentAbsences: stats?.equivalentAbsences ?? 0,
+    };
+  });
   const lastNode = nodes[nodes.length - 1];
-  const totalCount = result.totalCount?.[0]?.count || 0;
+  const totalCount = metricsResult.totalCount?.[0]?.count || 0;
 
   const counters = {};
-  (result.statusCounts || []).forEach((row) => {
+  (metricsResult.statusCounts || []).forEach((row) => {
     counters[row._id] = row.count;
   });
 
-  const available = result.availableFilters?.[0] || {};
+  const available = metricsResult.availableFilters?.[0] || {};
 
   return {
     nodes,
@@ -878,7 +912,7 @@ async function getAttendancesRehearsalConnection({ limit, filter = {} } = {}, ct
       instruments: (available.instruments || []).filter(Boolean).sort(),
       sections: (available.sections || []).filter(Boolean).sort(),
     },
-    worstUsers: buildWorstUsers(result.worstUsers || [], 8),
+    worstUsers: buildWorstUsers(metricsResult.userStats || [], 8),
   };
 }
 
