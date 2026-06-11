@@ -35,7 +35,7 @@ const AttendanceSchema = new mongoose.Schema({
   recordedBy: {
     type: mongoose.Schema.ObjectId,
     ref: "User",
-    required: true,
+    required: false,
   },
   // Campos legacy para mantener compatibilidad
   legacyId: {
@@ -46,6 +46,12 @@ const AttendanceSchema = new mongoose.Schema({
   },
   legacyDate: {
     type: Date,
+  },
+  // Fecha efectiva para reportes y paginacion:
+  // legacyDate > fecha de sesion > createdAt.
+  attendanceDate: {
+    type: Date,
+    index: true,
   },
   createdAt: {
     type: Date,
@@ -58,8 +64,13 @@ const AttendanceSchema = new mongoose.Schema({
 });
 
 AttendanceSchema.index({ session: 1, user: 1 }, { unique: true });
+AttendanceSchema.index({ attendanceDate: -1, _id: -1 });
+AttendanceSchema.index({ user: 1, attendanceDate: -1 });
+AttendanceSchema.index({ status: 1, attendanceDate: -1 });
 AttendanceSchema.index({ user: 1, createdAt: -1 });
 AttendanceSchema.index({ session: 1, status: 1 });
+AttendanceSchema.index({ createdAt: -1, _id: -1 });
+AttendanceSchema.index({ legacyDate: -1 });
 
 AttendanceSchema.pre("save", function (next) {
   this.updatedAt = new Date();

@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const MetronomeQuickSettingsSchema = new mongoose.Schema(
   {
@@ -24,7 +24,6 @@ const MetronomeQuickSettingsSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-export default mongoose.model(
-  "MetronomeQuickSettings",
-  MetronomeQuickSettingsSchema,
-);
+module.exports =
+  mongoose.models.MetronomeQuickSettings ||
+  mongoose.model("MetronomeQuickSettings", MetronomeQuickSettingsSchema);

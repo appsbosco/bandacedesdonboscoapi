@@ -3,6 +3,111 @@ const RehearsalSession = require("../../../../../models/RehearsalSession");
 const User = require("../../../../../models/User");
 const { normalizeDateToStartOfDayCR } = require("../../../../../utils/dates");
 const { inferSectionFromInstrument } = require("../../../../../utils/sections");
+const { Types } = require("mongoose");
+
+const MAX_ATTENDANCE_PAGE_SIZE = 100;
+const DEFAULT_ATTENDANCE_PAGE_SIZE = 50;
+const STATUS_KEYS = [
+  "PRESENT",
+  "LATE",
+  "ABSENT_UNJUSTIFIED",
+  "ABSENT_JUSTIFIED",
+  "JUSTIFIED_WITHDRAWAL",
+  "UNJUSTIFIED_WITHDRAWAL",
+];
+
+function clampLimit(limit, fallback = DEFAULT_ATTENDANCE_PAGE_SIZE) {
+  return Math.min(Math.max(Number(limit) || fallback, 1), MAX_ATTENDANCE_PAGE_SIZE);
+}
+
+function toObjectId(value) {
+  if (!value || !Types.ObjectId.isValid(value)) return null;
+  return new Types.ObjectId(value);
+}
+
+function addOneDay(date) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
+
+function buildDateRange(filter = {}) {
+  const range = {};
+  if (filter.startDate) {
+    range.$gte = normalizeDateToStartOfDayCR(filter.startDate);
+  }
+  if (filter.endDate) {
+    range.$lt = addOneDay(normalizeDateToStartOfDayCR(filter.endDate));
+  }
+  return Object.keys(range).length ? range : null;
+}
+
+function encodeAttendanceCursor(attendance) {
+  if (!attendance?._effectiveDate || !attendance?._id) return null;
+  return Buffer.from(
+    JSON.stringify({
+      d: new Date(attendance._effectiveDate).toISOString(),
+      id: String(attendance._id),
+    }),
+  ).toString("base64");
+}
+
+function decodeAttendanceCursor(cursor) {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf8"));
+    const date = new Date(parsed.d);
+    const id = toObjectId(parsed.id);
+    if (Number.isNaN(date.getTime()) || !id) return null;
+    return { date, id };
+  } catch (_err) {
+    throw new Error("Cursor de asistencia inválido");
+  }
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getCurrentUserScope(ctx, filter = {}) {
+  const currentUser = requireAuth(ctx);
+  const role = String(currentUser?.role || "").toUpperCase();
+  const isAdmin = role === "ADMIN";
+  if (isAdmin || !currentUser) return filter.instrument || null;
+  return currentUser.instrument || filter.instrument || null;
+}
+
+function emptySummary() {
+  return {
+    total: 0,
+    present: 0,
+    absent: 0,
+    late: 0,
+    absentJustified: 0,
+    absentUnjustified: 0,
+    justifiedWithdrawals: 0,
+    unjustifiedWithdrawals: 0,
+  };
+}
+
+function countersToSummary(total, counters = {}) {
+  const present = counters.PRESENT || 0;
+  const late = counters.LATE || 0;
+  const absentJustified = counters.ABSENT_JUSTIFIED || 0;
+  const absentUnjustified = counters.ABSENT_UNJUSTIFIED || 0;
+  const justifiedWithdrawals = counters.JUSTIFIED_WITHDRAWAL || 0;
+  const unjustifiedWithdrawals = counters.UNJUSTIFIED_WITHDRAWAL || 0;
+  return {
+    total,
+    present,
+    absent: absentJustified + absentUnjustified + justifiedWithdrawals + unjustifiedWithdrawals,
+    late,
+    absentJustified,
+    absentUnjustified,
+    justifiedWithdrawals,
+    unjustifiedWithdrawals,
+  };
+}
 // ============================================
 // HELPERS DE AUTENTICACIÓN Y PERMISOS
 // ============================================
@@ -287,6 +392,7 @@ async function takeAttendance(date, section, attendances, ctx) {
           status: att.status,
           notes: att.notes || "",
           recordedBy: user?._id,
+          attendanceDate: dateNormalized,
           updatedAt: new Date(),
         },
         $setOnInsert: {
@@ -395,6 +501,8 @@ async function getAllAttendancesRehearsal(
   requireAuth(ctx);
 
   const query = {};
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 1000);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
 
   if (filter.userId) {
     query.user = filter.userId;
@@ -427,20 +535,351 @@ async function getAllAttendancesRehearsal(
       sessionQuery.section = filter.section;
     }
 
-    const sessions = await RehearsalSession.find(sessionQuery).select("_id");
+    const sessions = await RehearsalSession.find(sessionQuery).select("_id").lean();
     sessionIds = sessions.map((s) => s._id);
     query.session = { $in: sessionIds };
   }
 
   const attendances = await Attendance.find(query)
-    .populate("user")
-    .populate("session")
-    .populate("recordedBy")
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .skip(offset);
+    .populate("user", "name firstSurName secondSurName instrument role")
+    .populate("session", "date dateNormalized section status takenBy takenAt closedAt")
+    .populate("recordedBy", "name firstSurName secondSurName")
+    .sort({ createdAt: -1, _id: -1 })
+    .limit(safeLimit)
+    .skip(safeOffset)
+    .lean();
 
-  return attendances;
+  return attendances.map((attendance) => ({
+    ...attendance,
+    id: String(attendance._id),
+    user: attendance.user
+      ? {
+          ...attendance.user,
+          id: String(attendance.user._id),
+        }
+      : null,
+    session: attendance.session
+      ? {
+          ...attendance.session,
+          id: String(attendance.session._id),
+        }
+      : null,
+    recordedBy: attendance.recordedBy
+      ? {
+          ...attendance.recordedBy,
+          id: String(attendance.recordedBy._id),
+        }
+      : null,
+  }));
+}
+
+function buildAttendanceConnectionPipeline(filter = {}, ctx = {}, { includeCursor = true } = {}) {
+  const currentUser = requireAuth(ctx);
+  const scopedInstrument = getCurrentUserScope(ctx, filter);
+  const match = {};
+  const dateRange = buildDateRange(filter);
+
+  if (filter.userId) {
+    const userId = toObjectId(filter.userId);
+    if (!userId) throw new Error("userId inválido");
+    match.user = userId;
+  }
+
+  if (filter.status) {
+    match.status = filter.status;
+  }
+
+  if (dateRange) match.attendanceDate = dateRange;
+
+  if (includeCursor && filter.cursor) {
+    const cursor = decodeAttendanceCursor(filter.cursor);
+    match.$or = [
+      { attendanceDate: { $lt: cursor.date } },
+      { attendanceDate: cursor.date, _id: { $lt: cursor.id } },
+    ];
+  }
+
+  const pipeline = [];
+  if (Object.keys(match).length) pipeline.push({ $match: match });
+  pipeline.push({ $sort: { attendanceDate: -1, _id: -1 } });
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "user",
+        foreignField: "_id",
+        as: "user",
+        pipeline: [
+          {
+            $project: {
+              name: 1,
+              firstSurName: 1,
+              secondSurName: 1,
+              instrument: 1,
+              role: 1,
+            },
+          },
+        ],
+      },
+    },
+    { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: RehearsalSession.collection.name,
+        localField: "session",
+        foreignField: "_id",
+        as: "session",
+        pipeline: [
+          {
+            $project: {
+              date: 1,
+              dateNormalized: 1,
+              section: 1,
+              status: 1,
+              takenBy: 1,
+              takenAt: 1,
+              closedAt: 1,
+            },
+          },
+        ],
+      },
+    },
+    { $unwind: { path: "$session", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: User.collection.name,
+        localField: "recordedBy",
+        foreignField: "_id",
+        as: "recordedBy",
+        pipeline: [{ $project: { name: 1, firstSurName: 1, secondSurName: 1 } }],
+      },
+    },
+    { $unwind: { path: "$recordedBy", preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        _effectiveDate: {
+          $ifNull: [
+            "$attendanceDate",
+            {
+              $ifNull: [
+                "$legacyDate",
+                {
+                  $ifNull: [
+                    "$session.dateNormalized",
+                    { $ifNull: ["$session.date", "$createdAt"] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  );
+
+  const postLookupMatch = {};
+  if (dateRange) postLookupMatch._effectiveDate = dateRange;
+  if (filter.section) postLookupMatch["session.section"] = filter.section;
+  if (scopedInstrument) postLookupMatch["user.instrument"] = scopedInstrument;
+  if (filter.search && String(filter.search).trim()) {
+    const rx = new RegExp(escapeRegExp(String(filter.search).trim()), "i");
+    postLookupMatch.$or = [
+      { "user.name": rx },
+      { "user.firstSurName": rx },
+      { "user.secondSurName": rx },
+      { "user.instrument": rx },
+    ];
+  }
+
+  if (Object.keys(postLookupMatch).length) {
+    pipeline.push({ $match: postLookupMatch });
+  }
+
+  return { pipeline, currentUser };
+}
+
+function projectAttendanceConnectionNode() {
+  return {
+    $project: {
+      id: { $toString: "$_id" },
+      _id: 1,
+      status: 1,
+      notes: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      legacyDate: 1,
+      legacyAttended: 1,
+      attendanceDate: "$_effectiveDate",
+      user: {
+        $cond: [
+          "$user._id",
+          {
+            id: { $toString: "$user._id" },
+            name: "$user.name",
+            firstSurName: "$user.firstSurName",
+            secondSurName: "$user.secondSurName",
+            instrument: "$user.instrument",
+            role: "$user.role",
+          },
+          null,
+        ],
+      },
+      session: {
+        $cond: [
+          "$session._id",
+          {
+            id: { $toString: "$session._id" },
+            date: "$session.date",
+            dateNormalized: "$session.dateNormalized",
+            section: "$session.section",
+            status: "$session.status",
+            takenAt: "$session.takenAt",
+            closedAt: "$session.closedAt",
+          },
+          null,
+        ],
+      },
+      recordedBy: {
+        $cond: [
+          "$recordedBy._id",
+          {
+            id: { $toString: "$recordedBy._id" },
+            name: "$recordedBy.name",
+            firstSurName: "$recordedBy.firstSurName",
+            secondSurName: "$recordedBy.secondSurName",
+          },
+          null,
+        ],
+      },
+      _effectiveDate: 1,
+    },
+  };
+}
+
+function buildWorstUsers(rows = [], topN = 8) {
+  return rows
+    .filter((row) => row?._id && row.total > 0)
+    .map((row) => {
+      const counts = STATUS_KEYS.reduce((acc, key) => {
+        acc[key] = 0;
+        return acc;
+      }, {});
+      (row.statuses || []).forEach((statusRow) => {
+        if (statusRow?.status && counts[statusRow.status] !== undefined) {
+          counts[statusRow.status] = statusRow.count || 0;
+        }
+      });
+
+      const attendanceCredits =
+        counts.PRESENT +
+        counts.LATE +
+        counts.ABSENT_JUSTIFIED * 0.5 +
+        counts.JUSTIFIED_WITHDRAWAL * 0.75;
+      const unjustifiedCount =
+        counts.ABSENT_UNJUSTIFIED + counts.UNJUSTIFIED_WITHDRAWAL;
+      const equivalentAbsences =
+        unjustifiedCount + counts.ABSENT_JUSTIFIED * 0.5 + counts.JUSTIFIED_WITHDRAWAL * 0.25;
+      const attendancePercentage = row.total > 0 ? (attendanceCredits / row.total) * 100 : 0;
+
+      return {
+        userId: String(row._id),
+        user: row.user
+          ? {
+              id: String(row.user._id),
+              name: row.user.name,
+              firstSurName: row.user.firstSurName,
+              secondSurName: row.user.secondSurName,
+              instrument: row.user.instrument,
+              role: row.user.role,
+            }
+          : null,
+        totalSessions: row.total,
+        attendancePercentage: Number(attendancePercentage.toFixed(2)),
+        unjustifiedCount,
+        equivalentAbsences: Number(equivalentAbsences.toFixed(2)),
+        hasThreeUnjustified: unjustifiedCount >= 3,
+        exceedsLimit: equivalentAbsences > 6,
+      };
+    })
+    .sort((a, b) => {
+      if (a.attendancePercentage !== b.attendancePercentage) {
+        return a.attendancePercentage - b.attendancePercentage;
+      }
+      return b.unjustifiedCount - a.unjustifiedCount;
+    })
+    .slice(0, topN);
+}
+
+async function getAttendancesRehearsalConnection({ limit, filter = {} } = {}, ctx) {
+  const safeLimit = clampLimit(limit);
+  const { pipeline } = buildAttendanceConnectionPipeline(filter || {}, ctx);
+
+  const [result = {}] = await Attendance.aggregate([
+    ...pipeline,
+    {
+      $facet: {
+        nodes: [{ $limit: safeLimit + 1 }, projectAttendanceConnectionNode()],
+        totalCount: [{ $count: "count" }],
+        statusCounts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+        availableFilters: [
+          {
+            $group: {
+              _id: null,
+              instruments: { $addToSet: "$user.instrument" },
+              sections: { $addToSet: "$session.section" },
+            },
+          },
+        ],
+        worstUsers: [
+          { $match: { "user._id": { $ne: null } } },
+          {
+            $group: {
+              _id: { user: "$user._id", status: "$status" },
+              count: { $sum: 1 },
+              user: { $first: "$user" },
+            },
+          },
+          {
+            $group: {
+              _id: "$_id.user",
+              total: { $sum: "$count" },
+              user: { $first: "$user" },
+              statuses: { $push: { status: "$_id.status", count: "$count" } },
+            },
+          },
+        ],
+      },
+    },
+  ]).allowDiskUse(false);
+
+  const fetchedNodes = result.nodes || [];
+  const hasNextPage = fetchedNodes.length > safeLimit;
+  const nodes = hasNextPage ? fetchedNodes.slice(0, safeLimit) : fetchedNodes;
+  const lastNode = nodes[nodes.length - 1];
+  const totalCount = result.totalCount?.[0]?.count || 0;
+
+  const counters = {};
+  (result.statusCounts || []).forEach((row) => {
+    counters[row._id] = row.count;
+  });
+
+  const available = result.availableFilters?.[0] || {};
+
+  return {
+    nodes,
+    pageInfo: {
+      hasNextPage,
+      endCursor: hasNextPage ? encodeAttendanceCursor(lastNode) : null,
+    },
+    totalCount,
+    summary: countersToSummary(totalCount, counters),
+    availableFilters: {
+      instruments: (available.instruments || []).filter(Boolean).sort(),
+      sections: (available.sections || []).filter(Boolean).sort(),
+    },
+    worstUsers: buildWorstUsers(result.worstUsers || [], 8),
+  };
 }
 
 // ============================================
@@ -646,5 +1085,6 @@ module.exports = {
   getAttendance,
   getAttendancesByUser,
   getAllAttendancesRehearsal,
+  getAttendancesRehearsalConnection,
   getUserAttendanceStats,
 };

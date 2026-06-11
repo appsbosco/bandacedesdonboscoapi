@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const PracticePresetSchema = new mongoose.Schema(
   {
@@ -25,4 +25,6 @@ const PracticePresetSchema = new mongoose.Schema(
 PracticePresetSchema.index({ user: 1, esFavorito: 1 });
 PracticePresetSchema.index({ esPublico: 1, createdAt: -1 });
 
-export default mongoose.model("PracticePreset", PracticePresetSchema);
+module.exports =
+  mongoose.models.PracticePreset ||
+  mongoose.model("PracticePreset", PracticePresetSchema);

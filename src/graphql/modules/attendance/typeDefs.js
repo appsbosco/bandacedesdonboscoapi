@@ -58,14 +58,56 @@ module.exports = gql`
   type Attendance {
     id: ID!
     session: RehearsalSession
-    user: User!
+    user: User
     status: AttendanceStatus!
     notes: String
     recordedBy: User
+    attendanceDate: String
     createdAt: String!
     updatedAt: String!
     legacyDate: String
     legacyAttended: String
+  }
+
+  type AttendancePageInfo {
+    hasNextPage: Boolean!
+    endCursor: String
+  }
+
+  type AttendanceSummary {
+    total: Int!
+    present: Int!
+    absent: Int!
+    late: Int!
+    absentJustified: Int!
+    absentUnjustified: Int!
+    justifiedWithdrawals: Int!
+    unjustifiedWithdrawals: Int!
+  }
+
+  type AttendanceAvailableFilters {
+    instruments: [String!]!
+    sections: [Section!]!
+  }
+
+  type WorstAttendanceUser {
+    userId: ID!
+    user: User
+    totalSessions: Int!
+    attendancePercentage: Float!
+    unjustifiedCount: Int!
+    equivalentAbsences: Float!
+    hasThreeUnjustified: Boolean!
+    exceedsLimit: Boolean!
+  }
+
+  type AttendanceConnection {
+    nodes: [Attendance!]!
+    pageInfo: AttendancePageInfo!
+    totalCount: Int!
+    summary: AttendanceSummary!
+    availableFilters: AttendanceAvailableFilters!
+    worstUsers: [WorstAttendanceUser!]!
   }
 
   type AttendanceStats {
@@ -133,6 +175,9 @@ module.exports = gql`
     section: Section
     status: AttendanceStatus
     userId: ID
+    instrument: String
+    search: String
+    cursor: String
   }
 
   # ============================================
@@ -180,6 +225,11 @@ module.exports = gql`
       offset: Int = 0
       filter: AttendanceFilterInput
     ): [Attendance!]!
+
+    getAttendancesRehearsalConnection(
+      limit: Int = 50
+      filter: AttendanceFilterInput
+    ): AttendanceConnection!
 
     # Reporte de secciones faltantes para una fecha dada
     getMissingSectionsForDate(date: String!): MissingSectionsReport!

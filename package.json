@@ -11,7 +11,10 @@
     "tour-documents:missing-report": "node scripts/missingTourDocumentsReport.js",
     "tickets:resend-paid": "node scripts/resendPaidTicketEmails.js",
     "test:push:user": "node scripts/test-push-user.js",
-    "users:export-by-instrument": "node scripts/export_users_by_instrument.js"
+    "users:export-by-instrument": "node scripts/export_users_by_instrument.js",
+    "attendance:backfill-date": "node scripts/backfillAttendanceDate.js",
+    "attendance:cleanup-orphans": "node scripts/cleanupOrphanAttendances.js",
+    "attendance:create-indexes": "node scripts/createAttendanceIndexes.js"
   },
   "engines": {
     "node": "22.x"

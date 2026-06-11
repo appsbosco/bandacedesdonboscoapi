@@ -79,6 +79,17 @@ module.exports = {
     }
   },
 
+  getAttendancesRehearsalConnection: async (_, { limit, filter }, ctx) => {
+    try {
+      return await attendanceService.getAttendancesRehearsalConnection(
+        { limit, filter },
+        ctx,
+      );
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
   getUserAttendanceStats: async (_, { userId, startDate, endDate }, ctx) => {
     try {
       return await attendanceService.getUserAttendanceStats(

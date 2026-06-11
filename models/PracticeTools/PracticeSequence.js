@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const CompasSchema = new mongoose.Schema(
   {
@@ -68,4 +68,6 @@ PracticeSequenceSchema.pre("save", async function (next) {
   next();
 });
 
-export default mongoose.model("PracticeSequence", PracticeSequenceSchema);
+module.exports =
+  mongoose.models.PracticeSequence ||
+  mongoose.model("PracticeSequence", PracticeSequenceSchema);
