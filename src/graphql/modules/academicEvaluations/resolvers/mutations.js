@@ -48,6 +48,42 @@ module.exports = {
     }
   },
 
+  createAcademicAssessmentSlot: async (_, { input }, ctx) => {
+    try {
+      return await svc.createAcademicAssessmentSlot(input, ctx);
+    } catch (e) {
+      console.error("[mutation:createAcademicAssessmentSlot]", e.message);
+      throw new Error(e.message || "Error al crear slot académico");
+    }
+  },
+
+  updateAcademicAssessmentSlot: async (_, { id, input }, ctx) => {
+    try {
+      return await svc.updateAcademicAssessmentSlot(id, input, ctx);
+    } catch (e) {
+      console.error("[mutation:updateAcademicAssessmentSlot]", e.message);
+      throw new Error(e.message || "Error al actualizar slot académico");
+    }
+  },
+
+  deleteOrDeactivateAcademicAssessmentSlot: async (_, { id }, ctx) => {
+    try {
+      return await svc.deleteOrDeactivateAcademicAssessmentSlot(id, ctx);
+    } catch (e) {
+      console.error("[mutation:deleteOrDeactivateAcademicAssessmentSlot]", e.message);
+      throw new Error(e.message || "Error al eliminar o desactivar slot académico");
+    }
+  },
+
+  seedAcademicRulesForYear: async (_, { year }, ctx) => {
+    try {
+      return await svc.seedAcademicRulesForYear(year, ctx);
+    } catch (e) {
+      console.error("[mutation:seedAcademicRulesForYear]", e.message);
+      throw new Error(e.message || "Error al inicializar reglas académicas");
+    }
+  },
+
   submitAcademicEvaluation: async (_, { input }, ctx) => {
     try {
       return await svc.submitAcademicEvaluation(input, ctx);

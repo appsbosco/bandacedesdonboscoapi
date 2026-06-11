@@ -4,10 +4,12 @@ const mongoose = require("mongoose");
 const AcademicSubject = require("../../../../../models/academic/AcademicSubject");
 const AcademicPeriod = require("../../../../../models/academic/AcademicPeriod");
 const AcademicEvaluation = require("../../../../../models/academic/AcademicEvaluation");
+const AcademicAssessmentSlot = require("../../../../../models/academic/AcademicAssessmentSlot");
 const User = require("../../../../../models/User");
 const Parent = require("../../../../../models/Parents");
 const { inferSectionFromInstrument } = require("../../../../../utils/sections");
 const { buildThumbnailUrl, buildPreviewUrl } = require("../../../../../utils/cloudinaryTransform");
+const requirementEngine = require("./academicRequirementEngine.service");
 
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
@@ -156,6 +158,48 @@ function normalizeScore(scoreRaw, scaleMin, scaleMax) {
   return Math.round(norm * 100) / 100;
 }
 
+function normalizeSemester(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (![1, 2].includes(n)) throw new Error("El semestre debe ser 1 o 2");
+  return n;
+}
+
+function periodSemester(period) {
+  if (period?.semester) return Number(period.semester);
+  const name = String(period?.name || "").toLowerCase();
+  if (name.includes("ii semestre") || name.includes("segundo semestre")) return 2;
+  return 1;
+}
+
+function periodAcademicYear(period) {
+  return Number(period?.academicYear || period?.year);
+}
+
+async function hydrateAssessmentSlots(evaluations) {
+  const slotIds = [...new Set(
+    (evaluations || [])
+      .map((evaluation) => evaluation?.assessmentSlot)
+      .filter(Boolean)
+      .map((slot) => String(slot._id || slot.id || slot))
+  )];
+
+  if (slotIds.length === 0) return evaluations;
+
+  const slots = await AcademicAssessmentSlot.find({ _id: { $in: slotIds } }).lean();
+  const slotMap = new Map(slots.map((slot) => [String(slot._id), slot]));
+
+  return (evaluations || []).map((evaluation) => {
+    const current = evaluation?.assessmentSlot;
+    if (!current) return evaluation;
+    const slotId = String(current._id || current.id || current);
+    return {
+      ...evaluation,
+      assessmentSlot: slotMap.get(slotId) || null,
+    };
+  });
+}
+
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -209,6 +253,152 @@ async function getStudentEvaluationCoverage(studentId, grade, filters = {}) {
   return coverageByStudent.get(String(studentId));
 }
 
+async function getAcademicCoverageForStudentDoc(student, filters = {}) {
+  if (!student?.grade) throw new Error("El integrante no tiene nivel académico asignado");
+  const academicYear = filters.academicYear || filters.year || new Date().getFullYear();
+  const semester = normalizeSemester(filters.semester);
+
+  const slotQuery = { academicYear: Number(academicYear), isActive: true };
+  if (semester) slotQuery.semester = semester;
+
+  const evalQuery = { student: student._id || student.id, academicYear: Number(academicYear) };
+  if (semester) evalQuery.semester = semester;
+
+  const [subjects, slots, evaluations] = await Promise.all([
+    AcademicSubject.find({ isActive: true })
+      .select("_id name code isActive bands grades subjectType scienceGroup order")
+      .sort({ order: 1, name: 1 })
+      .lean(),
+    AcademicAssessmentSlot.find(slotQuery).sort({ semester: 1, order: 1 }).lean(),
+    AcademicEvaluation.find(evalQuery)
+      .select(EVAL_LIST_SELECT + " assessmentSlot academicYear semester evaluationType")
+      .populate("subject", "name code isActive bands grades subjectType scienceGroup order _id")
+      .populate("period", "name year academicYear semester order isActive _id")
+      .populate("student", "name firstSurName email grade instrument avatar _id")
+      .populate("reviewedByAdmin", "name firstSurName _id")
+      .lean()
+      .then(hydrateAssessmentSlots),
+  ]);
+
+  const requirements = requirementEngine.getExpectedRequirementsForStudentFromData(
+    student,
+    subjects,
+    slots,
+    { academicYear, semester }
+  );
+  const coverage = requirementEngine.buildAcademicCoverageForStudent(
+    student,
+    evaluations,
+    requirements
+  );
+
+  return {
+    ...coverage,
+    studentId: String(student._id || student.id),
+    student,
+    academicYear: Number(academicYear),
+    semester,
+  };
+}
+
+async function getMyAcademicRequirements(academicYear, semester, ctx) {
+  const user = requireStudentSelf(ctx);
+  const student = await User.findById(user._id || user.id)
+    .select("name firstSurName email grade instrument avatar _id")
+    .lean();
+  if (!student) throw new Error("Estudiante no encontrado");
+  return getAcademicCoverageForStudentDoc(student, { academicYear, semester });
+}
+
+async function getStudentAcademicRequirements(studentId, academicYear, semester, ctx) {
+  await requireStudentAccess(ctx, studentId);
+  const student = await User.findById(studentId)
+    .select("name firstSurName email grade instrument avatar _id")
+    .lean();
+  if (!student) throw new Error("Estudiante no encontrado");
+  return getAcademicCoverageForStudentDoc(student, { academicYear, semester });
+}
+
+async function getAdminAcademicCoverage(filter = {}, ctx) {
+  requireAdmin(ctx);
+  const { academicYear, year, semester, grade, instrument, status } = filter;
+  const query = { grade: { $nin: [null, ""] } };
+  if (grade) query.grade = grade;
+  if (instrument) query.instrument = new RegExp(escapeRegex(String(instrument).trim()), "i");
+
+  const students = await User.find(query)
+    .select("name firstSurName secondSurName email grade instrument avatar _id")
+    .sort({ firstSurName: 1, secondSurName: 1, name: 1 })
+    .lean();
+
+  const results = await getAcademicCoverageForStudents(students, {
+    academicYear: academicYear || year || new Date().getFullYear(),
+    semester,
+  });
+
+  if (!status) return results;
+  return results.filter((coverage) => {
+    if (status === "missing") return coverage.summary.missingCount > 0;
+    return coverage.requirements.some((requirement) => requirement.status === status);
+  });
+}
+
+async function getAcademicCoverageForStudents(students, filters = {}) {
+  if (!students.length) return [];
+  const academicYear = filters.academicYear || filters.year || new Date().getFullYear();
+  const semester = normalizeSemester(filters.semester);
+
+  const slotQuery = { academicYear: Number(academicYear), isActive: true };
+  if (semester) slotQuery.semester = semester;
+
+  const [subjects, slots] = await Promise.all([
+    AcademicSubject.find({ isActive: true })
+      .select("_id name code isActive bands grades subjectType scienceGroup order")
+      .sort({ order: 1, name: 1 })
+      .lean(),
+    AcademicAssessmentSlot.find(slotQuery).sort({ semester: 1, order: 1 }).lean(),
+  ]);
+
+  const studentIds = students.map((student) => student._id || student.id);
+  const evalQuery = { student: { $in: studentIds }, academicYear: Number(academicYear) };
+  if (semester) evalQuery.semester = semester;
+
+  const evaluations = await AcademicEvaluation.find(evalQuery)
+    .select(EVAL_LIST_SELECT + " assessmentSlot academicYear semester evaluationType")
+    .populate("subject", "name code isActive bands grades subjectType scienceGroup order _id")
+    .populate("period", "name year academicYear semester order isActive _id")
+    .populate("student", "name firstSurName email grade instrument avatar _id")
+    .populate("reviewedByAdmin", "name firstSurName _id")
+    .lean()
+    .then(hydrateAssessmentSlots);
+
+  const evalsByStudent = new Map();
+  for (const evaluation of evaluations) {
+    const sid = String(evaluation.student?._id || evaluation.student);
+    if (!evalsByStudent.has(sid)) evalsByStudent.set(sid, []);
+    evalsByStudent.get(sid).push(evaluation);
+  }
+
+  return students.map((student) => {
+    const requirements = requirementEngine.getExpectedRequirementsForStudentFromData(
+      student,
+      subjects,
+      slots,
+      { academicYear, semester }
+    );
+    const coverage = requirementEngine.buildAcademicCoverageForStudent(
+      student,
+      evalsByStudent.get(String(student._id || student.id)) || [],
+      requirements
+    );
+    return {
+      ...coverage,
+      academicYear: Number(academicYear),
+      semester,
+    };
+  });
+}
+
 function subjectAppliesToGrade(subject, grade) {
   const grades = Array.isArray(subject.grades) ? subject.grades.filter(Boolean) : [];
   return grades.length === 0 || grades.includes(grade);
@@ -217,91 +407,114 @@ function subjectAppliesToGrade(subject, grade) {
 async function getEvaluationCoverageForStudents(students, filters = {}) {
   if (students.length === 0) return new Map();
 
-  const periodQuery = { isActive: true };
-  if (filters.periodId) {
-    periodQuery._id = filters.periodId;
-  } else if (filters.year) {
-    periodQuery.year = Number(filters.year);
-  }
+  const academicYear = filters.academicYear || filters.year || new Date().getFullYear();
+  const semester = normalizeSemester(filters.semester);
+  const slotQuery = { isActive: true, academicYear: Number(academicYear) };
+  if (semester) slotQuery.semester = semester;
 
-  const [subjects, periods] = await Promise.all([
+  const periodQuery = { isActive: true, year: Number(academicYear) };
+  if (filters.periodId) periodQuery._id = filters.periodId;
+  if (semester) periodQuery.semester = semester;
+
+  const [subjects, slots, periods] = await Promise.all([
     AcademicSubject.find({
       isActive: true,
     })
-      .select("_id name grades")
+      .select("_id name grades subjectType scienceGroup order")
       .lean(),
+    AcademicAssessmentSlot.find(slotQuery).sort({ semester: 1, order: 1 }).lean(),
     AcademicPeriod.find(periodQuery).select("_id name year order").sort({ year: -1, order: 1 }).lean(),
   ]);
 
   const studentIds = students.map((student) => String(student._id || student.id));
   const subjectIds = subjects.map((subject) => subject._id);
-  const periodIds = periods.map((period) => String(period._id));
+  const slotIds = slots.map((slot) => slot._id);
 
-  const evaluations = await AcademicEvaluation.find({
+  const evalQuery = {
     student: { $in: studentIds },
     subject: { $in: subjectIds },
-    period: { $in: periodIds },
-  })
-    .select("student subject period")
-    .lean();
+    academicYear: Number(academicYear),
+  };
+  if (semester) evalQuery.semester = semester;
+  if (slotIds.length > 0) evalQuery.assessmentSlot = { $in: slotIds };
 
-  const submittedByStudent = new Map();
+  const evaluations = await AcademicEvaluation.find(evalQuery)
+    .select("student subject period assessmentSlot academicYear semester status scoreNormalized100")
+    .populate("subject", "name code isActive grades subjectType scienceGroup order _id")
+    .populate("period", "name year academicYear semester order isActive _id")
+    .lean()
+    .then(hydrateAssessmentSlots);
+
+  const evaluationsByStudent = new Map();
   for (const evaluation of evaluations) {
     const studentId = String(evaluation.student);
-    if (!submittedByStudent.has(studentId)) submittedByStudent.set(studentId, new Set());
-    submittedByStudent
-      .get(studentId)
-      .add(`${String(evaluation.subject)}:${String(evaluation.period)}`);
+    if (!evaluationsByStudent.has(studentId)) evaluationsByStudent.set(studentId, []);
+    evaluationsByStudent.get(studentId).push(evaluation);
   }
 
   return new Map(
     students.map((student) => {
       const studentId = String(student._id || student.id);
-      const studentSubjects = subjects.filter((subject) =>
-        subjectAppliesToGrade(subject, student.grade)
+      const requirements = requirementEngine.getExpectedRequirementsForStudentFromData(
+        student,
+        subjects,
+        slots,
+        { academicYear, semester }
       );
-      const submittedKeys = submittedByStudent.get(studentId) || new Set();
-      const coverageByPeriod = periods.map((period) => {
-        const periodId = String(period._id);
-        const missingSubjects = studentSubjects
-          .filter((subject) => !submittedKeys.has(`${String(subject._id)}:${periodId}`))
-          .map((subject) => ({
-            subjectId: String(subject._id),
-            subjectName: subject.name,
-          }));
-        const expectedEvaluationsCount = studentSubjects.length;
-        const missingEvaluationsCount = missingSubjects.length;
 
-        return {
-          periodId,
-          periodName: period.name,
-          year: period.year,
-          expectedEvaluationsCount,
-          submittedEvaluationsCount: expectedEvaluationsCount - missingEvaluationsCount,
-          missingEvaluationsCount,
-          missingSubjects,
-        };
-      });
-      const expectedEvaluationsCount = coverageByPeriod.reduce(
-        (total, period) => total + period.expectedEvaluationsCount,
-        0
+      const coverage = requirementEngine.buildAcademicCoverageForStudent(
+        student,
+        evaluationsByStudent.get(studentId) || [],
+        requirements
       );
-      const submittedEvaluationsCount = coverageByPeriod.reduce(
-        (total, period) => total + period.submittedEvaluationsCount,
-        0
-      );
-      const missingEvaluationsCount = coverageByPeriod.reduce(
-        (total, period) => total + period.missingEvaluationsCount,
-        0
-      );
+
+      const periodsBySemester = new Map();
+      for (const period of periods) {
+        const sem = periodSemester(period);
+        if (!periodsBySemester.has(sem)) periodsBySemester.set(sem, period);
+      }
+
+      const semesterGroups = new Map();
+      for (const requirement of coverage.requirements) {
+        if (!semesterGroups.has(requirement.semester)) semesterGroups.set(requirement.semester, []);
+        semesterGroups.get(requirement.semester).push(requirement);
+      }
+
+      const coverageByPeriod = [...semesterGroups.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([sem, items]) => {
+          const period = periodsBySemester.get(Number(sem)) || periods[0] || {};
+          const missing = items.filter((item) => !item.submitted);
+          return {
+            periodId: String(period._id || `${academicYear}-S${sem}`),
+            periodName: period.name || `${sem === 1 ? "I" : "II"} Semestre`,
+            year: Number(period.year || academicYear),
+            semester: Number(sem),
+            expectedEvaluationsCount: items.length,
+            submittedEvaluationsCount: items.filter((item) => item.submitted).length,
+            missingEvaluationsCount: missing.length,
+            missingSubjects: missing.map((item) => ({
+              subjectId: item.subjectId,
+              subjectName: item.subjectName,
+              assessmentSlotId: item.assessmentSlotId,
+              slotKey: item.slotKey,
+              slotLabel: item.slotLabel,
+              evaluationType: item.evaluationType,
+            })),
+          };
+        });
 
       return [
         studentId,
         {
-          allEvaluationsSubmitted: expectedEvaluationsCount > 0 && missingEvaluationsCount === 0,
-          expectedEvaluationsCount,
-          submittedEvaluationsCount,
-          missingEvaluationsCount,
+          allEvaluationsSubmitted: coverage.summary.allSubmitted,
+          expectedEvaluationsCount: coverage.summary.expectedCount,
+          submittedEvaluationsCount: coverage.summary.submittedCount,
+          missingEvaluationsCount: coverage.summary.missingCount,
+          summary: coverage.summary,
+          requirements: coverage.requirements,
+          missingRequirements: coverage.missingRequirements,
+          completedRequirements: coverage.completedRequirements,
           coverageByPeriod,
         },
       ];
@@ -323,9 +536,27 @@ async function getAcademicSubjects({ grade, isActive } = {}, ctx) {
 
 async function createAcademicSubject(input, ctx) {
   requireAdmin(ctx);
-  const { name, code, isActive = true, bands = [], grades = [] } = input;
+  const {
+    name,
+    code,
+    isActive = true,
+    bands = [],
+    grades = [],
+    subjectType = "EXAM_BASED",
+    scienceGroup = null,
+    order = 0,
+  } = input;
   if (!name) throw new Error("El nombre de la materia es requerido");
-  return AcademicSubject.create({ name, code, isActive, bands, grades });
+  return AcademicSubject.create({
+    name,
+    code,
+    isActive,
+    bands,
+    grades,
+    subjectType,
+    scienceGroup,
+    order,
+  });
 }
 
 async function updateAcademicSubject(id, input, ctx) {
@@ -386,6 +617,302 @@ async function updateAcademicPeriod(id, input, ctx) {
   return period;
 }
 
+// ─── Assessment slots ────────────────────────────────────────────────────────
+
+async function getAcademicAssessmentSlots({ academicYear, semester, isActive } = {}, ctx) {
+  requireAuth(ctx);
+  const query = {};
+  if (academicYear) query.academicYear = Number(academicYear);
+  if (semester) query.semester = normalizeSemester(semester);
+  if (isActive !== undefined) query.isActive = isActive;
+  return AcademicAssessmentSlot.find(query).sort({ academicYear: -1, semester: 1, order: 1 }).lean();
+}
+
+function sanitizeSlotInput(input) {
+  const semester = normalizeSemester(input.semester);
+  if (!input.academicYear) throw new Error("El año académico es requerido");
+  if (!semester) throw new Error("El semestre es requerido");
+  if (!input.slotKey) throw new Error("La clave del slot es requerida");
+  if (!input.label) throw new Error("La etiqueta del slot es requerida");
+  if (!["EXAM", "FINAL_GRADE"].includes(input.evaluationType)) {
+    throw new Error("Tipo de evaluación inválido");
+  }
+  if (!["EXAM_BASED", "SEMESTER_FINAL_ONLY"].includes(input.subjectType)) {
+    throw new Error("Tipo de materia inválido");
+  }
+
+  return {
+    academicYear: Number(input.academicYear),
+    semester,
+    slotKey: String(input.slotKey).trim().toUpperCase(),
+    label: String(input.label).trim(),
+    evaluationType: input.evaluationType,
+    subjectType: input.subjectType,
+    appliesToGrades: Array.isArray(input.appliesToGrades) ? input.appliesToGrades.filter(Boolean) : [],
+    excludedGrades: Array.isArray(input.excludedGrades) ? input.excludedGrades.filter(Boolean) : [],
+    order: input.order ?? 0,
+    isActive: input.isActive ?? true,
+    requiresEvidence: input.requiresEvidence ?? true,
+  };
+}
+
+async function createAcademicAssessmentSlot(input, ctx) {
+  requireAdmin(ctx);
+  return AcademicAssessmentSlot.create(sanitizeSlotInput(input));
+}
+
+async function updateAcademicAssessmentSlot(id, input, ctx) {
+  requireAdmin(ctx);
+  const slot = await AcademicAssessmentSlot.findById(id);
+  if (!slot) throw new Error("Slot académico no encontrado");
+  Object.assign(slot, sanitizeSlotInput(input));
+  await slot.save();
+  return slot;
+}
+
+async function deleteOrDeactivateAcademicAssessmentSlot(id, ctx) {
+  requireAdmin(ctx);
+  const slot = await AcademicAssessmentSlot.findById(id);
+  if (!slot) throw new Error("Slot académico no encontrado");
+
+  const linked = await AcademicEvaluation.exists({ assessmentSlot: id });
+  if (linked) {
+    slot.isActive = false;
+    await slot.save();
+    return "Slot académico desactivado correctamente";
+  }
+
+  await slot.deleteOne();
+  return "Slot académico eliminado correctamente";
+}
+
+async function upsertSubject(seed) {
+  const update = {
+    $set: {
+      name: seed.name,
+      code: seed.code,
+      subjectType: seed.subjectType,
+      grades: seed.grades || [],
+      bands: seed.bands || [],
+      scienceGroup: seed.scienceGroup || null,
+      order: seed.order || 0,
+      isActive: true,
+    },
+  };
+  const doc = await AcademicSubject.findOneAndUpdate(
+    { name: seed.name },
+    update,
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+  return doc;
+}
+
+async function upsertPeriod(seed) {
+  return AcademicPeriod.findOneAndUpdate(
+    { year: seed.year, semester: seed.semester },
+    { $set: seed },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+}
+
+async function upsertSlot(seed) {
+  return AcademicAssessmentSlot.findOneAndUpdate(
+    { academicYear: seed.academicYear, slotKey: seed.slotKey },
+    { $set: seed },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  ).lean();
+}
+
+async function seedAcademicRulesForYear(year, ctx) {
+  requireAdmin(ctx);
+  const academicYear = Number(year);
+  if (!academicYear || academicYear < 2000) throw new Error("Año académico inválido");
+
+  const primaryGrades = [...requirementEngine.PRIMARY_GRADES];
+
+  const subjectSeeds = [
+    { name: "Matemáticas", code: "MAT", subjectType: "EXAM_BASED", grades: [], order: 10 },
+    { name: "Estudios Sociales", code: "SOC", subjectType: "EXAM_BASED", grades: [], order: 20 },
+    { name: "Inglés Académico", code: "ING-ACA", subjectType: "EXAM_BASED", grades: [], order: 30 },
+    { name: "Español", code: "ESP", subjectType: "EXAM_BASED", grades: [], order: 40 },
+    {
+      name: "Ciencias",
+      code: "CIE",
+      subjectType: "EXAM_BASED",
+      grades: ["Septimo", "Octavo", "Noveno", ...primaryGrades],
+      scienceGroup: "GENERAL_SCIENCE",
+      order: 50,
+    },
+    {
+      name: "Biología",
+      code: "BIO",
+      subjectType: "EXAM_BASED",
+      grades: ["Undécimo", "Duodécimo"],
+      scienceGroup: "BIOLOGY",
+      order: 51,
+    },
+    {
+      name: "Química",
+      code: "QUI",
+      subjectType: "EXAM_BASED",
+      grades: ["Undécimo", "Duodécimo"],
+      scienceGroup: "CHEMISTRY",
+      order: 52,
+    },
+    {
+      name: "Física",
+      code: "FIS",
+      subjectType: "EXAM_BASED",
+      grades: ["Décimo"],
+      scienceGroup: "PHYSICS",
+      order: 53,
+    },
+    { name: "Ética", code: "ETI", subjectType: "SEMESTER_FINAL_ONLY", grades: [], order: 60 },
+    { name: "Cívica", code: "CIV", subjectType: "SEMESTER_FINAL_ONLY", grades: [], order: 61 },
+    {
+      name: "Inglés Conversacional",
+      code: "ING-CON",
+      subjectType: "SEMESTER_FINAL_ONLY",
+      grades: ["Septimo", "Octavo", "Noveno"],
+      order: 62,
+    },
+    {
+      name: "Inglés Técnico",
+      code: "ING-TEC",
+      subjectType: "SEMESTER_FINAL_ONLY",
+      grades: ["Décimo", "Undécimo", "Duodécimo"],
+      order: 63,
+    },
+    { name: "Religión", code: "REL", subjectType: "SEMESTER_FINAL_ONLY", grades: [], order: 64 },
+  ];
+
+  const periodSeeds = [
+    { name: `I Semestre ${academicYear}`, year: academicYear, academicYear, semester: 1, order: 1, isActive: true },
+    { name: `II Semestre ${academicYear}`, year: academicYear, academicYear, semester: 2, order: 2, isActive: true },
+  ];
+
+  const slotSeeds = [
+    {
+      academicYear,
+      semester: 1,
+      slotKey: "S1_EXAM_1",
+      label: "I Semestre - Evaluación 1",
+      evaluationType: "EXAM",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: [],
+      excludedGrades: primaryGrades,
+      order: 1,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 1,
+      slotKey: "S1_EXAM_2",
+      label: "I Semestre - Evaluación 2",
+      evaluationType: "EXAM",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: [],
+      excludedGrades: primaryGrades,
+      order: 2,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 2,
+      slotKey: "S2_EXAM_1",
+      label: "II Semestre - Evaluación 1",
+      evaluationType: "EXAM",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: [],
+      excludedGrades: primaryGrades,
+      order: 1,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 2,
+      slotKey: "S2_EXAM_2",
+      label: "II Semestre - Evaluación 2",
+      evaluationType: "EXAM",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: [],
+      excludedGrades: primaryGrades,
+      order: 2,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 1,
+      slotKey: "S1_PRIMARY_EXAM",
+      label: "I Semestre - Evaluación",
+      evaluationType: "EXAM",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: primaryGrades,
+      excludedGrades: [],
+      order: 1,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 2,
+      slotKey: "S2_PRIMARY_EXAM",
+      label: "II Semestre - Evaluación",
+      evaluationType: "EXAM",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: primaryGrades,
+      excludedGrades: [],
+      order: 1,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 1,
+      slotKey: "S1_FINAL",
+      label: "I Semestre - Nota final",
+      evaluationType: "FINAL_GRADE",
+      subjectType: "SEMESTER_FINAL_ONLY",
+      appliesToGrades: [],
+      excludedGrades: [],
+      order: 3,
+      isActive: true,
+      requiresEvidence: true,
+    },
+    {
+      academicYear,
+      semester: 2,
+      slotKey: "S2_FINAL",
+      label: "II Semestre - Nota final",
+      evaluationType: "FINAL_GRADE",
+      subjectType: "SEMESTER_FINAL_ONLY",
+      appliesToGrades: [],
+      excludedGrades: [],
+      order: 3,
+      isActive: true,
+      requiresEvidence: true,
+    },
+  ];
+
+  const [subjects, periods, slots] = await Promise.all([
+    Promise.all(subjectSeeds.map(upsertSubject)),
+    Promise.all(periodSeeds.map(upsertPeriod)),
+    Promise.all(slotSeeds.map(upsertSlot)),
+  ]);
+
+  return {
+    academicYear,
+    subjectsUpserted: subjects.length,
+    periodsUpserted: periods.length,
+    slotsUpserted: slots.length,
+    message: `Reglas académicas ${academicYear} inicializadas`,
+  };
+}
+
 // ─── Evaluations — CRUD ───────────────────────────────────────────────────────
 
 async function submitAcademicEvaluation(input, ctx) {
@@ -395,6 +922,7 @@ async function submitAcademicEvaluation(input, ctx) {
   const {
     subjectId,
     periodId,
+    assessmentSlotId,
     scoreRaw,
     scaleMin = 0,
     scaleMax = 100,
@@ -406,27 +934,53 @@ async function submitAcademicEvaluation(input, ctx) {
 
   if (!subjectId) throw new Error("La materia es requerida");
   if (!periodId) throw new Error("El período es requerido");
+  if (!assessmentSlotId) throw new Error("La obligación académica es requerida");
   if (scoreRaw === undefined || scoreRaw === null) throw new Error("La nota es requerida");
-  if (!evidenceUrl || !evidencePublicId) throw new Error("La evidencia es requerida");
   if (scaleMax <= scaleMin) throw new Error("scaleMax debe ser mayor que scaleMin");
   if (scoreRaw < scaleMin || scoreRaw > scaleMax) {
     throw new Error(`La nota debe estar entre ${scaleMin} y ${scaleMax}`);
   }
 
-  const [subject, period, studentFull] = await Promise.all([
+  const [subject, period, slot, studentFull] = await Promise.all([
     AcademicSubject.findById(subjectId),
     AcademicPeriod.findById(periodId),
+    AcademicAssessmentSlot.findById(assessmentSlotId),
     User.findById(userId).select("grade").lean(),
   ]);
 
   if (!subject || !subject.isActive) throw new Error("Materia no encontrada o inactiva");
   if (!period || !period.isActive) throw new Error("Período no encontrado o inactivo");
+  if (!slot || !slot.isActive) throw new Error("Obligación académica no encontrada o inactiva");
+  if (!studentFull?.grade) throw new Error("Tu perfil no tiene nivel académico asignado");
+  if (slot.requiresEvidence !== false && (!evidenceUrl || !evidencePublicId)) {
+    throw new Error("La evidencia es requerida");
+  }
 
-  // Validar que la materia aplique al grado del estudiante
-  if (subject.grades && subject.grades.length > 0 && studentFull?.grade) {
-    if (!subject.grades.includes(studentFull.grade)) {
-      throw new Error(`Esta materia no aplica al nivel ${studentFull.grade}`);
-    }
+  if (!requirementEngine.subjectAppliesToGrade(subject, studentFull.grade)) {
+    throw new Error(`Esta materia no aplica al nivel ${studentFull.grade}`);
+  }
+  if (!requirementEngine.slotAppliesToGrade(slot, studentFull.grade)) {
+    throw new Error(`Esta obligación académica no aplica al nivel ${studentFull.grade}`);
+  }
+  if (!requirementEngine.slotAppliesToSubject(slot, subject)) {
+    throw new Error("La obligación académica no aplica al tipo de materia seleccionado");
+  }
+
+  const academicYear = Number(slot.academicYear);
+  const semester = Number(slot.semester);
+  if (periodAcademicYear(period) !== academicYear || periodSemester(period) !== semester) {
+    throw new Error("El período no coincide con el año y semestre de la obligación académica");
+  }
+
+  const existing = await AcademicEvaluation.exists({
+    student: userId,
+    subject: subjectId,
+    academicYear,
+    semester,
+    assessmentSlot: assessmentSlotId,
+  });
+  if (existing) {
+    throw new Error("Ya existe una evaluación para esta obligación académica");
   }
 
   const scoreNormalized100 = normalizeScore(scoreRaw, scaleMin, scaleMax);
@@ -435,21 +989,30 @@ async function submitAcademicEvaluation(input, ctx) {
     student: userId,
     subject: subjectId,
     period: periodId,
+    assessmentSlot: assessmentSlotId,
+    academicYear,
+    semester,
+    evaluationType: slot.evaluationType,
     scoreRaw,
     scaleMin,
     scaleMax,
     scoreNormalized100,
-    evidenceUrl,
-    evidencePublicId,
+    evidenceUrl: evidenceUrl || "",
+    evidencePublicId: evidencePublicId || "",
     evidenceResourceType,
     evidenceOriginalName,
-    evidenceThumbnailUrl: buildThumbnailUrl(evidencePublicId, evidenceResourceType),
-    evidencePreviewUrl: buildPreviewUrl(evidencePublicId, evidenceResourceType),
+    evidenceThumbnailUrl: evidencePublicId
+      ? buildThumbnailUrl(evidencePublicId, evidenceResourceType)
+      : null,
+    evidencePreviewUrl: evidencePublicId
+      ? buildPreviewUrl(evidencePublicId, evidenceResourceType)
+      : null,
     status: "pending",
     submittedByStudentAt: new Date(),
+    migrationStatus: "MIGRATED",
   });
 
-  return evaluation.populate(["student", "subject", "period", "reviewedByAdmin"]);
+  return evaluation.populate(["student", "subject", "period", "assessmentSlot", "reviewedByAdmin"]);
 }
 
 async function updateOwnPendingEvaluation(id, input, ctx) {
@@ -603,7 +1166,8 @@ async function reviewAcademicEvaluation(id, status, reviewComment, ctx) {
 // El frontend usa evidenceThumbnailUrl para el thumbnail en tabla.
 // Para ver la imagen completa, se usa GET_EVALUATION_DETAIL (lazy, solo en modal).
 const EVAL_LIST_SELECT =
-  "student subject period scoreRaw scaleMin scaleMax scoreNormalized100 " +
+  "student subject period assessmentSlot academicYear semester evaluationType migrationStatus " +
+  "scoreRaw scaleMin scaleMax scoreNormalized100 " +
   "status submittedByStudentAt reviewedAt reviewComment " +
   "parentAcknowledged parentAcknowledgedAt parentComment " +
   "evidenceThumbnailUrl evidencePublicId evidenceResourceType evidenceOriginalName " +
@@ -620,12 +1184,13 @@ async function getMyEvaluations(filter = {}, ctx) {
 
   return AcademicEvaluation.find(query)
     .select(EVAL_LIST_SELECT)
-    .populate("subject", "name code isActive _id")
-    .populate("period", "name year order isActive _id")
+    .populate("subject", "name code isActive bands grades subjectType scienceGroup order _id")
+    .populate("period", "name year academicYear semester order isActive _id")
     .populate("reviewedByAdmin", "name firstSurName _id")
     .sort({ createdAt: -1 })
     .limit(200)
-    .lean();
+    .lean()
+    .then(hydrateAssessmentSlots);
 }
 
 async function getStudentEvaluations(studentId, filter = {}, ctx) {
@@ -638,13 +1203,14 @@ async function getStudentEvaluations(studentId, filter = {}, ctx) {
 
   return AcademicEvaluation.find(query)
     .select(EVAL_LIST_SELECT + " student")
-    .populate("subject", "name code isActive _id")
-    .populate("period", "name year order isActive _id")
+    .populate("subject", "name code isActive bands grades subjectType scienceGroup order _id")
+    .populate("period", "name year academicYear semester order isActive _id")
     .populate("student", "name firstSurName email grade instrument _id")
     .populate("reviewedByAdmin", "name firstSurName _id")
     .sort({ createdAt: -1 })
     .limit(200)
-    .lean();
+    .lean()
+    .then(hydrateAssessmentSlots);
 }
 
 /**
@@ -655,30 +1221,31 @@ async function getEvaluationDetail(id, ctx) {
   const user = requireAuth(ctx);
 
   const evaluation = await AcademicEvaluation.findById(id)
-    .populate("subject", "name code _id")
-    .populate("period", "name year order _id")
+    .populate("subject", "name code isActive bands grades subjectType scienceGroup order _id")
+    .populate("period", "name year academicYear semester order _id")
     .populate("student", "name firstSurName email grade instrument avatar _id")
     .populate("reviewedByAdmin", "name firstSurName email _id")
     .lean();
 
   if (!evaluation) throw new Error("Evaluación no encontrada");
+  const hydratedEvaluation = (await hydrateAssessmentSlots([evaluation]))[0];
 
-  const studentId = String(evaluation.student?._id || evaluation.student);
+  const studentId = String(hydratedEvaluation.student?._id || hydratedEvaluation.student);
 
   // Admin: acceso total
-  if (isAdmin(user)) return evaluation;
+  if (isAdmin(user)) return hydratedEvaluation;
 
   // Padre: acceso a sus hijos
   if (user.entityType === "Parent") {
     await requireParentChildAccess(ctx, studentId);
-    return evaluation;
+    return hydratedEvaluation;
   }
 
   // El mismo estudiante
-  if (String(user._id || user.id) === studentId) return evaluation;
+  if (String(user._id || user.id) === studentId) return hydratedEvaluation;
 
   // Principal de sección con acceso al estudiante
-  if (await hasSectionStudentAccess(user, studentId)) return evaluation;
+  if (await hasSectionStudentAccess(user, studentId)) return hydratedEvaluation;
 
   throw new Error("No autorizado");
 }
@@ -693,6 +1260,7 @@ async function getEvaluationDetail(id, ctx) {
  */
 function computePerformanceFromData(studentId, approvedEvals, allEvals, filters = {}) {
   const { periodId, year } = filters;
+  const coverageSummary = filters.coverageSummary || null;
 
   const approvedCount = allEvals.filter((e) => e.status === "approved").length;
   const pendingCount = allEvals.filter((e) => e.status === "pending").length;
@@ -721,7 +1289,17 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
       trendDelta: 0,
       riskSubjects: [],
       riskScore: 0,
-      riskLevel: "GREEN",
+      riskLevel: requirementEngine.calculateRiskLevel({
+        averageFromSubmittedApproved: 0,
+        coveragePercentage: coverageSummary?.coveragePercentage ?? 100,
+      }),
+      averageFromSubmittedApproved: 0,
+      coveragePercentage: coverageSummary?.coveragePercentage ?? 100,
+      expectedCount: coverageSummary?.expectedCount ?? 0,
+      submittedCount: coverageSummary?.submittedCount ?? allEvals.length,
+      missingCount: coverageSummary?.missingCount ?? 0,
+      averagesBySemester: [],
+      averagesByEvaluationType: [],
       recentEvaluations: [],
     };
   }
@@ -779,18 +1357,49 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
     }));
 
   const riskScore = riskSubjects.length;
-  let riskLevel;
-  if (avgGeneral < 70 || riskScore >= 2 || trendDelta <= -10) riskLevel = "RED";
-  else if ((avgGeneral >= 70 && avgGeneral < 80) || riskScore === 1) riskLevel = "YELLOW";
-  else riskLevel = "GREEN";
+  const coveragePercentage = coverageSummary?.coveragePercentage ?? 100;
+  let riskLevel = requirementEngine.calculateRiskLevel({
+    averageFromSubmittedApproved: avgGeneral,
+    coveragePercentage,
+  });
+  if (riskLevel !== "RED" && (riskScore >= 2 || trendDelta <= -10)) riskLevel = "RED";
+  if (riskLevel === "GREEN" && riskScore === 1) riskLevel = "YELLOW";
+
+  const semesterMap = {};
+  const evaluationTypeMap = {};
+  for (const e of filteredEvals) {
+    const semester = e.semester || e.period?.semester || periodSemester(e.period);
+    const evaluationType = e.evaluationType || "EXAM";
+    if (!semesterMap[semester]) semesterMap[semester] = [];
+    if (!evaluationTypeMap[evaluationType]) evaluationTypeMap[evaluationType] = [];
+    semesterMap[semester].push(e.scoreNormalized100);
+    evaluationTypeMap[evaluationType].push(e.scoreNormalized100);
+  }
+  const averagesBySemester = Object.entries(semesterMap).map(([semester, scores]) => ({
+    semester: Number(semester),
+    average: Math.round((scores.reduce((sum, v) => sum + v, 0) / scores.length) * 10) / 10,
+    evaluationCount: scores.length,
+  }));
+  const averagesByEvaluationType = Object.entries(evaluationTypeMap).map(([evaluationType, scores]) => ({
+    evaluationType,
+    average: Math.round((scores.reduce((sum, v) => sum + v, 0) / scores.length) * 10) / 10,
+    evaluationCount: scores.length,
+  }));
 
   return {
     studentId: String(studentId),
     averageGeneral: Math.round(avgGeneral * 10) / 10,
+    averageFromSubmittedApproved: Math.round(avgGeneral * 10) / 10,
+    coveragePercentage,
+    expectedCount: coverageSummary?.expectedCount ?? allEvals.length,
+    submittedCount: coverageSummary?.submittedCount ?? allEvals.length,
+    missingCount: coverageSummary?.missingCount ?? 0,
     approvedCount,
     pendingCount,
     rejectedCount,
     averagesBySubject,
+    averagesBySemester,
+    averagesByEvaluationType,
     strongestSubjects,
     weakestSubjects,
     trendDirection,
@@ -810,19 +1419,36 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
 async function calculateStudentPerformance(studentId, filters = {}) {
   const { periodId, year } = filters;
 
-  const [allApproved, allEvals] = await Promise.all([
+  const [allApproved, allEvals, student] = await Promise.all([
     AcademicEvaluation.find({ student: studentId, status: "approved" })
-      .select("subject period scoreNormalized100 status createdAt")
+      .select("subject period assessmentSlot academicYear semester evaluationType scoreNormalized100 status createdAt")
       .populate("subject", "name _id")
-      .populate("period", "name year order _id")
+      .populate("period", "name year academicYear semester order _id")
       .sort({ createdAt: 1 })
       .lean(),
     AcademicEvaluation.find({ student: studentId })
       .select("status")
       .lean(),
+    User.findById(studentId).select("_id grade").lean(),
   ]);
 
-  return computePerformanceFromData(studentId, allApproved, allEvals, { periodId, year });
+  let coverageSummary = null;
+  if (student?.grade) {
+    try {
+      const coverage = await getAcademicCoverageForStudentDoc(student, {
+        academicYear: year || new Date().getFullYear(),
+      });
+      coverageSummary = coverage.summary;
+    } catch (e) {
+      coverageSummary = null;
+    }
+  }
+
+  return computePerformanceFromData(studentId, allApproved, allEvals, {
+    periodId,
+    year,
+    coverageSummary,
+  });
 }
 
 async function getMyPerformance(periodId, year, ctx) {
@@ -1033,7 +1659,8 @@ async function getAdminPendingEvaluations(filter = {}, ctx) {
     .populate("subject", "name code _id")
     .populate("period", "name year order _id")
     .sort({ submittedByStudentAt: 1 })
-    .lean();
+    .lean()
+    .then(hydrateAssessmentSlots);
 
   // Filtro de instrumento en JS (no indexable directamente)
   if (instrument) {
@@ -1071,7 +1698,8 @@ async function getAdminPendingEvaluationsPaginated(filter = {}, pagination = {},
     .populate("period", "name year order _id")
     .sort({ submittedByStudentAt: -1 })
     .limit(pageLimit + 1)
-    .lean();
+    .lean()
+    .then(hydrateAssessmentSlots);
 
   let items = evals;
   if (instrument) {
@@ -1191,7 +1819,8 @@ async function getParentChildEvaluations(childId, filter = {}, ctx) {
     .populate("student", "name firstSurName email grade instrument _id")
     .populate("reviewedByAdmin", "name firstSurName email _id")
     .sort({ createdAt: -1 })
-    .lean();
+    .lean()
+    .then(hydrateAssessmentSlots);
 }
 
 // ─── Parent ────────────────────────────────────────────────────────────────────
@@ -1393,7 +2022,8 @@ async function getSectionPendingEvaluations(filter = {}, ctx) {
     .populate("subject", "name code _id")
     .populate("period", "name year order _id")
     .sort({ submittedByStudentAt: 1 })
-    .lean();
+    .lean()
+    .then(hydrateAssessmentSlots);
 }
 
 module.exports = {
@@ -1401,6 +2031,7 @@ module.exports = {
   getAdminPendingEvaluations,
   getAdminPendingEvaluationsPaginated,
   getAdminAcademicStudents,
+  getAdminAcademicCoverage,
   getParentChildEvaluations,
   createAcademicSubject,
   updateAcademicSubject,
@@ -1408,6 +2039,11 @@ module.exports = {
   getAcademicPeriods,
   createAcademicPeriod,
   updateAcademicPeriod,
+  getAcademicAssessmentSlots,
+  createAcademicAssessmentSlot,
+  updateAcademicAssessmentSlot,
+  deleteOrDeactivateAcademicAssessmentSlot,
+  seedAcademicRulesForYear,
   submitAcademicEvaluation,
   updateOwnPendingEvaluation,
   updateAcademicEvaluationAsAdmin,
@@ -1419,6 +2055,8 @@ module.exports = {
   getEvaluationDetail,
   getMyPerformance,
   getMyEvaluationCoverage,
+  getMyAcademicRequirements,
+  getStudentAcademicRequirements,
   getStudentPerformance,
   getAdminDashboard,
   getAdminRiskRanking,

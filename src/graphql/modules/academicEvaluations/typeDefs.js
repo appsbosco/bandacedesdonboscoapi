@@ -9,6 +9,21 @@ module.exports = gql`
     rejected
   }
 
+  enum AcademicSubjectType {
+    EXAM_BASED
+    SEMESTER_FINAL_ONLY
+  }
+
+  enum AcademicEvaluationType {
+    EXAM
+    FINAL_GRADE
+  }
+
+  enum AcademicSemester {
+    SEMESTER_1
+    SEMESTER_2
+  }
+
   enum TrendDirection {
     UP
     STABLE
@@ -34,8 +49,11 @@ module.exports = gql`
     name: String!
     code: String
     isActive: Boolean!
+    subjectType: AcademicSubjectType!
     bands: [String!]!
     grades: [String!]!
+    scienceGroup: String
+    order: Int
     createdAt: String
     updatedAt: String
   }
@@ -44,8 +62,27 @@ module.exports = gql`
     id: ID!
     name: String!
     year: Int!
+    academicYear: Int
+    semester: Int
     order: Int!
     isActive: Boolean!
+    createdAt: String
+    updatedAt: String
+  }
+
+  type AcademicAssessmentSlot {
+    id: ID!
+    academicYear: Int!
+    semester: Int!
+    slotKey: String!
+    label: String!
+    evaluationType: AcademicEvaluationType!
+    subjectType: AcademicSubjectType!
+    appliesToGrades: [String!]!
+    excludedGrades: [String!]!
+    order: Int!
+    isActive: Boolean!
+    requiresEvidence: Boolean!
     createdAt: String
     updatedAt: String
   }
@@ -74,17 +111,28 @@ module.exports = gql`
     submittedEvaluationsCount: Int!
     missingEvaluationsCount: Int!
     coverageByPeriod: [AcademicPeriodCoverage!]!
+    academicYear: Int
+    semester: Int
+    summary: AcademicCoverageSummary
+    requirements: [AcademicRequirementStatus!]
+    missingRequirements: [AcademicRequirementStatus!]
+    completedRequirements: [AcademicRequirementStatus!]
   }
 
   type MissingAcademicSubject {
     subjectId: ID!
     subjectName: String!
+    assessmentSlotId: ID
+    slotKey: String
+    slotLabel: String
+    evaluationType: AcademicEvaluationType
   }
 
   type AcademicPeriodCoverage {
     periodId: ID!
     periodName: String!
     year: Int!
+    semester: Int
     expectedEvaluationsCount: Int!
     submittedEvaluationsCount: Int!
     missingEvaluationsCount: Int!
@@ -97,6 +145,54 @@ module.exports = gql`
     submittedEvaluationsCount: Int!
     missingEvaluationsCount: Int!
     coverageByPeriod: [AcademicPeriodCoverage!]!
+    academicYear: Int
+    semester: Int
+    summary: AcademicCoverageSummary
+    requirements: [AcademicRequirementStatus!]
+    missingRequirements: [AcademicRequirementStatus!]
+    completedRequirements: [AcademicRequirementStatus!]
+  }
+
+  type AcademicRequirementStatus {
+    subject: AcademicSubject!
+    assessmentSlot: AcademicAssessmentSlot!
+    academicYear: Int!
+    semester: Int!
+    required: Boolean!
+    submitted: Boolean!
+    status: EvaluationStatus
+    evaluation: AcademicEvaluation
+    scoreNormalized100: Float
+    subjectId: ID!
+    subjectName: String!
+    subjectType: AcademicSubjectType!
+    assessmentSlotId: ID!
+    slotKey: String!
+    slotLabel: String!
+    evaluationType: AcademicEvaluationType!
+    evaluationId: ID
+  }
+
+  type AcademicCoverageSummary {
+    expectedCount: Int!
+    submittedCount: Int!
+    missingCount: Int!
+    approvedCount: Int!
+    pendingCount: Int!
+    rejectedCount: Int!
+    allSubmitted: Boolean!
+    coveragePercentage: Float!
+  }
+
+  type StudentAcademicRequirementCoverage {
+    studentId: ID!
+    student: EvalBasicUser
+    academicYear: Int!
+    semester: Int
+    summary: AcademicCoverageSummary!
+    requirements: [AcademicRequirementStatus!]!
+    missingRequirements: [AcademicRequirementStatus!]!
+    completedRequirements: [AcademicRequirementStatus!]!
   }
 
   # Tipo de lista — NO incluye evidenceUrl (imagen original pesada).
@@ -107,12 +203,17 @@ module.exports = gql`
     student: EvalBasicUser!
     subject: AcademicSubject!
     period: AcademicPeriod!
+    assessmentSlot: AcademicAssessmentSlot
+    academicYear: Int
+    semester: Int
+    evaluationType: AcademicEvaluationType
+    migrationStatus: String
     scoreRaw: Float!
     scaleMin: Float!
     scaleMax: Float!
     scoreNormalized100: Float!
     # evidenceUrl omitido intencionalmente en lista — usar evaluationDetail para el modal
-    evidencePublicId: String!
+    evidencePublicId: String
     evidenceResourceType: String
     evidenceOriginalName: String
     evidenceThumbnailUrl: String # 120×120 para lista (puede ser null en datos legacy)
@@ -135,12 +236,17 @@ module.exports = gql`
     student: EvalBasicUser!
     subject: AcademicSubject!
     period: AcademicPeriod!
+    assessmentSlot: AcademicAssessmentSlot
+    academicYear: Int
+    semester: Int
+    evaluationType: AcademicEvaluationType
+    migrationStatus: String
     scoreRaw: Float!
     scaleMin: Float!
     scaleMax: Float!
     scoreNormalized100: Float!
-    evidenceUrl: String!
-    evidencePublicId: String!
+    evidenceUrl: String
+    evidencePublicId: String
     evidenceResourceType: String
     evidenceOriginalName: String
     evidenceThumbnailUrl: String
@@ -171,6 +277,18 @@ module.exports = gql`
     evaluationCount: Int!
   }
 
+  type SemesterAverage {
+    semester: Int!
+    average: Float!
+    evaluationCount: Int!
+  }
+
+  type EvaluationTypeAverage {
+    evaluationType: AcademicEvaluationType!
+    average: Float!
+    evaluationCount: Int!
+  }
+
   type AcademicRiskSubject {
     subjectId: ID!
     subjectName: String!
@@ -182,10 +300,17 @@ module.exports = gql`
     studentId: ID!
     studentName: String
     averageGeneral: Float!
+    averageFromSubmittedApproved: Float!
+    coveragePercentage: Float!
+    expectedCount: Int!
+    submittedCount: Int!
+    missingCount: Int!
     approvedCount: Int!
     pendingCount: Int!
     rejectedCount: Int!
     averagesBySubject: [SubjectAverage!]!
+    averagesBySemester: [SemesterAverage!]!
+    averagesByEvaluationType: [EvaluationTypeAverage!]!
     strongestSubjects: [SubjectAverage!]!
     weakestSubjects: [SubjectAverage!]!
     trendDirection: TrendDirection!
@@ -243,11 +368,25 @@ module.exports = gql`
     submittedEvaluationsCount: Int!
     missingEvaluationsCount: Int!
     coverageByPeriod: [AcademicPeriodCoverage!]!
+    academicYear: Int
+    semester: Int
+    summary: AcademicCoverageSummary
+    requirements: [AcademicRequirementStatus!]
+    missingRequirements: [AcademicRequirementStatus!]
+    completedRequirements: [AcademicRequirementStatus!]
     performance: StudentPerformance!
   }
 
   type AcknowledgeAcademicResult {
     success: Boolean!
+    message: String!
+  }
+
+  type AcademicSeedResult {
+    academicYear: Int!
+    subjectsUpserted: Int!
+    periodsUpserted: Int!
+    slotsUpserted: Int!
     message: String!
   }
 
@@ -257,25 +396,45 @@ module.exports = gql`
     name: String!
     code: String
     isActive: Boolean
+    subjectType: AcademicSubjectType
     bands: [String!]
     grades: [String!]
+    scienceGroup: String
+    order: Int
   }
 
   input AcademicPeriodInput {
     name: String!
     year: Int!
+    academicYear: Int
+    semester: Int
     order: Int!
     isActive: Boolean
+  }
+
+  input AcademicAssessmentSlotInput {
+    academicYear: Int!
+    semester: Int!
+    slotKey: String!
+    label: String!
+    evaluationType: AcademicEvaluationType!
+    subjectType: AcademicSubjectType!
+    appliesToGrades: [String!]
+    excludedGrades: [String!]
+    order: Int
+    isActive: Boolean
+    requiresEvidence: Boolean
   }
 
   input SubmitAcademicEvaluationInput {
     subjectId: ID!
     periodId: ID!
+    assessmentSlotId: ID!
     scoreRaw: Float!
     scaleMin: Float
     scaleMax: Float
-    evidenceUrl: String!
-    evidencePublicId: String!
+    evidenceUrl: String
+    evidencePublicId: String
     evidenceResourceType: String
     evidenceOriginalName: String
   }
@@ -298,6 +457,17 @@ module.exports = gql`
     instrument: String
     status: EvaluationStatus
     subjectId: ID
+    academicYear: Int
+    semester: Int
+  }
+
+  input AcademicCoverageFilterInput {
+    academicYear: Int
+    year: Int
+    semester: Int
+    grade: String
+    instrument: String
+    status: String
   }
 
   input PaginationCursorInput {
@@ -310,12 +480,21 @@ module.exports = gql`
   extend type Query {
     academicSubjects(grade: String, isActive: Boolean): [AcademicSubject!]!
     academicPeriods(year: Int, isActive: Boolean): [AcademicPeriod!]!
+    getAcademicAssessmentSlots(
+      academicYear: Int
+      semester: Int
+      isActive: Boolean
+    ): [AcademicAssessmentSlot!]!
 
     myAcademicEvaluations(
       filter: AcademicDashboardFilter
     ): [AcademicEvaluation!]!
     myAcademicPerformance(periodId: ID, year: Int): StudentPerformance!
     myAcademicEvaluationCoverage(year: Int): StudentAcademicCoverage!
+    getMyAcademicRequirements(
+      academicYear: Int!
+      semester: Int
+    ): StudentAcademicRequirementCoverage!
 
     studentAcademicEvaluations(
       studentId: ID!
@@ -326,6 +505,11 @@ module.exports = gql`
       periodId: ID
       year: Int
     ): StudentPerformance!
+    getStudentAcademicRequirements(
+      studentId: ID!
+      academicYear: Int!
+      semester: Int
+    ): StudentAcademicRequirementCoverage!
 
     # Detalle completo de una evaluación — incluye evidenceUrl y evidencePreviewUrl.
     # Llamar solo al abrir modal (lazy load). No usar en listas.
@@ -349,6 +533,9 @@ module.exports = gql`
     adminAcademicStudents(
       filter: AcademicDashboardFilter
     ): [AdminAcademicStudent!]!
+    getAdminAcademicCoverage(
+      filter: AcademicCoverageFilterInput
+    ): [StudentAcademicRequirementCoverage!]!
 
     parentChildrenAcademicOverview(
       periodId: ID
@@ -382,6 +569,14 @@ module.exports = gql`
 
     createAcademicPeriod(input: AcademicPeriodInput!): AcademicPeriod!
     updateAcademicPeriod(id: ID!, input: AcademicPeriodInput!): AcademicPeriod!
+
+    createAcademicAssessmentSlot(input: AcademicAssessmentSlotInput!): AcademicAssessmentSlot!
+    updateAcademicAssessmentSlot(
+      id: ID!
+      input: AcademicAssessmentSlotInput!
+    ): AcademicAssessmentSlot!
+    deleteOrDeactivateAcademicAssessmentSlot(id: ID!): String!
+    seedAcademicRulesForYear(year: Int!): AcademicSeedResult!
 
     submitAcademicEvaluation(
       input: SubmitAcademicEvaluationInput!

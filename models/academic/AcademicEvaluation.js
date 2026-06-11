@@ -28,6 +28,18 @@ const AcademicEvaluationSchema = new mongoose.Schema(
       ref: "AcademicPeriod",
       required: true,
     },
+    assessmentSlot: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AcademicAssessmentSlot",
+      default: null,
+    },
+    academicYear: { type: Number },
+    semester: { type: Number, enum: [1, 2], default: undefined },
+    evaluationType: {
+      type: String,
+      enum: ["EXAM", "FINAL_GRADE"],
+      default: undefined,
+    },
 
     // Nota cruda (en la escala del examen)
     scoreRaw: { type: Number, required: true },
@@ -37,8 +49,8 @@ const AcademicEvaluationSchema = new mongoose.Schema(
     scoreNormalized100: { type: Number, required: true },
 
     // Evidencia en Cloudinary
-    evidenceUrl: { type: String, required: true },
-    evidencePublicId: { type: String, required: true },
+    evidenceUrl: { type: String },
+    evidencePublicId: { type: String },
     evidenceResourceType: { type: String, default: "image" },
     evidenceOriginalName: { type: String },
     // Derivados de Cloudinary — generados via script de migración o al crear/actualizar
@@ -70,6 +82,12 @@ const AcademicEvaluationSchema = new mongoose.Schema(
       ref: "Parent",
     },
     parentComment: { type: String },
+    migrationStatus: {
+      type: String,
+      enum: ["LEGACY", "MIGRATED", "MIGRATION_REVIEW_REQUIRED"],
+      default: "LEGACY",
+    },
+    migrationNotes: { type: String },
   },
   { timestamps: true }
 );
@@ -91,5 +109,16 @@ AcademicEvaluationSchema.index({ student: 1, status: 1, createdAt: 1 });
 AcademicEvaluationSchema.index({ student: 1, status: 1, parentAcknowledged: 1 });
 // Cubre: conteos globales por student (dashboard bulk load)
 AcademicEvaluationSchema.index({ status: 1, student: 1 });
+AcademicEvaluationSchema.index(
+  { student: 1, subject: 1, academicYear: 1, semester: 1, assessmentSlot: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { assessmentSlot: { $type: "objectId" } },
+  }
+);
+AcademicEvaluationSchema.index({ student: 1, academicYear: 1, semester: 1 });
+AcademicEvaluationSchema.index({ status: 1, academicYear: 1, semester: 1 });
+AcademicEvaluationSchema.index({ subject: 1, academicYear: 1, semester: 1 });
+AcademicEvaluationSchema.index({ assessmentSlot: 1 });
 
 module.exports = mongoose.model("AcademicEvaluation", AcademicEvaluationSchema);

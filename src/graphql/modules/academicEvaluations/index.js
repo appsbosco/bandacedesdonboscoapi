@@ -11,15 +11,37 @@ const typeResolvers = {
   AcademicSubject: {
     id: (p) => String(p._id || p.id),
     isActive: (p) => p.isActive ?? true,
+    subjectType: (p) => p.subjectType || "EXAM_BASED",
     bands: (p) => p.bands || [],
     grades: (p) => p.grades || [],
+    scienceGroup: (p) => p.scienceGroup || null,
+    order: (p) => p.order || 0,
     createdAt: (p) => isoDate(p.createdAt),
     updatedAt: (p) => isoDate(p.updatedAt),
   },
 
   AcademicPeriod: {
     id: (p) => String(p._id || p.id),
+    academicYear: (p) => p.academicYear || p.year || null,
+    semester: (p) => p.semester || null,
     isActive: (p) => p.isActive ?? true,
+    createdAt: (p) => isoDate(p.createdAt),
+    updatedAt: (p) => isoDate(p.updatedAt),
+  },
+
+  AcademicAssessmentSlot: {
+    id: (p) => String(p._id || p.id),
+    academicYear: (p) => p.academicYear ?? null,
+    semester: (p) => p.semester ?? null,
+    slotKey: (p) => p.slotKey || null,
+    label: (p) => p.label || null,
+    evaluationType: (p) => p.evaluationType || null,
+    subjectType: (p) => p.subjectType || null,
+    appliesToGrades: (p) => p.appliesToGrades || [],
+    excludedGrades: (p) => p.excludedGrades || [],
+    order: (p) => p.order || 0,
+    isActive: (p) => p.isActive ?? true,
+    requiresEvidence: (p) => p.requiresEvidence ?? true,
     createdAt: (p) => isoDate(p.createdAt),
     updatedAt: (p) => isoDate(p.updatedAt),
   },
@@ -45,6 +67,7 @@ const typeResolvers = {
     },
     subject: (p) => p.subject,
     period: (p) => p.period,
+    assessmentSlot: (p) => p.assessmentSlot || null,
     reviewedByAdmin: (p) => {
       const a = p.reviewedByAdmin;
       if (!a) return null;
@@ -83,6 +106,7 @@ const typeResolvers = {
     },
     subject: (p) => p.subject,
     period: (p) => p.period,
+    assessmentSlot: (p) => p.assessmentSlot || null,
     reviewedByAdmin: (p) => {
       const a = p.reviewedByAdmin;
       if (!a) return null;

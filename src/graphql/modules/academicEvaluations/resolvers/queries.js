@@ -21,6 +21,15 @@ module.exports = {
     }
   },
 
+  getAcademicAssessmentSlots: async (_, { academicYear, semester, isActive }, ctx) => {
+    try {
+      return await svc.getAcademicAssessmentSlots({ academicYear, semester, isActive }, ctx);
+    } catch (e) {
+      console.error("[query:getAcademicAssessmentSlots]", e.message);
+      throw new Error(e.message || "Error al obtener slots académicos");
+    }
+  },
+
   myAcademicEvaluations: async (_, { filter }, ctx) => {
     try {
       return await svc.getMyEvaluations(filter || {}, ctx);
@@ -48,6 +57,15 @@ module.exports = {
     }
   },
 
+  getMyAcademicRequirements: async (_, { academicYear, semester }, ctx) => {
+    try {
+      return await svc.getMyAcademicRequirements(academicYear, semester, ctx);
+    } catch (e) {
+      console.error("[query:getMyAcademicRequirements]", e.message);
+      throw new Error(e.message || "Error al calcular requisitos académicos");
+    }
+  },
+
   studentAcademicEvaluations: async (_, { studentId, filter }, ctx) => {
     try {
       return await svc.getStudentEvaluations(studentId, filter || {}, ctx);
@@ -63,6 +81,15 @@ module.exports = {
     } catch (e) {
       console.error("[query:studentAcademicPerformance]", e.message);
       throw new Error(e.message || "Error al obtener rendimiento del estudiante");
+    }
+  },
+
+  getStudentAcademicRequirements: async (_, { studentId, academicYear, semester }, ctx) => {
+    try {
+      return await svc.getStudentAcademicRequirements(studentId, academicYear, semester, ctx);
+    } catch (e) {
+      console.error("[query:getStudentAcademicRequirements]", e.message);
+      throw new Error(e.message || "Error al calcular requisitos académicos del estudiante");
     }
   },
 
@@ -108,6 +135,15 @@ module.exports = {
     } catch (e) {
       console.error("[query:adminAcademicStudents]", e.message);
       throw new Error(e.message || "Error al obtener estudiantes académicos");
+    }
+  },
+
+  getAdminAcademicCoverage: async (_, { filter }, ctx) => {
+    try {
+      return await svc.getAdminAcademicCoverage(filter || {}, ctx);
+    } catch (e) {
+      console.error("[query:getAdminAcademicCoverage]", e.message);
+      throw new Error(e.message || "Error al obtener cobertura académica");
     }
   },
 
