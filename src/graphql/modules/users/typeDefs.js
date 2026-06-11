@@ -40,6 +40,15 @@ module.exports = gql`
     bands: [String]
   }
 
+  input UpdateMyUserProfileInput {
+    name: String
+    firstSurName: String
+    secondSurName: String
+    birthday: String
+    carnet: String
+    phone: String
+  }
+
   input UserQueryFilterInput {
     searchText: String
     state: String
@@ -87,6 +96,7 @@ module.exports = gql`
     newUser(input: UserInput): User
     authUser(input: AuthInput): Token
     updateUser(id: ID!, input: UserInput): User
+    updateMyUserProfile(input: UpdateMyUserProfileInput): User
     deleteUser(id: ID!): String
 
     requestReset(email: String!): Boolean!

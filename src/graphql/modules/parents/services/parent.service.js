@@ -11,6 +11,21 @@ const Inventory = require("../../../../../models/Inventory");
 const MedicalRecord = require("../../../../../models/MedicalRecord");
 const Attendance = require("../../../../../models/Attendance");
 
+const PARENT_PROFILE_ALLOWED_FIELDS = [
+  "name",
+  "firstSurName",
+  "secondSurName",
+  "phone",
+];
+const REQUIRED_PROFILE_FIELDS = [
+  "name",
+  "firstSurName",
+  "secondSurName",
+  "phone",
+];
+const SAFE_PARENT_SELECT =
+  "-password -notificationTokens -resetPasswordToken -resetPasswordExpires";
+
 function requireAuth(ctx) {
   const currentUser = ctx && (ctx.user || ctx.me || ctx.currentUser);
   if (!currentUser) throw new Error("No autenticado");
@@ -20,6 +35,32 @@ function requireAuth(ctx) {
 function getUserIdFromCtx(ctx) {
   const u = ctx && (ctx.user || ctx.me || ctx.currentUser);
   return (u && (u.id || u._id || u.userId)) || null;
+}
+
+function normalizeProfileValue(value) {
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function pickAllowedProfileUpdates(input) {
+  const updates = {};
+  for (const field of PARENT_PROFILE_ALLOWED_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(input || {}, field)) {
+      updates[field] = normalizeProfileValue(input[field]);
+    }
+  }
+  return updates;
+}
+
+function assertRequiredProfileFields(updates) {
+  for (const field of REQUIRED_PROFILE_FIELDS) {
+    if (
+      Object.prototype.hasOwnProperty.call(updates, field) &&
+      typeof updates[field] === "string" &&
+      updates[field].trim() === ""
+    ) {
+      throw new Error("Nombre, apellidos y celular son requeridos.");
+    }
+  }
 }
 
 async function createParent(input, ctx) {
@@ -50,6 +91,37 @@ async function createParent(input, ctx) {
   });
 
   return parent;
+}
+
+async function updateMyParentProfile(input, ctx) {
+  const currentUser = requireAuth(ctx);
+  const parentId = getUserIdFromCtx(ctx);
+
+  if (currentUser.entityType && currentUser.entityType !== "Parent") {
+    throw new Error("Esta mutación solo está disponible para padres.");
+  }
+  if (!input || typeof input !== "object") throw new Error("Datos inválidos");
+
+  const updates = pickAllowedProfileUpdates(input);
+  assertRequiredProfileFields(updates);
+
+  const parent = await Parent.findById(parentId).select(SAFE_PARENT_SELECT);
+  if (!parent) throw new Error("Padre/Madre no encontrado");
+
+  for (const field of REQUIRED_PROFILE_FIELDS) {
+    const nextValue = Object.prototype.hasOwnProperty.call(updates, field)
+      ? updates[field]
+      : parent[field];
+    if (typeof nextValue !== "string" || nextValue.trim() === "") {
+      throw new Error("Nombre, apellidos y celular son requeridos.");
+    }
+  }
+
+  return Parent.findByIdAndUpdate(
+    parentId,
+    { $set: updates },
+    { new: true, runValidators: true },
+  ).select(SAFE_PARENT_SELECT);
 }
 
 async function getParent(ctx) {
@@ -303,6 +375,7 @@ async function parentsPaginated(filter = {}, pagination = {}, ctx) {
 module.exports = {
   requireAuth,
   createParent,
+  updateMyParentProfile,
   getParent,
   getParents,
   parentsPaginated,

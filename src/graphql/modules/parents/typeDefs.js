@@ -27,6 +27,13 @@ module.exports = gql`
     children: [ID]
   }
 
+  input UpdateMyParentProfileInput {
+    name: String
+    firstSurName: String
+    secondSurName: String
+    phone: String
+  }
+
   type ParentDashboard {
     parent: ParentInfo!
     children: [ChildDashboard!]!
@@ -196,6 +203,7 @@ module.exports = gql`
 
   extend type Mutation {
     newParent(input: ParentInput): Parent
+    updateMyParentProfile(input: UpdateMyParentProfileInput): Parent
     addChildToParent(input: AddChildInput!): Parent!
     removeChildFromParent(input: RemoveChildInput!): Parent!
   }

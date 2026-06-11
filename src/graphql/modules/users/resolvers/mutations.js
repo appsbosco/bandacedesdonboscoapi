@@ -17,6 +17,9 @@ module.exports = {
   updateUser: async (_, { id, input }, ctx) =>
     userService.updateUser(id, input, ctx),
 
+  updateMyUserProfile: async (_, { input }, ctx) =>
+    userService.updateMyUserProfile(input, ctx),
+
   deleteUser: async (_, { id }, ctx) => userService.deleteUser(id, ctx),
 
   requestReset: async (_, { email }) => userService.requestReset(email),

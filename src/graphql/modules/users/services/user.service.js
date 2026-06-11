@@ -17,6 +17,22 @@ require("dotenv").config({ path: "./config/.env" });
 const TOKEN_BYTES = 32; // 64 hex chars — suficiente entropía
 const TOKEN_TTL_MINUTES = 30; // minutos de validez (antes era 20)
 const MIN_PASSWORD_LEN = 8;
+const USER_PROFILE_ALLOWED_FIELDS = [
+  "name",
+  "firstSurName",
+  "secondSurName",
+  "birthday",
+  "carnet",
+  "phone",
+];
+const REQUIRED_PROFILE_FIELDS = [
+  "name",
+  "firstSurName",
+  "secondSurName",
+  "phone",
+];
+const SAFE_USER_SELECT =
+  "-password -notificationTokens -resetPasswordToken -resetPasswordExpires";
 
 // -------------------------
 // Helpers
@@ -75,6 +91,36 @@ function buildResetUrl(token) {
     "https://bandacedesdonbosco.com/autenticacion/recuperar"
   ).replace(/\/$/, "");
   return `${base}/${token}`;
+}
+
+function getActor(ctx) {
+  return ctx && (ctx.user || ctx.me || ctx.currentUser);
+}
+
+function normalizeProfileValue(value) {
+  return typeof value === "string" ? value.trim() : value;
+}
+
+function pickAllowedProfileUpdates(input, allowedFields) {
+  const updates = {};
+  for (const field of allowedFields) {
+    if (Object.prototype.hasOwnProperty.call(input || {}, field)) {
+      updates[field] = normalizeProfileValue(input[field]);
+    }
+  }
+  return updates;
+}
+
+function assertRequiredProfileFields(updates) {
+  for (const field of REQUIRED_PROFILE_FIELDS) {
+    if (
+      Object.prototype.hasOwnProperty.call(updates, field) &&
+      typeof updates[field] === "string" &&
+      updates[field].trim() === ""
+    ) {
+      throw new Error("Nombre, apellidos y celular son requeridos.");
+    }
+  }
 }
 
 function createTransporter() {
@@ -167,6 +213,36 @@ async function updateUser(id, input) {
 
   const updatedUser = await User.findByIdAndUpdate(id, input, { new: true });
   return updatedUser;
+}
+
+async function updateMyUserProfile(input, ctx) {
+  const actor = getActor(ctx);
+  if (!actor?.id) throw new Error("No autenticado");
+  if (actor.entityType && actor.entityType !== "User") {
+    throw new Error("Esta mutación solo está disponible para integrantes.");
+  }
+  if (!input || typeof input !== "object") throw new Error("Datos inválidos");
+
+  const updates = pickAllowedProfileUpdates(input, USER_PROFILE_ALLOWED_FIELDS);
+  assertRequiredProfileFields(updates);
+
+  const user = await User.findById(actor.id).select(SAFE_USER_SELECT);
+  if (!user) throw new Error("El usuario no existe");
+
+  for (const field of REQUIRED_PROFILE_FIELDS) {
+    const nextValue = Object.prototype.hasOwnProperty.call(updates, field)
+      ? updates[field]
+      : user[field];
+    if (typeof nextValue !== "string" || nextValue.trim() === "") {
+      throw new Error("Nombre, apellidos y celular son requeridos.");
+    }
+  }
+
+  return User.findByIdAndUpdate(
+    actor.id,
+    { $set: updates },
+    { new: true, runValidators: true },
+  ).select(SAFE_USER_SELECT);
 }
 
 async function deleteUser(id) {
@@ -614,6 +690,7 @@ module.exports = {
   uploadProfilePic,
   authUser,
   updateUser,
+  updateMyUserProfile,
   deleteUser,
   requestReset,
   resetPassword,

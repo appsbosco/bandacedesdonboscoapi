@@ -12,6 +12,15 @@ module.exports = {
     }
   },
 
+  updateMyParentProfile: async (_, { input }, ctx) => {
+    try {
+      return await parentService.updateMyParentProfile(input, ctx);
+    } catch (error) {
+      console.error("[updateMyParentProfile] Error:", error);
+      throw new Error(error.message || "Error actualizando perfil");
+    }
+  },
+
   addChildToParent: async (_, { input }, ctx) => {
     try {
       return await parentService.addChildToParent(input.childId, ctx);
