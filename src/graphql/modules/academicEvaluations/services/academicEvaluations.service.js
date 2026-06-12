@@ -781,8 +781,8 @@ async function seedAcademicRulesForYear(year, ctx) {
       order: 52,
     },
     {
-      name: "Física",
-      code: "FIS",
+      name: "Fisica Matemática",
+      code: "FIS-MAT",
       subjectType: "EXAM_BASED",
       grades: ["Décimo"],
       scienceGroup: "PHYSICS",
