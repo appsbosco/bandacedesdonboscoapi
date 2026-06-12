@@ -166,10 +166,9 @@ function normalizeSemester(value) {
 }
 
 function periodSemester(period) {
-  if (period?.semester) return Number(period.semester);
-  const name = String(period?.name || "").toLowerCase();
-  if (name.includes("ii semestre") || name.includes("segundo semestre")) return 2;
-  return 1;
+  const semester = Number(period?.semester);
+  if ([1, 2].includes(semester)) return semester;
+  return null;
 }
 
 function periodAcademicYear(period) {
@@ -198,6 +197,20 @@ async function hydrateAssessmentSlots(evaluations) {
       assessmentSlot: slotMap.get(slotId) || null,
     };
   });
+}
+
+async function loadEvaluationForGraphQL(id) {
+  const evaluation = await AcademicEvaluation.findById(id)
+    .select(EVAL_LIST_SELECT + " student")
+    .populate("student", "name firstSurName email grade instrument avatar _id")
+    .populate("subject", "name code isActive bands grades subjectType scienceGroup order _id")
+    .populate("period", "name year academicYear semester order isActive _id")
+    .populate("assessmentSlot", "academicYear semester slotKey label evaluationType subjectType appliesToGrades excludedGrades order isActive requiresEvidence _id")
+    .populate("reviewedByAdmin", "name firstSurName email _id")
+    .lean();
+
+  if (!evaluation) return null;
+  return (await hydrateAssessmentSlots([evaluation]))[0];
 }
 
 function escapeRegex(value) {
@@ -471,6 +484,7 @@ async function getEvaluationCoverageForStudents(students, filters = {}) {
       const periodsBySemester = new Map();
       for (const period of periods) {
         const sem = periodSemester(period);
+        if (![1, 2].includes(sem)) continue;
         if (!periodsBySemester.has(sem)) periodsBySemester.set(sem, period);
       }
 
@@ -596,23 +610,30 @@ async function getAcademicPeriods({ year, isActive } = {}, ctx) {
   const query = {};
   if (year) query.year = year;
   if (isActive !== undefined) query.isActive = isActive;
-  return AcademicPeriod.find(query).sort({ year: -1, order: 1 });
+  return AcademicPeriod.find(query).sort({ year: -1, semester: 1, order: 1 });
 }
 
 async function createAcademicPeriod(input, ctx) {
   requireAdmin(ctx);
-  const { name, year, order, isActive = true } = input;
+  const { name, year, semester, order, isActive = true } = input;
   if (!name) throw new Error("El nombre del período es requerido");
   if (!year) throw new Error("El año es requerido");
+  if (!semester) throw new Error("El semestre es requerido");
   if (order === undefined || order === null) throw new Error("El orden es requerido");
-  return AcademicPeriod.create({ name, year, order, isActive });
+  return AcademicPeriod.create({ name, year, semester, academicYear: year, order, isActive });
 }
 
 async function updateAcademicPeriod(id, input, ctx) {
   requireAdmin(ctx);
   const period = await AcademicPeriod.findById(id);
   if (!period) throw new Error("Período no encontrado");
+  if (input.semester === undefined || input.semester === null) {
+    throw new Error("El semestre es requerido");
+  }
   Object.assign(period, input);
+  if (!period.academicYear && period.year) {
+    period.academicYear = period.year;
+  }
   await period.save();
   return period;
 }
@@ -1012,7 +1033,7 @@ async function submitAcademicEvaluation(input, ctx) {
     migrationStatus: "MIGRATED",
   });
 
-  return evaluation.populate(["student", "subject", "period", "assessmentSlot", "reviewedByAdmin"]);
+  return loadEvaluationForGraphQL(evaluation._id);
 }
 
 async function updateOwnPendingEvaluation(id, input, ctx) {
@@ -1080,7 +1101,7 @@ async function updateOwnPendingEvaluation(id, input, ctx) {
   }
 
   await evaluation.save();
-  return evaluation.populate(["student", "subject", "period", "reviewedByAdmin"]);
+  return loadEvaluationForGraphQL(evaluation._id);
 }
 
 async function updateAcademicEvaluationAsAdmin(id, input, ctx) {
@@ -1106,7 +1127,7 @@ async function updateAcademicEvaluationAsAdmin(id, input, ctx) {
   evaluation.scoreNormalized100 = normalizeScore(newScoreRaw, newScaleMin, newScaleMax);
 
   await evaluation.save();
-  return evaluation.populate(["student", "subject", "period", "reviewedByAdmin"]);
+  return loadEvaluationForGraphQL(evaluation._id);
 }
 
 async function deleteAcademicEvaluationAsAdmin(id, ctx) {
@@ -1147,7 +1168,14 @@ async function reviewAcademicEvaluation(id, status, reviewComment, ctx) {
   } else {
     reviewer = await requireSectionReviewerAccessToStudent(ctx, evaluation.student);
     if (evaluation.status !== "pending") {
-      throw new Error("Solo puedes revisar evaluaciones pendientes");
+      const populated = await evaluation.populate([
+        "student",
+        "subject",
+        "period",
+        "assessmentSlot",
+        "reviewedByAdmin",
+      ]);
+      return (await hydrateAssessmentSlots([populated]))[0];
     }
   }
 
@@ -1157,7 +1185,7 @@ async function reviewAcademicEvaluation(id, status, reviewComment, ctx) {
   evaluation.reviewComment = reviewComment || null;
 
   await evaluation.save();
-  return evaluation.populate(["student", "subject", "period", "reviewedByAdmin"]);
+  return loadEvaluationForGraphQL(evaluation._id);
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -1369,6 +1397,7 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
   const evaluationTypeMap = {};
   for (const e of filteredEvals) {
     const semester = e.semester || e.period?.semester || periodSemester(e.period);
+    if (![1, 2].includes(Number(semester))) continue;
     const evaluationType = e.evaluationType || "EXAM";
     if (!semesterMap[semester]) semesterMap[semester] = [];
     if (!evaluationTypeMap[evaluationType]) evaluationTypeMap[evaluationType] = [];

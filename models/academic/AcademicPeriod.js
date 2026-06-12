@@ -9,7 +9,7 @@ const AcademicPeriodSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     year: { type: Number, required: true },
     academicYear: { type: Number },
-    semester: { type: Number, enum: [1, 2], default: undefined },
+    semester: { type: Number, enum: [1, 2], required: true },
     order: { type: Number, required: true },
     isActive: { type: Boolean, default: true },
   },

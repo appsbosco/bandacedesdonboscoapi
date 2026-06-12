@@ -407,7 +407,7 @@ module.exports = gql`
     name: String!
     year: Int!
     academicYear: Int
-    semester: Int
+    semester: Int!
     order: Int!
     isActive: Boolean
   }
