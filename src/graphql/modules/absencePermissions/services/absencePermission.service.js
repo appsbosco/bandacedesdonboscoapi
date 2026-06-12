@@ -15,6 +15,7 @@ const PERMISSION_TYPES = new Set([
   "LATE_ARRIVAL",
   "EARLY_WITHDRAWAL",
 ]);
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // ============================================
 // AUTH HELPERS
@@ -174,6 +175,39 @@ function validatePermissionType(permissionType) {
   return normalized;
 }
 
+function validateTimeValue(value, fieldLabel) {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = String(value).trim();
+  if (!TIME_PATTERN.test(normalized)) {
+    throw new Error(`${fieldLabel} debe tener formato HH:mm`);
+  }
+  return normalized;
+}
+
+function validatePermissionTimeDetails(permissionType, arrivalTime, withdrawalTime) {
+  const normalizedArrivalTime = validateTimeValue(arrivalTime, "La hora de llegada");
+  const normalizedWithdrawalTime = validateTimeValue(
+    withdrawalTime,
+    "La hora de retiro",
+  );
+
+  if (permissionType === "LATE_ARRIVAL") {
+    if (!normalizedArrivalTime) {
+      throw new Error("La hora de llegada al ensayo es requerida");
+    }
+    return { arrivalTime: normalizedArrivalTime, withdrawalTime: null };
+  }
+
+  if (permissionType === "EARLY_WITHDRAWAL") {
+    if (!normalizedWithdrawalTime) {
+      throw new Error("La hora de retiro es requerida");
+    }
+    return { arrivalTime: null, withdrawalTime: normalizedWithdrawalTime };
+  }
+
+  return { arrivalTime: null, withdrawalTime: null };
+}
+
 async function validateTargetExists(targetType, rehearsalSessionId, eventId) {
   if (targetType === "REHEARSAL") {
     if (eventId) {
@@ -237,6 +271,28 @@ async function checkDuplicate(studentId, targetType, rehearsalSessionId, eventId
   }
 }
 
+function isPermissionOwner(actor, permission) {
+  const actorId = String(actor._id || actor.id);
+  return (
+    (permission.requesterType === "PARENT" &&
+      permission.requestedByParent &&
+      String(permission.requestedByParent) === actorId) ||
+    (permission.requesterType === "USER" &&
+      permission.requestedByUser &&
+      String(permission.requestedByUser) === actorId)
+  );
+}
+
+async function populatePermission(id) {
+  return await AbsencePermission.findById(id)
+    .populate("student")
+    .populate("requestedByParent")
+    .populate("requestedByUser")
+    .populate("rehearsalSession")
+    .populate("event")
+    .populate("reviewedBy");
+}
+
 // ============================================
 // MUTATIONS
 // ============================================
@@ -250,6 +306,8 @@ async function createAbsencePermissionRequest(input, ctx) {
     rehearsalSessionId,
     eventId,
     reason,
+    arrivalTime,
+    withdrawalTime,
     attachments,
   } = input;
   const validatedPermissionType = validatePermissionType(permissionType);
@@ -260,6 +318,11 @@ async function createAbsencePermissionRequest(input, ctx) {
     );
   }
   const validatedAttachments = validateAttachments(attachments);
+  const validatedTimeDetails = validatePermissionTimeDetails(
+    validatedPermissionType,
+    arrivalTime,
+    withdrawalTime,
+  );
 
   // Determine requester type and validate authorization
   let requesterType;
@@ -315,6 +378,8 @@ async function createAbsencePermissionRequest(input, ctx) {
     event: event ? event._id : null,
     absenceDate,
     reason: reason.trim(),
+    arrivalTime: validatedTimeDetails.arrivalTime,
+    withdrawalTime: validatedTimeDetails.withdrawalTime,
     attachments: validatedAttachments,
     requestStatus: "PENDING",
     justificationStatus: "PENDING_REVIEW",
@@ -330,13 +395,77 @@ async function createAbsencePermissionRequest(input, ctx) {
     ],
   });
 
-  return await AbsencePermission.findById(doc._id)
-    .populate("student")
-    .populate("requestedByParent")
-    .populate("requestedByUser")
-    .populate("rehearsalSession")
-    .populate("event")
-    .populate("reviewedBy");
+  return await populatePermission(doc._id);
+}
+
+async function updateAbsencePermissionRequest(id, input, ctx) {
+  const actor = requireAuth(ctx);
+  const permission = await AbsencePermission.findById(id);
+  if (!permission) throw new Error("Solicitud de permiso no encontrada");
+
+  if (permission.requestStatus === "APPROVED") {
+    throw new Error("No se puede modificar una solicitud aprobada");
+  }
+  if (permission.requestStatus === "CANCELLED") {
+    throw new Error("No se puede modificar una solicitud cancelada");
+  }
+
+  if (!isAdmin(actor) && !isPermissionOwner(actor, permission)) {
+    throw new Error("No tienes permiso para modificar esta solicitud");
+  }
+
+  const nextPermissionType =
+    input.permissionType !== undefined
+      ? validatePermissionType(input.permissionType)
+      : permission.permissionType || "ABSENCE";
+
+  const nextReason =
+    input.reason !== undefined ? String(input.reason).trim() : permission.reason;
+  if (!nextReason || nextReason.length < 5) {
+    throw new Error(
+      "El motivo de la solicitud debe tener al menos 5 caracteres",
+    );
+  }
+
+  const nextArrivalTime =
+    input.arrivalTime !== undefined ? input.arrivalTime : permission.arrivalTime;
+  const nextWithdrawalTime =
+    input.withdrawalTime !== undefined
+      ? input.withdrawalTime
+      : permission.withdrawalTime;
+  const validatedTimeDetails = validatePermissionTimeDetails(
+    nextPermissionType,
+    nextArrivalTime,
+    nextWithdrawalTime,
+  );
+
+  permission.permissionType = nextPermissionType;
+  permission.reason = nextReason;
+  permission.arrivalTime = validatedTimeDetails.arrivalTime;
+  permission.withdrawalTime = validatedTimeDetails.withdrawalTime;
+  if (input.attachments !== undefined) {
+    permission.attachments = validateAttachments(input.attachments);
+  }
+
+  if (permission.requestStatus === "REJECTED") {
+    permission.requestStatus = "PENDING";
+    permission.justificationStatus = "PENDING_REVIEW";
+    permission.reviewedBy = null;
+    permission.reviewedAt = null;
+    permission.adminNotes = null;
+  }
+
+  permission.statusHistory.push({
+    requestStatus: permission.requestStatus,
+    justificationStatus: permission.justificationStatus,
+    changedBy: isParent(actor) ? null : actor._id || actor.id,
+    changedByModel: isParent(actor) ? "Parent" : "User",
+    notes: "Solicitud modificada por el solicitante",
+    changedAt: new Date(),
+  });
+
+  await permission.save();
+  return await populatePermission(id);
 }
 
 async function reviewAbsencePermissionRequest(id, input, ctx) {
@@ -861,6 +990,7 @@ async function getAbsencePermission(id, ctx) {
 module.exports = {
   // Mutations
   createAbsencePermissionRequest,
+  updateAbsencePermissionRequest,
   reviewAbsencePermissionRequest,
   cancelAbsencePermissionRequest,
   reopenAbsencePermissionRequest,

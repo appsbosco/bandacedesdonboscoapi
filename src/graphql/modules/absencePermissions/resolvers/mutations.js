@@ -17,6 +17,14 @@ module.exports = {
     }
   },
 
+  updateAbsencePermissionRequest: async (_, { id, input }, ctx) => {
+    try {
+      return await service.updateAbsencePermissionRequest(id, input, ctx);
+    } catch (error) {
+      throw new Error(error.message);
+    }
+  },
+
   cancelAbsencePermissionRequest: async (_, { id }, ctx) => {
     try {
       return await service.cancelAbsencePermissionRequest(id, ctx);

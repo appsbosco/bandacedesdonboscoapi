@@ -78,6 +78,14 @@ const AbsencePermissionSchema = new mongoose.Schema(
       trim: true,
       maxlength: 1000,
     },
+    arrivalTime: {
+      type: String,
+      match: /^([01]\d|2[0-3]):[0-5]\d$/,
+    },
+    withdrawalTime: {
+      type: String,
+      match: /^([01]\d|2[0-3]):[0-5]\d$/,
+    },
     attachments: [{ type: String }],
 
     // ─── Request lifecycle ────────────────────────────────────────────────

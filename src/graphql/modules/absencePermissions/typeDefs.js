@@ -50,6 +50,8 @@ module.exports = gql`
     event: Event
     absenceDate: String!
     reason: String!
+    arrivalTime: String
+    withdrawalTime: String
     attachments: [String!]!
     requestStatus: AbsenceRequestStatus!
     justificationStatus: AbsenceJustificationStatus!
@@ -101,6 +103,16 @@ module.exports = gql`
     rehearsalSessionId: ID
     eventId: ID
     reason: String!
+    arrivalTime: String
+    withdrawalTime: String
+    attachments: [String!]
+  }
+
+  input UpdateAbsencePermissionInput {
+    permissionType: AbsencePermissionType
+    reason: String
+    arrivalTime: String
+    withdrawalTime: String
     attachments: [String!]
   }
 
@@ -190,6 +202,12 @@ module.exports = gql`
     # Called by a parent (for a child) or an exalumno (for themselves)
     createAbsencePermissionRequest(
       input: CreateAbsencePermissionInput!
+    ): AbsencePermission!
+
+    # Requester can edit their own request while it is not approved/cancelled
+    updateAbsencePermissionRequest(
+      id: ID!
+      input: UpdateAbsencePermissionInput!
     ): AbsencePermission!
 
     # Admin / authorized role: approve, reject, and set justification
