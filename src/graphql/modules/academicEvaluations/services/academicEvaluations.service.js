@@ -175,6 +175,28 @@ function periodAcademicYear(period) {
   return Number(period?.academicYear || period?.year);
 }
 
+function slotOrder(slot) {
+  const order = Number(slot?.order);
+  return Number.isFinite(order) && order > 0 ? order : null;
+}
+
+async function resolveCanonicalPeriodForSlot(period, slot) {
+  const academicYear = Number(slot?.academicYear);
+  const semester = Number(slot?.semester);
+  const order = slotOrder(slot);
+
+  if (!academicYear || !semester || !order) return period;
+
+  const canonicalPeriod = await AcademicPeriod.findOne({
+    isActive: true,
+    semester,
+    order,
+    $or: [{ academicYear }, { year: academicYear }],
+  });
+
+  return canonicalPeriod || period;
+}
+
 async function hydrateAssessmentSlots(evaluations) {
   const slotIds = [...new Set(
     (evaluations || [])
@@ -993,6 +1015,8 @@ async function submitAcademicEvaluation(input, ctx) {
     throw new Error("El período no coincide con el año y semestre de la obligación académica");
   }
 
+  const resolvedPeriod = await resolveCanonicalPeriodForSlot(period, slot);
+
   const existing = await AcademicEvaluation.exists({
     student: userId,
     subject: subjectId,
@@ -1009,7 +1033,7 @@ async function submitAcademicEvaluation(input, ctx) {
   const evaluation = await AcademicEvaluation.create({
     student: userId,
     subject: subjectId,
-    period: periodId,
+    period: resolvedPeriod._id,
     assessmentSlot: assessmentSlotId,
     academicYear,
     semester,
