@@ -390,6 +390,15 @@ module.exports = gql`
     message: String!
   }
 
+  type AcademicSemesterToggleResult {
+    success: Boolean!
+    academicYear: Int!
+    semester: Int!
+    slotsAffected: Int!
+    periodsAffected: Int!
+    message: String!
+  }
+
   # ─── Inputs ──────────────────────────────────────────────────────────────────
 
   input AcademicSubjectInput {
@@ -577,6 +586,8 @@ module.exports = gql`
     ): AcademicAssessmentSlot!
     deleteOrDeactivateAcademicAssessmentSlot(id: ID!): String!
     seedAcademicRulesForYear(year: Int!): AcademicSeedResult!
+    activateAcademicSemester(year: Int!, semester: Int!): AcademicSemesterToggleResult!
+    deactivateAcademicSemester(year: Int!, semester: Int!): AcademicSemesterToggleResult!
 
     submitAcademicEvaluation(
       input: SubmitAcademicEvaluationInput!

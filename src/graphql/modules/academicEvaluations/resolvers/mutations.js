@@ -84,6 +84,24 @@ module.exports = {
     }
   },
 
+  activateAcademicSemester: async (_, { year, semester }, ctx) => {
+    try {
+      return await svc.activateAcademicSemester(year, semester, ctx);
+    } catch (e) {
+      console.error("[mutation:activateAcademicSemester]", e.message);
+      throw new Error(e.message || "Error al habilitar semestre");
+    }
+  },
+
+  deactivateAcademicSemester: async (_, { year, semester }, ctx) => {
+    try {
+      return await svc.deactivateAcademicSemester(year, semester, ctx);
+    } catch (e) {
+      console.error("[mutation:deactivateAcademicSemester]", e.message);
+      throw new Error(e.message || "Error al deshabilitar semestre");
+    }
+  },
+
   submitAcademicEvaluation: async (_, { input }, ctx) => {
     try {
       return await svc.submitAcademicEvaluation(input, ctx);

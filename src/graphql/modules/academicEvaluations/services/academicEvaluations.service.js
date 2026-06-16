@@ -183,16 +183,14 @@ function slotOrder(slot) {
 async function resolveCanonicalPeriodForSlot(period, slot) {
   const academicYear = Number(slot?.academicYear);
   const semester = Number(slot?.semester);
-  const order = slotOrder(slot);
+  if (!academicYear || !semester) return period;
 
-  if (!academicYear || !semester || !order) return period;
-
+  // Hay exactamente 1 período por semestre — lo resolvemos por año+semestre
   const canonicalPeriod = await AcademicPeriod.findOne({
     isActive: true,
     semester,
-    order,
     $or: [{ academicYear }, { year: academicYear }],
-  });
+  }).lean();
 
   return canonicalPeriod || period;
 }
@@ -434,11 +432,6 @@ async function getAcademicCoverageForStudents(students, filters = {}) {
   });
 }
 
-function subjectAppliesToGrade(subject, grade) {
-  const grades = Array.isArray(subject.grades) ? subject.grades.filter(Boolean) : [];
-  return grades.length === 0 || grades.includes(grade);
-}
-
 async function getEvaluationCoverageForStudents(students, filters = {}) {
   if (students.length === 0) return new Map();
 
@@ -570,8 +563,26 @@ async function getAcademicSubjects({ grade, isActive } = {}, ctx) {
   return AcademicSubject.find(query).sort({ name: 1 });
 }
 
+const SCIENCE_GROUPS = new Set(["GENERAL_SCIENCE", "BIOLOGY", "CHEMISTRY", "PHYSICS"]);
+
+function validateSubjectInput(input, { requireCode = true } = {}) {
+  const name = String(input.name || "").trim();
+  const code = String(input.code || "").trim();
+  const scienceGroup = input.scienceGroup ?? null;
+
+  if (!name) throw new Error("El nombre de la materia es requerido");
+  if (requireCode && !code) throw new Error("El código de la materia es requerido");
+  if (code && !/^[A-Z0-9\-]+$/i.test(code)) {
+    throw new Error("El código solo puede contener letras, números y guiones");
+  }
+  if (scienceGroup !== null && scienceGroup !== undefined && !SCIENCE_GROUPS.has(scienceGroup)) {
+    throw new Error(`scienceGroup inválido. Valores permitidos: ${[...SCIENCE_GROUPS].join(", ")}`);
+  }
+}
+
 async function createAcademicSubject(input, ctx) {
   requireAdmin(ctx);
+  validateSubjectInput(input);
   const {
     name,
     code,
@@ -582,27 +593,32 @@ async function createAcademicSubject(input, ctx) {
     scienceGroup = null,
     order = 0,
   } = input;
-  if (!name) throw new Error("El nombre de la materia es requerido");
   return AcademicSubject.create({
-    name,
-    code,
+    name: name.trim(),
+    code: code.trim(),
     isActive,
     bands,
     grades,
     subjectType,
-    scienceGroup,
+    scienceGroup: scienceGroup || null,
     order,
   });
 }
 
 async function updateAcademicSubject(id, input, ctx) {
   requireAdmin(ctx);
+  validateSubjectInput(input);
   const subject = await AcademicSubject.findById(id);
   if (!subject) throw new Error("Materia no encontrada");
   // Normalize grades/bands: treat null as [] so queries using $size:0 keep working
   const sanitized = { ...input };
   if (sanitized.grades == null) sanitized.grades = [];
   if (sanitized.bands == null) sanitized.bands = [];
+  if (sanitized.name) sanitized.name = sanitized.name.trim();
+  if (sanitized.code) sanitized.code = sanitized.code.trim();
+  if (sanitized.scienceGroup === undefined || sanitized.scienceGroup === "") {
+    sanitized.scienceGroup = null;
+  }
   Object.assign(subject, sanitized);
   await subject.save();
   return subject;
@@ -803,7 +819,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       order: 52,
     },
     {
-      name: "Fisica Matemática",
+      name: "Física Matemática",
       code: "FIS-MAT",
       subjectType: "EXAM_BASED",
       grades: ["Décimo"],
@@ -830,8 +846,9 @@ async function seedAcademicRulesForYear(year, ctx) {
   ];
 
   const periodSeeds = [
-    { name: `I Semestre ${academicYear}`, year: academicYear, academicYear, semester: 1, order: 1, isActive: true },
-    { name: `II Semestre ${academicYear}`, year: academicYear, academicYear, semester: 2, order: 2, isActive: true },
+    { name: `I Semestre ${academicYear}`,  year: academicYear, academicYear, semester: 1, order: 1, isActive: true  },
+    // El segundo semestre se crea desactivado — activar manualmente cuando corresponda
+    { name: `II Semestre ${academicYear}`, year: academicYear, academicYear, semester: 2, order: 2, isActive: false },
   ];
 
   const slotSeeds = [
@@ -861,6 +878,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       isActive: true,
       requiresEvidence: true,
     },
+    // Semestre 2 — desactivado hasta apertura oficial
     {
       academicYear,
       semester: 2,
@@ -871,7 +889,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       appliesToGrades: [],
       excludedGrades: primaryGrades,
       order: 1,
-      isActive: true,
+      isActive: false,
       requiresEvidence: true,
     },
     {
@@ -884,7 +902,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       appliesToGrades: [],
       excludedGrades: primaryGrades,
       order: 2,
-      isActive: true,
+      isActive: false,
       requiresEvidence: true,
     },
     {
@@ -900,6 +918,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       isActive: true,
       requiresEvidence: true,
     },
+    // Semestre 2 — desactivado hasta apertura oficial
     {
       academicYear,
       semester: 2,
@@ -910,7 +929,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       appliesToGrades: primaryGrades,
       excludedGrades: [],
       order: 1,
-      isActive: true,
+      isActive: false,
       requiresEvidence: true,
     },
     {
@@ -926,6 +945,7 @@ async function seedAcademicRulesForYear(year, ctx) {
       isActive: true,
       requiresEvidence: true,
     },
+    // Semestre 2 — desactivado hasta apertura oficial
     {
       academicYear,
       semester: 2,
@@ -936,8 +956,63 @@ async function seedAcademicRulesForYear(year, ctx) {
       appliesToGrades: [],
       excludedGrades: [],
       order: 3,
-      isActive: true,
+      isActive: false,
       requiresEvidence: true,
+    },
+    // Nota final semestre 1 para materias EXAM_BASED (secundaria/bachillerato)
+    {
+      academicYear,
+      semester: 1,
+      slotKey: "S1_EXAM_FINAL",
+      label: "I Semestre - Nota final",
+      evaluationType: "FINAL_GRADE",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: [],
+      excludedGrades: primaryGrades,
+      order: 3,
+      isActive: true,
+      requiresEvidence: false,
+    },
+    // Nota final semestre 1 para materias EXAM_BASED (primaria)
+    {
+      academicYear,
+      semester: 1,
+      slotKey: "S1_PRIMARY_FINAL",
+      label: "I Semestre - Nota final",
+      evaluationType: "FINAL_GRADE",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: primaryGrades,
+      excludedGrades: [],
+      order: 2,
+      isActive: true,
+      requiresEvidence: false,
+    },
+    // Semestre 2 — desactivado hasta apertura oficial
+    {
+      academicYear,
+      semester: 2,
+      slotKey: "S2_EXAM_FINAL",
+      label: "II Semestre - Nota final",
+      evaluationType: "FINAL_GRADE",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: [],
+      excludedGrades: primaryGrades,
+      order: 3,
+      isActive: false,
+      requiresEvidence: false,
+    },
+    {
+      academicYear,
+      semester: 2,
+      slotKey: "S2_PRIMARY_FINAL",
+      label: "II Semestre - Nota final",
+      evaluationType: "FINAL_GRADE",
+      subjectType: "EXAM_BASED",
+      appliesToGrades: primaryGrades,
+      excludedGrades: [],
+      order: 2,
+      isActive: false,
+      requiresEvidence: false,
     },
   ];
 
@@ -954,6 +1029,46 @@ async function seedAcademicRulesForYear(year, ctx) {
     slotsUpserted: slots.length,
     message: `Reglas académicas ${academicYear} inicializadas`,
   };
+}
+
+// ─── Semester activation ─────────────────────────────────────────────────────
+
+async function toggleAcademicSemester(year, semester, activate, ctx) {
+  requireAdmin(ctx);
+  const academicYear = Number(year);
+  const sem = Number(semester);
+  if (!academicYear || academicYear < 2000) throw new Error("Año académico inválido");
+  if (![1, 2].includes(sem)) throw new Error("El semestre debe ser 1 o 2");
+
+  const [slotResult, periodResult] = await Promise.all([
+    AcademicAssessmentSlot.updateMany(
+      { academicYear, semester: sem },
+      { $set: { isActive: activate } }
+    ),
+    AcademicPeriod.updateMany(
+      { $or: [{ academicYear }, { year: academicYear }], semester: sem },
+      { $set: { isActive: activate } }
+    ),
+  ]);
+
+  const label = sem === 1 ? "I" : "II";
+  const action = activate ? "habilitado" : "deshabilitado";
+  return {
+    success: true,
+    academicYear,
+    semester: sem,
+    slotsAffected: slotResult.modifiedCount,
+    periodsAffected: periodResult.modifiedCount,
+    message: `${label} Semestre ${academicYear} ${action} correctamente (${slotResult.modifiedCount} slot(s), ${periodResult.modifiedCount} período(s))`,
+  };
+}
+
+async function activateAcademicSemester(year, semester, ctx) {
+  return toggleAcademicSemester(year, semester, true, ctx);
+}
+
+async function deactivateAcademicSemester(year, semester, ctx) {
+  return toggleAcademicSemester(year, semester, false, ctx);
 }
 
 // ─── Evaluations — CRUD ───────────────────────────────────────────────────────
@@ -994,6 +1109,20 @@ async function submitAcademicEvaluation(input, ctx) {
   if (!subject || !subject.isActive) throw new Error("Materia no encontrada o inactiva");
   if (!period || !period.isActive) throw new Error("Período no encontrado o inactivo");
   if (!slot || !slot.isActive) throw new Error("Obligación académica no encontrada o inactiva");
+
+  // Verifica que el semestre del slot tenga un período activo — bloquea S2 mientras no esté habilitado
+  const activeSemesterPeriod = await AcademicPeriod.findOne({
+    $or: [{ academicYear: Number(slot.academicYear) }, { year: Number(slot.academicYear) }],
+    semester: Number(slot.semester),
+    isActive: true,
+  }).lean();
+  if (!activeSemesterPeriod) {
+    const label = slot.semester === 1 ? "I" : "II";
+    throw new Error(
+      `El ${label} Semestre aún no está habilitado para recibir evaluaciones`
+    );
+  }
+
   if (!studentFull?.grade) throw new Error("Tu perfil no tiene nivel académico asignado");
   if (slot.requiresEvidence !== false && (!evidenceUrl || !evidencePublicId)) {
     throw new Error("La evidencia es requerida");
@@ -2117,4 +2246,6 @@ module.exports = {
   getSectionInstrumentOverview,
   getSectionPendingEvaluations,
   acknowledgeChildPerformance,
+  activateAcademicSemester,
+  deactivateAcademicSemester,
 };

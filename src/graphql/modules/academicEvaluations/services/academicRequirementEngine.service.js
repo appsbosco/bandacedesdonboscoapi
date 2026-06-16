@@ -55,9 +55,11 @@ function getExpectedRequirementsForStudentFromData(student, subjects, slots, opt
   const academicYear = options.academicYear ? Number(options.academicYear) : null;
   const semester = options.semester ? Number(options.semester) : null;
 
-  const applicableSubjects = subjects.filter(
-    (subject) => subject?.isActive !== false && subjectAppliesToGrade(subject, grade)
-  );
+  const applicableSubjects = subjects.filter((subject) => {
+    if (subject?.isActive === false) return false;
+    if (!subject?.subjectType) return false; // salta materias sin subjectType (docs legacy sin campo)
+    return subjectAppliesToGrade(subject, grade);
+  });
   const applicableSlots = slots.filter((slot) => {
     if (slot?.isActive === false) return false;
     if (academicYear && Number(slot.academicYear) !== academicYear) return false;
