@@ -1433,6 +1433,57 @@ async function getEvaluationDetail(id, ctx) {
 
 // ─── Performance calculation ──────────────────────────────────────────────────
 
+function buildRiskReasons({ avgGeneral, coveragePercentage, riskSubjects, trendDelta, approvedCount, pendingCount }) {
+  const RULES = requirementEngine.RISK_RULES;
+
+  if (approvedCount === 0) {
+    if (pendingCount > 0) {
+      return [`Sin evaluaciones aprobadas aún (${pendingCount} pendiente${pendingCount !== 1 ? "s" : ""} de revisión). El promedio se calculará cuando se aprueben.`];
+    }
+    return ["Sin evaluaciones registradas todavía."];
+  }
+
+  const avg = Math.round(avgGeneral * 10) / 10;
+  const cov = Math.round(coveragePercentage);
+  const reasons = [];
+
+  if (avg < RULES.redAverageBelow) {
+    reasons.push(`Promedio de ${avg}/100 — por debajo del mínimo aprobatorio (70).`);
+  } else if (avg < RULES.yellowAverageBelow) {
+    reasons.push(`Promedio de ${avg}/100 — en zona de alerta (se requiere superar 80 para estar en verde).`);
+  } else {
+    reasons.push(`Promedio de ${avg}/100 — satisfactorio.`);
+  }
+
+  if (cov < RULES.redCoverageBelow) {
+    reasons.push(`Cobertura del ${cov}% — muy baja. Faltan muchas evaluaciones por entregar (mínimo requerido: 60%).`);
+  } else if (cov <= RULES.yellowCoverageBelowOrEqual) {
+    reasons.push(`Cobertura del ${cov}% — incompleta. Aún faltan evaluaciones por entregar.`);
+  }
+
+  const belowThreshold = riskSubjects.filter((s) => s.reason === "BELOW_THRESHOLD");
+  const belowGeneral = riskSubjects.filter((s) => s.reason === "BELOW_GENERAL");
+
+  if (belowThreshold.length > 0) {
+    const names = belowThreshold.map((s) => `${s.subjectName} (${s.average})`).join(", ");
+    reasons.push(`${belowThreshold.length === 1 ? "1 materia" : `${belowThreshold.length} materias`} con nota por debajo de 70: ${names}.`);
+  }
+  if (belowGeneral.length > 0) {
+    const names = belowGeneral.map((s) => `${s.subjectName} (${s.average})`).join(", ");
+    reasons.push(`${belowGeneral.length === 1 ? "1 materia" : `${belowGeneral.length} materias`} muy por debajo del promedio general: ${names}.`);
+  }
+
+  if (trendDelta <= -10) {
+    reasons.push(`Caída importante: el promedio bajó ${Math.abs(trendDelta)} puntos respecto al período anterior.`);
+  } else if (trendDelta <= -5) {
+    reasons.push(`Tendencia a la baja: bajó ${Math.abs(trendDelta)} puntos respecto al período anterior.`);
+  } else if (trendDelta >= 10) {
+    reasons.push(`Tendencia positiva: el promedio subió ${trendDelta} puntos respecto al período anterior.`);
+  }
+
+  return reasons;
+}
+
 /**
  * Versión SINCRÓNICA de cálculo de rendimiento.
  * Recibe datos pre-cargados — cero queries adicionales a MongoDB.
@@ -1473,6 +1524,14 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
       riskLevel: requirementEngine.calculateRiskLevel({
         averageFromSubmittedApproved: 0,
         coveragePercentage: coverageSummary?.coveragePercentage ?? 100,
+      }),
+      riskReasons: buildRiskReasons({
+        avgGeneral: 0,
+        coveragePercentage: coverageSummary?.coveragePercentage ?? 100,
+        riskSubjects: [],
+        trendDelta: 0,
+        approvedCount,
+        pendingCount,
       }),
       averageFromSubmittedApproved: 0,
       coveragePercentage: coverageSummary?.coveragePercentage ?? 100,
@@ -1589,6 +1648,14 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
     riskSubjects,
     riskScore,
     riskLevel,
+    riskReasons: buildRiskReasons({
+      avgGeneral,
+      coveragePercentage,
+      riskSubjects,
+      trendDelta,
+      approvedCount,
+      pendingCount,
+    }),
     recentEvaluations: filteredEvals.slice(-5).reverse(),
   };
 }
@@ -1931,56 +1998,88 @@ async function getAdminRiskRanking(filter = {}, limit = 20, ctx) {
   requireAdmin(ctx);
   const { periodId, year, grade, instrument } = filter;
 
-  // ── OPTIMIZACIÓN: reutiliza datos del mismo dataset, sin N+1 ─────────────────
   const approvedQuery = { status: "approved" };
   if (periodId) approvedQuery.period = new mongoose.Types.ObjectId(String(periodId));
 
-  const [approvedEvals, allEvalsCounts] = await Promise.all([
+  // allEvals now populates student so we can filter by grade/instrument for pending-only students
+  const [approvedEvals, allEvals] = await Promise.all([
     AcademicEvaluation.find(approvedQuery)
       .select("student subject period scoreNormalized100 createdAt")
       .populate("subject", "name _id")
       .populate("period", "name year order _id")
       .populate("student", "name firstSurName grade bands instrument _id")
       .lean(),
-    AcademicEvaluation.find({}).select("student status").lean(),
+    AcademicEvaluation.find({})
+      .select("student status")
+      .populate("student", "name firstSurName grade instrument _id")
+      .lean(),
   ]);
 
-  let filtered = approvedEvals;
-  if (grade) filtered = filtered.filter((e) => e.student?.grade === grade);
-  if (instrument) filtered = filtered.filter((e) =>
+  // Filter approved by grade/instrument/year
+  let filteredApproved = approvedEvals;
+  if (grade) filteredApproved = filteredApproved.filter((e) => e.student?.grade === grade);
+  if (instrument) filteredApproved = filteredApproved.filter((e) =>
     e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
   );
-  if (year) filtered = filtered.filter((e) => e.period?.year === Number(year));
+  if (year) filteredApproved = filteredApproved.filter((e) => e.period?.year === Number(year));
 
-  const studentIds = [...new Set(filtered.map((e) => String(e.student?._id || e.student)))];
+  // Filter all evals by grade/instrument to discover pending-only students
+  let filteredAll = allEvals;
+  if (grade) filteredAll = filteredAll.filter((e) => e.student?.grade === grade);
+  if (instrument) filteredAll = filteredAll.filter((e) =>
+    e.student?.instrument?.toLowerCase().includes(instrument.toLowerCase())
+  );
+
+  // Union: students from approved + students who only have pending/rejected evals
+  const approvedStudentSet = new Set(
+    filteredApproved.map((e) => String(e.student?._id || e.student))
+  );
+  const allStudentIds = [
+    ...new Set([
+      ...approvedStudentSet,
+      ...filteredAll.map((e) => String(e.student?._id || e.student)).filter(Boolean),
+    ]),
+  ];
 
   const approvedByStudent = {};
   const allByStudent = {};
-  for (const e of filtered) {
+  const studentDocById = {};
+
+  for (const e of filteredApproved) {
     const sid = String(e.student?._id || e.student);
     if (!approvedByStudent[sid]) approvedByStudent[sid] = [];
     approvedByStudent[sid].push(e);
+    if (e.student?._id && !studentDocById[sid]) studentDocById[sid] = e.student;
   }
-  for (const e of allEvalsCounts) {
-    const sid = String(e.student);
-    if (studentIds.includes(sid)) {
-      if (!allByStudent[sid]) allByStudent[sid] = [];
-      allByStudent[sid].push(e);
-    }
+  for (const e of filteredAll) {
+    const sid = String(e.student?._id || e.student);
+    if (!sid) continue;
+    if (!allByStudent[sid]) allByStudent[sid] = [];
+    allByStudent[sid].push(e);
+    if (e.student?._id && !studentDocById[sid]) studentDocById[sid] = e.student;
   }
 
-  const performances = studentIds.map((sid) => {
+  const performances = allStudentIds.map((sid) => {
     const approved = approvedByStudent[sid] || [];
     const all = allByStudent[sid] || [];
     const perf = computePerformanceFromData(sid, approved, all, { periodId, year });
-    const studentDoc = approved[0]?.student;
+    const studentDoc = studentDocById[sid];
     perf.studentName = studentDoc ? `${studentDoc.name} ${studentDoc.firstSurName}` : "Desconocido";
     perf.recentEvaluations = [];
     return perf;
   });
 
   return performances
-    .sort((a, b) => a.averageGeneral - b.averageGeneral)
+    .sort((a, b) => {
+      // Students with approved evals: sort ascending by average (worst risk first)
+      // Students with only pending/rejected evals: sort after, by pending count desc
+      if (a.approvedCount > 0 && b.approvedCount === 0) return -1;
+      if (a.approvedCount === 0 && b.approvedCount > 0) return 1;
+      if (a.approvedCount === 0 && b.approvedCount === 0) {
+        return b.pendingCount - a.pendingCount;
+      }
+      return a.averageGeneral - b.averageGeneral;
+    })
     .slice(0, limit);
 }
 

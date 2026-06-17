@@ -318,6 +318,7 @@ module.exports = gql`
     riskSubjects: [AcademicRiskSubject!]!
     riskScore: Int!
     riskLevel: RiskLevel!
+    riskReasons: [String!]!
     recentEvaluations: [AcademicEvaluation!]!
   }
 
