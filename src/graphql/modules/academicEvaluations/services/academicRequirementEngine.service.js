@@ -202,15 +202,11 @@ function calculateRiskLevel({ averageFromSubmittedApproved, coveragePercentage }
   const average = Number(averageFromSubmittedApproved || 0);
   const coverage = Number(coveragePercentage || 0);
 
-  if (average < RISK_RULES.redAverageBelow || coverage < RISK_RULES.redCoverageBelow) {
-    return "RED";
-  }
-  if (
-    average < RISK_RULES.yellowAverageBelow ||
-    coverage <= RISK_RULES.yellowCoverageBelowOrEqual
-  ) {
-    return "YELLOW";
-  }
+  // Risk level is based on academic performance (average) only.
+  // Coverage is tracked and shown in riskReasons but does NOT change the level —
+  // missing submissions often reflect upcoming evaluations, not academic failure.
+  if (average < RISK_RULES.redAverageBelow) return "RED";
+  if (average < RISK_RULES.yellowAverageBelow) return "YELLOW";
   return "GREEN";
 }
 

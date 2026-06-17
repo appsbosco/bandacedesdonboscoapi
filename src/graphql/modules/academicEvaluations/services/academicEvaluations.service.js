@@ -1456,9 +1456,9 @@ function buildRiskReasons({ avgGeneral, coveragePercentage, riskSubjects, trendD
   }
 
   if (cov < RULES.redCoverageBelow) {
-    reasons.push(`Cobertura del ${cov}% — muy baja. Faltan muchas evaluaciones por entregar (mínimo requerido: 60%).`);
+    reasons.push(`Cobertura del ${cov}% — faltan evaluaciones por entregar o registrar. Puede incluir evaluaciones aún no realizadas.`);
   } else if (cov <= RULES.yellowCoverageBelowOrEqual) {
-    reasons.push(`Cobertura del ${cov}% — incompleta. Aún faltan evaluaciones por entregar.`);
+    reasons.push(`Cobertura del ${cov}% — algunas evaluaciones aún pendientes de entrega o registro.`);
   }
 
   const belowThreshold = riskSubjects.filter((s) => s.reason === "BELOW_THRESHOLD");
@@ -1470,7 +1470,7 @@ function buildRiskReasons({ avgGeneral, coveragePercentage, riskSubjects, trendD
   }
   if (belowGeneral.length > 0) {
     const names = belowGeneral.map((s) => `${s.subjectName} (${s.average})`).join(", ");
-    reasons.push(`${belowGeneral.length === 1 ? "1 materia" : `${belowGeneral.length} materias`} muy por debajo del promedio general: ${names}.`);
+    reasons.push(`${belowGeneral.length === 1 ? "1 materia aprobada" : `${belowGeneral.length} materias aprobadas`} notablemente por debajo de su propio promedio: ${names}. (Aprobadas, pero con margen de mejora.)`);
   }
 
   if (trendDelta <= -10) {
@@ -1597,13 +1597,17 @@ function computePerformanceFromData(studentId, approvedEvals, allEvals, filters 
     }));
 
   const riskScore = riskSubjects.length;
+  // Only failing subjects (< 70) count toward post-adjustment overrides.
+  // BELOW_GENERAL subjects are informational — passing grades that sit below the student's
+  // own high average don't constitute a real academic risk.
+  const failingSubjectCount = riskSubjects.filter((s) => s.reason === "BELOW_THRESHOLD").length;
   const coveragePercentage = coverageSummary?.coveragePercentage ?? 100;
   let riskLevel = requirementEngine.calculateRiskLevel({
     averageFromSubmittedApproved: avgGeneral,
     coveragePercentage,
   });
-  if (riskLevel !== "RED" && (riskScore >= 2 || trendDelta <= -10)) riskLevel = "RED";
-  if (riskLevel === "GREEN" && riskScore === 1) riskLevel = "YELLOW";
+  if (riskLevel !== "RED" && (failingSubjectCount >= 2 || trendDelta <= -10)) riskLevel = "RED";
+  if (riskLevel === "GREEN" && failingSubjectCount === 1) riskLevel = "YELLOW";
 
   const semesterMap = {};
   const evaluationTypeMap = {};
