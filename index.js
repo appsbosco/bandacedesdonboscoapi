@@ -310,6 +310,54 @@ async function initOnce() {
         }
       });
 
+      // GET /api/cron/attendance-reminders
+      // Invocado por Vercel Cron en slots UTC equivalentes a horario Costa Rica.
+      // Protegido con CRON_SECRET; user-agent de Vercel no se usa como autenticación.
+      app.get("/api/cron/attendance-reminders", async (req, res) => {
+        const secret = process.env.CRON_SECRET;
+        const authHeader = req.headers["authorization"] || "";
+        const dryRun = req.query.dry === "1";
+
+        if (!secret && !dryRun) {
+          console.error("[attendance-reminder] CRON_SECRET no configurado");
+          return res.status(500).json({ error: "CRON_SECRET no configurado" });
+        }
+
+        if (secret && authHeader !== `Bearer ${secret}`) {
+          console.warn("[attendance-reminder] Intento no autorizado rechazado");
+          return res.status(401).json({ error: "No autorizado" });
+        }
+
+        const reminderSlot =
+          typeof req.query.slot === "string" && req.query.slot.trim()
+            ? req.query.slot.trim()
+            : undefined;
+        const eventId =
+          typeof req.query.eventId === "string" && req.query.eventId.trim()
+            ? req.query.eventId.trim()
+            : undefined;
+
+        console.log(
+          `[attendance-reminder] Inicio dryRun=${dryRun} slot=${reminderSlot || "auto"}`,
+        );
+
+        try {
+          const {
+            sendAttendanceReminderNotificationsForToday,
+          } = require("./src/graphql/modules/attendance/services/attendanceReminder.service");
+          const result = await sendAttendanceReminderNotificationsForToday({
+            dryRun,
+            eventId,
+            reminderSlot,
+          });
+          console.log("[attendance-reminder] Completado", result);
+          return res.json({ ok: true, result });
+        } catch (err) {
+          console.error("[attendance-reminder] Error:", err.message);
+          return res.status(500).json({ ok: false, error: err.message });
+        }
+      });
+
       apollo = new ApolloServer({
         schema,
         typeDefs,

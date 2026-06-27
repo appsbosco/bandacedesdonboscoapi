@@ -15,6 +15,7 @@ const EVENTS = {
   EVENT_REMINDER: "EVENT_REMINDER",
   ABSENCE_PERMISSION_STATUS_CHANGED: "ABSENCE_PERMISSION_STATUS_CHANGED",
   BIRTHDAY_TODAY: "BIRTHDAY_TODAY",
+  ATTENDANCE_REHEARSAL_REMINDER: "ATTENDANCE_REHEARSAL_REMINDER",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -149,6 +150,24 @@ const TEMPLATES = {
       birthdayUserId: String(payload.birthdayUserId ?? ""),
       instrument: String(payload.instrument ?? ""),
       url: "/calendar",
+    },
+  }),
+
+  [EVENTS.ATTENDANCE_REHEARSAL_REMINDER]: (payload) => ({
+    title: "Recordatorio de asistencia",
+    body: "No se ha pasado lista para el ensayo de hoy. Por favor registra la asistencia.",
+    link: `${FRONTEND_URL}/attendance`,
+    data: {
+      kind: EVENTS.ATTENDANCE_REHEARSAL_REMINDER,
+      eventId: String(payload.eventId ?? ""),
+      eventTitle: String(payload.eventTitle ?? ""),
+      eventDate: String(payload.eventDate ?? ""),
+      eventTime: String(payload.eventTime ?? ""),
+      category: "rehearsal",
+      type: "attendance_reminder",
+      dateKey: String(payload.dateKey ?? ""),
+      reminderSlot: String(payload.reminderSlot ?? ""),
+      url: "/attendance",
     },
   }),
 };

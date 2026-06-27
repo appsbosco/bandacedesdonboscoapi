@@ -34,17 +34,18 @@ async function dispatch(eventName, payload = {}) {
 
     if (!uniqueTokens.length) {
       console.log(`[dispatcher] Sin tokens registrados para: "${eventName}"`);
-      return;
+      return { successCount: 0, failureCount: 0, invalidTokensRemoved: 0 };
     }
 
     const template = resolveTemplate(eventName, payload);
     logTokenDedupe(eventName, tokens, uniqueTokens);
-    await sendPushNotification(uniqueTokens, template);
+    return await sendPushNotification(uniqueTokens, template);
   } catch (err) {
     console.error(
       `[dispatcher] Error best-effort en "${eventName}":`,
       err.message,
     );
+    return { successCount: 0, failureCount: 0, invalidTokensRemoved: 0, error: err.message };
   }
 }
 
@@ -62,16 +63,17 @@ async function dispatchToTokens(eventName, tokens = [], payload = {}) {
 
     if (!uniqueTokens.length) {
       console.log(`[dispatcher] Sin tokens destino para: "${eventName}"`);
-      return;
+      return { successCount: 0, failureCount: 0, invalidTokensRemoved: 0 };
     }
     const template = resolveTemplate(eventName, payload);
     logTokenDedupe(eventName, tokens, uniqueTokens, "tokens específicos");
-    await sendPushNotification(uniqueTokens, template);
+    return await sendPushNotification(uniqueTokens, template);
   } catch (err) {
     console.error(
       `[dispatcher] Error best-effort en dispatchToTokens "${eventName}":`,
       err.message,
     );
+    return { successCount: 0, failureCount: 0, invalidTokensRemoved: 0, error: err.message };
   }
 }
 
